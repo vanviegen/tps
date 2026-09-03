@@ -1,0 +1,115 @@
+import A from 'aberdeen';
+
+/**
+ * Websocket connection to the TPS server. The server's state tree is mirrored
+ * into the reactive $state proxy (via patch messages), which the whole UI
+ * renders from. Commands go the other way and resolve with the reply.
+ */
+
+export const $state: any = A.proxy({ connected: false, ready: false, projects: {}, models: [], tools: [] });
+
+let ws: WebSocket | undefined;
+let nextId = 1;
+const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+const watchCounts = new Map<string, number>();
+const termHandlers = new Map<string, Set<(data: string, reset?: boolean) => void>>();
+
+function connect(): void {
+	ws = new WebSocket(`ws://${location.host}/ws`);
+	ws.onopen = () => {
+		for (const key of watchCounts.keys()) sendRaw({ watch: key, on: true });
+	};
+	ws.onmessage = e => {
+		const msg = JSON.parse(e.data);
+		if (msg.hello) {
+			for (const [key, value] of Object.entries(msg.hello)) $state[key] = value;
+			$state.connected = true;
+		} else if (msg.p) {
+			applyPatch(msg.p, msg.del ? undefined : msg.v);
+		} else if (msg.re !== undefined) {
+			const p = pending.get(msg.re);
+			pending.delete(msg.re);
+			if (msg.error) p?.reject(new Error(msg.error));
+			else p?.resolve(msg.result);
+		} else if (msg.t !== undefined) {
+			for (const handler of termHandlers.get(msg.t) ?? []) handler(msg.d, msg.reset);
+		}
+	};
+	ws.onclose = () => {
+		$state.connected = false;
+		for (const p of pending.values()) p.reject(new Error('Connection lost'));
+		pending.clear();
+		setTimeout(connect, 1000);
+	};
+	ws.onerror = () => ws?.close();
+}
+connect();
+
+function sendRaw(msg: object): void {
+	if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+function applyPatch(path: (string | number)[], value: unknown): void {
+	let obj = $state;
+	for (const key of path.slice(0, -1)) obj = obj[key] ??= {};
+	const last = path[path.length - 1];
+	if (value === undefined) delete obj[last];
+	else obj[last] = value;
+}
+
+function whenConnected(timeoutMs = 8000): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (ws?.readyState === WebSocket.OPEN) return resolve();
+		const start = Date.now();
+		const timer = setInterval(() => {
+			if (ws?.readyState === WebSocket.OPEN) {
+				clearInterval(timer);
+				resolve();
+			} else if (Date.now() - start > timeoutMs) {
+				clearInterval(timer);
+				reject(new Error('Not connected to the TPS server'));
+			}
+		}, 100);
+	});
+}
+
+export async function send(cmd: string, args?: object): Promise<any> {
+	await whenConnected();
+	return new Promise((resolve, reject) => {
+		const id = nextId++;
+		pending.set(id, { resolve, reject });
+		ws!.send(JSON.stringify({ id, cmd, args }));
+	});
+}
+
+/**
+ * Watch a task (for terminal streaming and to keep its workspace from idling
+ * out) for as long as the calling reactive scope lives.
+ */
+export function watchTask(pid: string, tid: string): void {
+	const key = `${pid}/${tid}`;
+	const count = watchCounts.get(key) ?? 0;
+	watchCounts.set(key, count + 1);
+	if (!count) sendRaw({ watch: key, on: true });
+	A.clean(() => {
+		const left = (watchCounts.get(key) ?? 1) - 1;
+		if (left) {
+			watchCounts.set(key, left);
+		} else {
+			watchCounts.delete(key);
+			sendRaw({ watch: key, on: false });
+		}
+	});
+}
+
+/** Subscribe to a task's terminal stream, for as long as the calling scope lives. */
+export function onTerm(pid: string, tid: string, handler: (data: string, reset?: boolean) => void): void {
+	const key = `${pid}/${tid}`;
+	let handlers = termHandlers.get(key);
+	if (!handlers) termHandlers.set(key, handlers = new Set());
+	handlers.add(handler);
+	A.clean(() => {
+		handlers.delete(handler);
+		if (!handlers.size) termHandlers.delete(key);
+	});
+}
