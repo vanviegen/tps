@@ -1,13 +1,8 @@
 # TPS
 
-A kanban-style manager for AI coding agents. Each task lives on its own git
-branch, gets a disposable dev container (podman) with VS Code in the browser,
-and is implemented and optionally reviewed by the `claude` CLI. You plan,
-review and merge from a live web dashboard.
-
-All state lives in git: TPS keeps no database. Task metadata sits in `.tps/`
-files on the task's branch, so everything survives restarts, travels with the
-repo, and can be inspected with plain git.
+A kanban-style manager for AI coding agents. Each task works in its own clone
+of your repository, inside a disposable podman dev container, driven by the
+`claude` CLI through a chat you watch and steer from a live web dashboard.
 
 ## Requirements
 
@@ -24,61 +19,53 @@ npm start         # http://localhost:4820/ (localhost-only, no login)
 ```
 
 Add a project (any local git repository) from the dashboard. If it doesn't
-have a `.tps/Containerfile` yet, TPS generates one, Debian based with
+have a `Containerfile.dev` yet, TPS generates one, Debian based with
 code-server and claude-code, lets you pick extra toolchains (preselected by
 looking at the repo), and commits it. The boilerplate layers are identical
 across projects, so podman shares them.
 
 ## How a task flows
 
-Every project gets a board with four columns:
+Every project gets a board with four columns. The sidebar lists the projects
+(with a count of the tasks sitting in Human) and their tasks; under each task
+sit its three pages: Agent (the chat), Code (VS Code in the container) and
+Settings (how the run is doing, the merge button, and the settings below).
 
-1. **Plan**: A new task is a branch (`tps/<id>`) on the default branch's
-   current tip, with the description in `.tps/TASK.md` and all task settings
-   in `.tps/state.json`. "Refine plan" lets claude iterate on TASK.md with
-   you.
-2. **Implement**: The branch is rebased onto the latest default branch first
-   (skipped when that would conflict). The implementer agent works in small
-   commits whose messages explain the changes; if a review model is set, a
-   reviewer agent then checks the work and files findings as `##` sections in
-   `.tps/REVIEW.md` (small fixes it just makes itself). Findings send the
-   implementer back in, up to the task's *Maximum automatic review cycles*
-   (default 1); it resolves each item in its own commit, removing the section
-   as it goes. A clean review finishes the phase.
-3. **Review**: Your turn: VS Code opens `.tps/REVIEW.md` for your notes. Move
-   the task back to Implement to have them addressed, or to Done to merge.
-   With *Skip human review* enabled this phase is skipped entirely.
-4. **Done**: The work is squashed into one commit (task title plus the list
-   of change descriptions, `.tps/` stripped apart from the Containerfile),
-   rebased onto the default branch and fast-forwarded. On conflicts, claude
-   gets a container on a temporary branch to resolve the rebase. The task
-   branch is kept.
+1. **Plan**: A title, a markdown description, and settings (model,
+   dependencies, budget, merge behaviour). Nothing exists on disk yet. Once
+   the task leaves this column the title and description are fixed; the other
+   settings stay tweakable.
+2. **Agent**: Assigning the task creates a clone of the repository (hardlinked
+   objects, so nearly free), spins up the container, and hands the description
+   to claude. A task that depends on other tasks waits in this column first,
+   and starts once each of them is merged or deleted; the clone is made at
+   that moment, so it includes their merged work. The chat shows what it is doing, tool call by tool call; type to
+   steer it mid-run or to send follow-ups. The agent can also edit
+   `Containerfile.dev` and ask for a rebuild, continuing in the new container.
+3. **Human**: Claude's turn ended, or you pressed stop, or you assigned the
+   task to yourself. Chat to send the agent back in, open VS Code (running in
+   the container) to work yourself, or merge.
+4. **Merge**: The working tree becomes a single commit on the default branch.
+   The agent proposes the commit message when it reports the task ready; with
+   *Merge without confirmation* (a project setting each task can override)
+   that merge happens by itself, otherwise you confirm the message first.
 
-Tasks can depend on other tasks, and optionally start implementing themselves
-once all dependencies are done; together with *Skip human review* that gives
-a fully unsupervised pipeline. Agent instructions live in one workflow
-document (`server/prompts.ts`) handed to every run as its system prompt,
-along with its role: implementer, reviewer or planner.
-
-Workspaces (worktree + container) exist only while needed. On shutdown,
-uncommitted work is saved in a clearly marked tmp commit that is soft-reset on
-the next start; idle workspaces are torn down after 15 minutes. Editing the
-Containerfile mid-implementation recreates the container and resumes the
-session, which survives because claude's state lives in `.tps/claude/` inside
-the worktree. Containers get `PORT=8080` published on a random localhost
-port; while something answers HTTP there, the task shows a green globe that
-opens it.
+If the default branch moved since the clone was made, the work is rebased onto
+it during the merge. Conflicts are handed to a fresh agent that resolves the
+rebase (guided by the commit messages on both sides) and reports ready again.
+Moving a task back to Plan discards all of its work, after a confirmation.
 
 ## Notes
 
-- Task worktrees are local clones (hardlinked objects) under
-  `~/.local/share/tps/`, so git works inside the container without exposing
-  the real repository; every TPS commit is pushed straight back to the
-  project repo.
-- Container builds use the worktree as their only build context, and code
-  runs as an unprivileged user in a rootless container.
-- Creating a task requires a clean project worktree, since the task branches
-  off the committed tip.
-- The registered project list is the one bit of state outside git:
-  `~/.config/tps/projects.json`.
+- Task state (title, description, phase) lives in `~/.config/tps/`, the
+  workspaces (repo clone, claude session state, chat log) under
+  `~/.local/share/tps/`; there is no database and your repository only ever
+  receives the final merge commit.
+- Containers get `PORT=8080` published on a random localhost port; while
+  something answers HTTP there, the task shows a green globe that opens it.
+- Each task tracks what its agent runs cost; an optional budget limit parks
+  the task for you when spending reaches it.
+- Container builds use the task's clone as their only build context, and code
+  runs as an unprivileged user in a rootless container. Idle containers are
+  torn down after 15 minutes; workspaces persist until the task is deleted.
 - `npm run watch` + `npm run dev` for hacking on TPS itself.

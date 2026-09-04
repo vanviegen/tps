@@ -1,187 +1,251 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { circleStop, settings, sparkles } from 'staffa/icons.js';
-import { deleteTask } from './board.ts';
+import { bot, circleStop, gitMerge, sendHorizontal, user, x } from 'staffa/icons.js';
+import { deleteTask, moveTask } from './board.ts';
+import { drawChat } from './chat.ts';
 import { $state, watchTask } from './conn.ts';
-import { drawTerminal } from './term.ts';
-import { cmd, drawLiveLink, PHASE_LABELS, PHASES, taskActivity } from './util.ts';
+import { cmd, costText, debounce, ELLIPSIS, PHASE_LABELS, taskActivity, taskName, tidOrder, type Phase } from './util.ts';
 
 type TaskPanel = S.Panel<{ pid: string; tid: string }>;
 
 /**
- * The task page: VS Code taking all the space it can get, with a narrow agent
- * column beside it: one compact control line, then the live terminal.
+ * One page of a task, picked in the nav: the agent chat, VS Code, or the
+ * settings. In the plan phase there is only the settings page, which then
+ * also holds the title and description.
  */
-export function drawTask($panel: TaskPanel): void {
+export function drawTask($panel: TaskPanel, page: 'agent' | 'code' | 'settings' = 'agent'): void {
 	const { pid, tid } = $panel.params;
-	$panel.maxWidth = 'none';
 	watchTask(pid, tid);
-	void cmd('openTask', { pid, tid });
-	A('p:$2');
+	$panel.maxWidth = page === 'code' ? 'none' : 'medium';
 	A(() => {
+		$panel.loading = !$state.ready;
 		const $t = $state.projects[pid]?.tasks?.[tid];
 		if (!$t) {
 			if ($state.ready) S.box({ header: 'Task not found', content: 'This task does not exist (anymore).' });
 			return;
 		}
-		A(() => { $panel.title = $t.title; });
-		A('div.tps-task', () => {
-			A('div.tps-main-col', () => drawVscode(pid, tid, $t, $panel));
-			A('div.tps-agent-col.s-s.neutral', () => drawAgentColumn(pid, tid, $t));
+		A(() => { $panel.title = $t.title || 'New task'; });
+		A(() => { if ($t.phase !== 'plan') void cmd('openTask', { pid, tid }); });
+		A(() => {
+			if ($t.phase === 'plan') drawPlanSettings(pid, tid, $t, $panel);
+			else if (page === 'settings') drawRunSettings(pid, tid, $t);
+			else {
+				// The chat and VS Code fill the column instead of scrolling it.
+				A('display:flex flex-direction:column gap:$2');
+				if (page === 'code') drawCode(pid, tid, $t, $panel);
+				else drawAgent(pid, tid, $t, $panel);
+			}
 		});
 	});
 }
 
-function drawVscode(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
-	const $mode = A.derive(() => $t.status === 'up' ? 'up' : $t.status === 'error' ? 'error' : 'busy');
-	const $reviewing = A.derive(() => $t.phase === 'review');
+/** The chat, a strip for things worth knowing (or doing) right now, and the input. */
+function drawAgent(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
+	drawChat(pid, tid, $panel);
 	A(() => {
-		if ($mode.value === 'up') {
-			// The payload makes code-server open the file whose turn it is: the
-			// review notes during human review, the task description otherwise.
-			const file = $reviewing.value ? 'REVIEW.md' : 'TASK.md';
-			const payload = JSON.stringify([['openFile', `vscode-remote://${location.host}/work/.tps/${file}`]]);
-			const iframe = A('iframe.tps-vscode', { allow: 'clipboard-read; clipboard-write' },
-				'src=', `/code/${pid}/${tid}/?folder=/work&payload=${encodeURIComponent(payload)}`) as HTMLIFrameElement;
+		if ($t.phase !== 'human' || !$t.commitMessage) return;
+		A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
+			A('span flex:1 #✔ the agent reports this task ready to merge');
+			S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', click: () => mergeDialog(pid, tid, $t) });
+		});
+	});
+	A(() => {
+		if (!$t.waiting && !['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
+		const { text, color } = taskActivity(pid, $t);
+		A(`div.s-s.${color}.tonal p:$2 text=`, text);
+	});
+	drawInputBar(pid, tid, $t);
+}
+
+function drawInputBar(pid: string, tid: string, $t: any): void {
+	const $has = A.proxy({ text: false });
+	let area: HTMLTextAreaElement | undefined;
+	const sendMsg = () => {
+		const text = area?.value.trim();
+		if (!text) return;
+		area!.value = '';
+		area!.dispatchEvent(new Event('input')); // shrink it back down, and drop $has.text
+		void cmd('chat', { pid, tid, text });
+	};
+	A('div display:flex align-items:flex-end gap:$2', () => {
+		S.textarea({
+			placeholder: 'Message the agent…', attrs: 'flex:1', inputAttrs: 'max-height:40dvh overflow-y:auto',
+			input: (e: Event) => {
+				area = e.target as HTMLTextAreaElement;
+				$has.text = !!area.value.trim();
+			},
+		});
+		// One button beside the field: send while there is text, else stop while claude works.
+		A(() => {
+			if ($has.text) S.button({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', click: sendMsg });
+			else if ($t.working) S.button({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: '.danger',
+				click: () => void cmd('stopAgent', { pid, tid }) });
+		});
+	});
+}
+
+/** VS Code, served from the container. */
+function drawCode(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
+	A(() => {
+		if ($t.status === 'up') {
+			A('p:0'); // edge to edge
+			const iframe = A('iframe flex:1 w:100% border:0', { allow: 'clipboard-read; clipboard-write' },
+				'src=', `/code/${pid}/${tid}/?folder=/work`) as HTMLIFrameElement;
 			iframe.addEventListener('load', () => iframe.focus());
-			A(() => { // hand keyboard focus to the editor whenever the panel (re)appears
-				if ($panel.visible) setTimeout(() => iframe.focus(), 100);
-			});
-		} else if ($mode.value === 'error') {
-			S.box({ contentAttrs: 'display:flex flex-direction:column gap:$2 align-items:flex-start', content: () => {
-				A('p m:0 fg:$s-danger', () => A(`#Workspace error: ${$t.statusDetail || 'unknown'}`));
+			A(() => { if ($panel.visible) setTimeout(() => iframe.focus(), 100); });
+		} else if ($t.status === 'error') {
+			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
+				A('p fg:$s-danger text=', `Workspace error: ${$t.statusDetail || 'unknown'}`);
 				S.button({ content: 'Retry', click: () => void cmd('openTask', { pid, tid }) });
 			}});
 		} else {
-			// An open task always has its workspace loading or loaded.
-			A(() => { if ($t.status === 'down') void cmd('openTask', { pid, tid }); });
-			S.box({ contentAttrs: 'display:flex flex-direction:column gap:$2', content: () => {
-				A('p m:0', () => A(`#${$t.statusDetail || $t.status}…`));
+			S.box({ contentAttrs: 'display:flex flex-direction:column', content: () => {
+				A('p text=', `${$t.statusDetail || $t.status}…`);
 				A('progress w:100%');
-				A('p fg:$s-muted font-size:0.85em m:0 #The first start builds the container image, which can take a few minutes. Progress shows in the terminal on the right.');
 			}});
 		}
 	});
 }
 
-function drawAgentColumn(pid: string, tid: string, $t: any): void {
-	A('div.tps-agent-head', () => {
-		A('div.tps-state', () => {
-			const activity = taskActivity($t);
-			A('span.tps-dot', `bg:$s-${activity.color}`);
-			A(`span fg:$s-${activity.color} text=`, activity.text);
-			drawLiveLink($t);
-		});
-		S.select({
-			attrs: 'flex-shrink:0',
-			options: PHASES.map(phase => ({ value: phase, label: PHASE_LABELS[phase] })),
-			bind: {
-				get value() { return $t.phase; },
-				set value(phase: string) {
-					if (phase && phase !== A.peek($t, 'phase')) void cmd('moveTask', { pid, tid, phase });
-				},
-			},
-		});
-		A(() => {
-			if ($t.agent !== 'idle') {
-				S.iconButton({ icon: circleStop, ariaLabel: 'Stop agent', attrs: '.small fg:$s-danger',
-					click: () => void cmd('stopAgent', { pid, tid }) });
-			}
-		});
-		S.iconButton({ icon: settings, ariaLabel: 'Task settings', attrs: '.small',
-			click: () => settingsDialog(pid, tid, $t) });
+/** Plan phase: one box holding the whole task, with the assign buttons below it. */
+function drawPlanSettings(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
+	const $draft = A.proxy({ title: (A.peek($t, 'title') ?? '') as string, description: (A.peek($t, 'description') ?? '') as string });
+	/** The edits not yet on the server. An empty title is never sent. */
+	const changes = () => {
+		const partial: Record<string, string> = {};
+		const title = $draft.title.trim();
+		if (title && title !== A.peek($t, 'title')) partial.title = title;
+		if ($draft.description !== (A.peek($t, 'description') ?? '')) partial.description = $draft.description;
+		return partial;
+	};
+	const save = debounce(600, () => {
+		const partial = changes();
+		if (Object.keys(partial).length) void cmd('updateTask', { pid, tid, ...partial });
 	});
-	drawTerminal(pid, tid);
+	// Push unsaved edits before assigning, so the agent sees the final text; then move on to the chat.
+	const assign = async (to: string) => {
+		const partial = changes();
+		if (Object.keys(partial).length && !await cmd('updateTask', { pid, tid, ...partial })) return;
+		if (await cmd('assignTask', { pid, tid, to })) void $panel.open(`/p/${pid}/t/${tid}/agent`, 'replace');
+	};
+	S.box({
+		header: 'Task',
+		contentAttrs: 'display:flex flex-direction:column',
+		content: () => {
+			S.textline({ label: 'Title', required: true, bind: A.ref($draft, 'title'), input: save });
+			S.textarea({ label: 'Description', inputAttrs: 'min-height:12rem', bind: A.ref($draft, 'description'), input: save });
+			drawSettingsFields(pid, tid, $t);
+		},
+		footer: () => {
+			S.button({ content: 'Delete task', attrs: '.danger .outlined .small mr:auto', click: () => void deleteTask(pid, tid, $t) });
+			A(() => {
+				const disabled = !$draft.title.trim();
+				S.button({ content: 'Assign to human', icon: user, attrs: '.neutral', disabled, click: () => void assign('human') });
+				S.button({ content: 'Assign to agent', icon: bot, disabled, click: () => void assign('agent') });
+			});
+		},
+	});
 }
 
-function settingsDialog(pid: string, tid: string, $t: any): void {
-	const models = () => ['none', ...$state.models];
-	void S.dialog({ header: 'Task settings', content: () => {
-		A('display:flex flex-direction:column gap:$3');
-		S.select({
-			label: 'Implementation model', options: models,
-			help: "With 'none', you implement the task yourself in VS Code.",
-			bind: {
-				get value() { return $t.implementModel ?? 'sonnet'; },
-				set value(implementModel: string) { if (implementModel) void cmd('setTaskConfig', { pid, tid, implementModel }); },
-			},
+/** Later phases: a box on how the run is doing, then the still tweakable settings. */
+function drawRunSettings(pid: string, tid: string, $t: any): void {
+	A(() => {
+		S.box({
+			header: 'Execution',
+			content: () => A('table', () => {
+				const row = (k: string, v: string, attrs = '') => A('tr', () => { A('th text=', k); A(`td ${attrs} text=`, v); });
+				row('Phase', `${PHASE_LABELS[$t.phase as Phase]}${$t.working ? ', claude is working' : ''}`);
+				row('Workspace', taskActivity(pid, $t).text);
+				row('Spent', costText($t) ?? 'nothing yet');
+				if ($t.commitMessage) row('Proposed commit', $t.commitMessage, 'white-space:pre-wrap');
+			}),
+			footer: $t.phase === 'merge' ? undefined : () =>
+				S.button({ content: 'Merge…', icon: gitMerge, attrs: $t.commitMessage ? '.small' : '.small .outlined',
+					click: () => mergeDialog(pid, tid, $t) }),
 		});
-		S.select({
-			label: 'Review model', options: models,
-			help: "Reviews as part of the Implement phase, into .tps/REVIEW.md. With 'none', reviewing is all yours.",
-			bind: {
-				get value() { return $t.reviewModel ?? 'none'; },
-				set value(reviewModel: string) { if (reviewModel) void cmd('setTaskConfig', { pid, tid, reviewModel }); },
-			},
-		});
-		let cyclesTimer: ReturnType<typeof setTimeout>;
-		S.textline({
-			label: 'Maximum automatic review cycles', type: 'number',
-			help: 'How often reviewer feedback may trigger another implementer run before the task goes to human review.',
-			value: String(A.peek($t, 'maxReviewCycles') ?? 1),
-			input: e => {
-				const maxReviewCycles = Math.max(0, parseInt((e.target as HTMLInputElement).value) || 0);
-				clearTimeout(cyclesTimer);
-				cyclesTimer = setTimeout(() => {
-					if (maxReviewCycles !== A.peek($t, 'maxReviewCycles')) void cmd('setTaskConfig', { pid, tid, maxReviewCycles });
-				}, 600);
-			},
-		});
-		S.checkbox({
-			label: 'Skip human review',
-			help: 'Merge to done automatically once implementation (and agent review, if any) is finished.',
-			checked: !!A.peek($t, 'skipHumanReview'),
-			change: e => void cmd('setTaskConfig', { pid, tid, skipHumanReview: (e.target as HTMLInputElement).checked }),
-		});
-		drawDependencies(pid, tid, $t);
-		A('hr border:0 border-top: 1px solid $s-faint; w:100% m:0');
-		A('div display:flex gap:$2', () => {
-			A(() => {
-				if ($t.phase === 'plan' && $t.agent === 'idle' && $t.implementModel !== 'none') {
-					S.button({ content: 'Refine plan', icon: sparkles, attrs: '.small',
-						click: () => void cmd('runPlanAgent', { pid, tid }) });
-				}
-			});
+	});
+	S.box({
+		header: 'Settings',
+		contentAttrs: 'display:flex flex-direction:column',
+		content: () => {
+			drawSettingsFields(pid, tid, $t);
+			A('small #The title and description are fixed once the conversation has started; discarding to Plan makes them editable again.');
+		},
+		footer: () => {
 			S.button({ content: 'Delete task', attrs: '.danger .outlined .small', click: () => void deleteTask(pid, tid, $t) });
+			S.button({ content: 'Discard to plan', attrs: '.danger .outlined .small', click: () => void moveTask(pid, tid, $t, 'plan') });
+		},
+	});
+}
+
+/** Model, dependencies, budget and merge behaviour: tweakable in every phase. */
+function drawSettingsFields(pid: string, tid: string, $t: any): void {
+	S.select({
+		label: 'Model', options: () => $state.models,
+		bind: {
+			get value() { return $t.model ?? 'sonnet'; },
+			set value(model: string) { if (model) void cmd('updateTask', { pid, tid, model }); },
+		},
+	});
+	// Laid out like a staffa field, as the list of dependencies is not a control of its own.
+	A('div.s-field', () => {
+		A('label #Dependencies');
+		A(() => {
+			const deps: string[] = $t.dependencies ?? [];
+			const $tasks = $state.projects[pid]?.tasks ?? {};
+			for (const d of deps) {
+				const $dep = $tasks[d];
+				const done = !$dep || $dep.phase === 'merge';
+				A('div display:flex align-items:center gap:$1', () => {
+					A(`span flex:1 ${ELLIPSIS} ${done ? 'fg:$s-muted' : ''} text=`, taskName(pid, d) + (done ? ' ✔' : ''));
+					S.iconButton({ icon: x, ariaLabel: 'Remove dependency', attrs: '.small',
+						click: () => void cmd('updateTask', { pid, tid, dependencies: deps.filter(o => o !== d) }) });
+				});
+			}
+			const options = Object.keys($tasks)
+				.filter(o => o !== tid && !deps.includes(o) && $tasks[o].phase !== 'merge')
+				.sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
+				.map(o => ({ value: o, label: taskName(pid, o) }));
+			if (options.length) S.select({
+				placeholder: 'Add a task this one depends on…', options,
+				bind: {
+					get value() { return ''; },
+					set value(d: string) { if (d) void cmd('updateTask', { pid, tid, dependencies: [...deps, d] }); },
+				},
+			});
+			else if (!deps.length) A('div.s-help #No other open tasks in this project.');
+		});
+		A('div.s-help #The agent only starts once each of these is merged or deleted; the workspace then includes their work.');
+	});
+	S.textline({
+		label: 'Budget limit (USD)', type: 'number',
+		help: 'The task is parked for you when spending reaches the limit; empty means no limit.',
+		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
+		input: debounce(600, (e: Event) =>
+			void cmd('updateTask', { pid, tid, budget: (e.target as HTMLInputElement).value })),
+	});
+	S.checkbox({
+		label: 'Merge when ready',
+		help: 'Merge as soon as the agent reports the task ready, without confirming the commit message. Defaults to the project setting.',
+		checked: A.peek($t, 'autoMerge') ?? !!A.peek(() => $state.projects[pid]?.autoMerge),
+		change: (e: Event) => void cmd('updateTask', { pid, tid, autoMerge: (e.target as HTMLInputElement).checked }),
+	});
+}
+
+/** The proposed commit message plus the button that actually merges. */
+function mergeDialog(pid: string, tid: string, $t: any): void {
+	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string });
+	void S.dialog({ header: 'Merge this task', attrs: 'w:44rem', content: close => {
+		S.form({
+			submit: () => {
+				close();
+				void cmd('mergeTask', { pid, tid, message: $merge.message });
+			},
+			content: () => S.textarea({
+				label: 'Commit message', help: 'The whole working tree becomes one commit on the main branch.',
+				rows: 12, autoGrow: false, inputAttrs: 'font-family:monospace', bind: A.ref($merge, 'message'),
+			}),
+			actions: () => S.button({ content: 'Merge', icon: gitMerge, type: 'submit' }),
 		});
 	}});
-}
-
-function drawDependencies(pid: string, tid: string, $t: any): void {
-	const $p = $state.projects[pid];
-	const deps = (): string[] => ($t.dependencies ?? []) as string[];
-	const depTitle = (ref: string) => $p?.tasks?.[ref.replace(/^tps\//, '')]?.title ?? ref;
-	A('div display:flex flex-direction:column gap:$1', () => {
-		S.select({
-			label: 'Dependencies', placeholder: 'Add dependency…',
-			help: 'Tasks that must reach Done before this one starts.',
-			options: () => Object.keys($p?.tasks ?? {})
-				.filter(other => other !== tid && !deps().includes('tps/' + other))
-				.map(other => ({ value: 'tps/' + other, label: $p.tasks[other].title })),
-			bind: {
-				get value() { return ''; },
-				set value(ref: string) {
-					if (ref) void cmd('setTaskConfig', { pid, tid, dependencies: [...deps(), ref] });
-				},
-			},
-		});
-		A(() => {
-			if (!deps().length) return;
-			A('div display:flex flex-wrap:wrap gap:$1', () => {
-				for (const ref of deps()) {
-					A('span.tps-chip', () => {
-						A('span text=', depTitle(ref));
-						A('button.tps-chip-x title=Remove #×', 'click=', () =>
-							void cmd('setTaskConfig', { pid, tid, dependencies: deps().filter(d => d !== ref) }));
-					});
-				}
-			});
-		});
-		S.checkbox({
-			label: 'Start implementation when dependencies are done',
-			help: 'Combined with "Skip human review" this makes a fully unsupervised chain.',
-			checked: !!A.peek($t, 'startWhenDepsDone'),
-			change: e => void cmd('setTaskConfig', { pid, tid, startWhenDepsDone: (e.target as HTMLInputElement).checked }),
-		});
-	});
 }

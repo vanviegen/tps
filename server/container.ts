@@ -53,8 +53,8 @@ async function ensureSharedVscodeDir(): Promise<string> {
 /**
  * Podman wrapper. Images are tagged by content hash of their Containerfile, so
  * identical Containerfiles (across tasks and projects) share one image and a
- * change triggers a rebuild exactly when needed. Builds get the task worktree
- * as their only context, so they cannot pull in files from elsewhere on disk.
+ * change triggers a rebuild exactly when needed. Builds get the task's repo
+ * clone as their only context, so they cannot pull in files from elsewhere.
  */
 
 export function imageTag(containerfile: string): string {
@@ -74,7 +74,7 @@ export async function buildImage(tag: string, containerfile: string, contextDir:
 	try {
 		await new Promise<void>((resolve, reject) => {
 			const child = spawn('podman', ['build', '-t', tag, '-f', file, contextDir], { stdio: ['ignore', 'pipe', 'pipe'] });
-			const fwd = (d: Buffer) => onLog(d.toString().replace(/\n/g, '\r\n'));
+			const fwd = (d: Buffer) => onLog(d.toString());
 			child.stdout.on('data', fwd);
 			child.stderr.on('data', fwd);
 			child.on('error', reject);
@@ -104,16 +104,17 @@ export class Container {
 
 	/**
 	 * Make sure a container by this name, based on this image, is running with
-	 * the worktree mounted at /work. Reuses a running match; otherwise replaces.
+	 * the task's repo clone mounted at /work and its claude state dir at
+	 * /claude. Reuses a running match; otherwise replaces.
 	 */
-	static async ensure(opts: { name: string; image: string; worktree: string }): Promise<Container> {
+	static async ensure(opts: { name: string; image: string; repoDir: string; claudeDir: string }): Promise<Container> {
 		const { name, image } = opts;
 		const inspect = await run(
 			['podman', 'inspect', '--format', '{{index .Config.Labels "tps.config"}}\t{{.State.Running}}', name],
 			{ check: false });
 		// Bump the version when the run command/args below change, so existing
 		// containers are recycled instead of reused.
-		const config = JSON.stringify([5, image]);
+		const config = JSON.stringify([6, image]);
 		if (inspect.code === 0) {
 			const [label, running] = inspect.out.trim().split('\t');
 			if (label === config && running === 'true') {
@@ -126,11 +127,12 @@ export class Container {
 		const args = [
 			'run', '-d', '--init', '--name', name, '--label', 'tps.config=' + config,
 			'--userns=keep-id:uid=1000,gid=1000', '--user', '1000:1000',
-			// SELinux separation is off so the worktree stays usable without
+			// SELinux separation is off so the mounts stay usable without
 			// relabeling the user's real files.
 			'--security-opt', 'label=disable',
-			'-v', `${opts.worktree}:/work`,
-			'-e', 'CLAUDE_CONFIG_DIR=/work/.tps/claude',
+			'-v', `${opts.repoDir}:/work`,
+			'-v', `${opts.claudeDir}:/claude`,
+			'-e', 'CLAUDE_CONFIG_DIR=/claude',
 			'-e', `PORT=${APP_PORT}`,
 			'-p', `127.0.0.1::${CODE_PORT}`,
 			'-p', `127.0.0.1::${APP_PORT}`,
@@ -173,19 +175,9 @@ export class Container {
 		throw new Error(`code-server in ${this.name} did not come up`);
 	}
 
-	/**
-	 * Run a bash script in the container. With `tty`, output arrives as a raw
-	 * terminal stream (colors and all), suitable for xterm rendering.
-	 */
-	exec(script: string, opts: { tty?: boolean; env?: Record<string, string>; onData?: (data: string) => void } = {}): ExecHandle {
-		const args = ['exec'];
-		if (opts.tty) args.push('-t');
-		for (const [k, v] of Object.entries(opts.env || {})) args.push('-e', `${k}=${v}`);
-		args.push(this.name, 'bash', '-lc', script);
-		const child = spawn('podman', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-		const fwd = (d: Buffer) => opts.onData?.(d.toString());
-		child.stdout!.on('data', fwd);
-		child.stderr!.on('data', fwd);
+	/** Run a bash script in the container. */
+	exec(script: string): ExecHandle {
+		const child = spawn('podman', ['exec', this.name, 'bash', '-lc', script], { stdio: 'ignore' });
 		const done = new Promise<number>((resolve, reject) => {
 			child.on('error', reject);
 			child.on('close', code => resolve(code ?? -1));

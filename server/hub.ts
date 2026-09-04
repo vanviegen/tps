@@ -5,8 +5,8 @@ import { log } from './util.ts';
 
 /**
  * Live state hub: keeps the state tree all clients mirror, broadcasts changes
- * as path patches, dispatches client commands, and fans out terminal streams
- * (with scrollback) to whoever is watching a task.
+ * as path patches, dispatches client commands, and fans out task chat logs
+ * (with recent history) to whoever is watching a task.
  */
 
 type CmdHandler = (args: any) => Promise<unknown> | unknown;
@@ -16,7 +16,7 @@ interface Client {
 	watches: Set<string>;
 }
 
-const TERM_SCROLLBACK = 200_000;
+const CHAT_KEEP = 500; // entries held in memory (and replayed to watchers) per task
 
 export class Hub {
 	state: any = { projects: {}, models: ['sonnet', 'opus', 'haiku'] };
@@ -26,7 +26,7 @@ export class Hub {
 
 	private wss = new WebSocketServer({ noServer: true });
 	private clients = new Set<Client>();
-	private terms = new Map<string, string>();
+	private chats = new Map<string, unknown[]>();
 
 	constructor() {
 		this.wss.on('connection', ws => this.onConnection(ws));
@@ -61,14 +61,33 @@ export class Hub {
 		return obj;
 	}
 
-	/** Append terminal output for a task and stream it to its watchers. */
-	term(key: string, data: string): void {
-		if (!data) return;
-		let buf = (this.terms.get(key) || '') + data;
-		if (buf.length > TERM_SCROLLBACK) buf = buf.slice(-TERM_SCROLLBACK);
-		this.terms.set(key, buf);
+	/** Append a chat entry for a task and stream it to its watchers. */
+	chat(key: string, entry: unknown): void {
+		let log = this.chats.get(key);
+		if (!log) this.chats.set(key, log = []);
+		log.push(entry);
+		if (log.length > CHAT_KEEP) log.splice(0, log.length - CHAT_KEEP);
 		for (const client of this.clients) {
-			if (client.watches.has(key)) this.sendTo(client.ws, { t: key, d: data });
+			if (client.watches.has(key)) this.sendTo(client.ws, { c: key, e: entry });
+		}
+	}
+
+	/** Re-send a changed entry; it replaces the newest entry with the same id. */
+	chatUpdate(key: string, entry: { id?: string }): void {
+		const log = this.chats.get(key) ?? [];
+		const i = log.findLastIndex(e => (e as any).id === entry.id);
+		if (i >= 0) log[i] = entry;
+		else return this.chat(key, entry);
+		for (const client of this.clients) {
+			if (client.watches.has(key)) this.sendTo(client.ws, { c: key, e: entry, u: true });
+		}
+	}
+
+	/** Replace a task's chat log (initial load from disk, or a discard). */
+	setChat(key: string, entries: unknown[]): void {
+		this.chats.set(key, entries.slice(-CHAT_KEEP));
+		for (const client of this.clients) {
+			if (client.watches.has(key)) this.sendTo(client.ws, { c: key, es: this.chats.get(key) });
 		}
 	}
 
@@ -109,7 +128,7 @@ export class Hub {
 			} else if (typeof msg.watch === 'string') {
 				if (msg.on) {
 					client.watches.add(msg.watch);
-					this.sendTo(ws, { t: msg.watch, d: this.terms.get(msg.watch) || '', reset: true });
+					this.sendTo(ws, { c: msg.watch, es: this.chats.get(msg.watch) ?? [] });
 				} else {
 					client.watches.delete(msg.watch);
 				}

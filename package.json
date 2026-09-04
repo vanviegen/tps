@@ -12,15 +12,14 @@
   },
   "scripts": {
     "start": "node server/main.ts",
-    "build": "esbuild web/main.ts --bundle --format=esm --outdir=web/dist --entry-names=app --sourcemap",
-    "watch": "esbuild web/main.ts --bundle --format=esm --outdir=web/dist --entry-names=app --sourcemap --watch",
+    "build": "rm -rf web/dist && esbuild web/main.ts --bundle --format=esm --splitting --minify --sourcemap --outdir=web/dist --entry-names=app",
+    "watch": "npm run build -- --watch",
     "typecheck": "tsc -p server && tsc -p web",
     "dev": "npm run build && node --watch-path=server server/main.ts"
   },
   "dependencies": {
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
     "aberdeen": "^1.23.0",
+    "marked": "^18.0.11",
     "staffa": "^0.18.1",
     "ws": "^8.18.0"
   },

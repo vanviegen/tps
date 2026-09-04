@@ -12,7 +12,15 @@ let ws: WebSocket | undefined;
 let nextId = 1;
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 const watchCounts = new Map<string, number>();
-const termHandlers = new Map<string, Set<(data: string, reset?: boolean) => void>>();
+const chats = new Map<string, any[]>();
+
+/** A task's chat log as a reactive array, filled by the server while watching. */
+export function chatLog(pid: string, tid: string): any[] {
+	const key = `${pid}/${tid}`;
+	let $chat = chats.get(key);
+	if (!$chat) chats.set(key, $chat = A.proxy([] as any[]));
+	return $chat;
+}
 
 function connect(): void {
 	ws = new WebSocket(`ws://${location.host}/ws`);
@@ -31,8 +39,18 @@ function connect(): void {
 			pending.delete(msg.re);
 			if (msg.error) p?.reject(new Error(msg.error));
 			else p?.resolve(msg.result);
-		} else if (msg.t !== undefined) {
-			for (const handler of termHandlers.get(msg.t) ?? []) handler(msg.d, msg.reset);
+		} else if (msg.c !== undefined) {
+			const [pid, tid] = msg.c.split('/');
+			const $chat = chatLog(pid, tid);
+			if (msg.es) {
+				$chat.splice(0, $chat.length, ...msg.es);
+			} else if (msg.u) { // update: replace the newest entry with the same id
+				const i = $chat.findLastIndex(e => e.id === msg.e.id);
+				if (i >= 0) $chat[i] = msg.e;
+				else $chat.push(msg.e);
+			} else {
+				$chat.push(msg.e);
+			}
 		}
 	};
 	ws.onclose = () => {
@@ -83,8 +101,8 @@ export async function send(cmd: string, args?: object): Promise<any> {
 }
 
 /**
- * Watch a task (for terminal streaming and to keep its workspace from idling
- * out) for as long as the calling reactive scope lives.
+ * Watch a task (for chat streaming and to keep its workspace from idling out)
+ * for as long as the calling reactive scope lives.
  */
 export function watchTask(pid: string, tid: string): void {
 	const key = `${pid}/${tid}`;
@@ -99,17 +117,5 @@ export function watchTask(pid: string, tid: string): void {
 			watchCounts.delete(key);
 			sendRaw({ watch: key, on: false });
 		}
-	});
-}
-
-/** Subscribe to a task's terminal stream, for as long as the calling scope lives. */
-export function onTerm(pid: string, tid: string, handler: (data: string, reset?: boolean) => void): void {
-	const key = `${pid}/${tid}`;
-	let handlers = termHandlers.get(key);
-	if (!handlers) termHandlers.set(key, handlers = new Set());
-	handlers.add(handler);
-	A.clean(() => {
-		handlers.delete(handler);
-		if (!handlers.size) termHandlers.delete(key);
 	});
 }

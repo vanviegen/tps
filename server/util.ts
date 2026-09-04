@@ -34,6 +34,12 @@ export function run(argv: string[], opts: RunOpts = {}): Promise<RunResult> {
 	});
 }
 
+/** Run git in `dir`, returning trimmed stdout. */
+export async function git(dir: string, args: string[], opts: RunOpts = {}): Promise<string> {
+	const r = await run(['git', '-C', dir, ...args], opts);
+	return r.out.replace(/\n$/, '');
+}
+
 export function sha256(text: string): string {
 	return createHash('sha256').update(text).digest('hex');
 }
@@ -42,28 +48,6 @@ export function slugify(text: string): string {
 	return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'x';
 }
 
-/** Sortable-by-creation, url/branch-safe id. */
-export function newId(): string {
-	return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-}
-
 export function log(...args: unknown[]): void {
 	console.log(new Date().toISOString().slice(11, 19), ...args);
-}
-
-export class Debouncer {
-	private timer?: NodeJS.Timeout;
-	private ms: number;
-	private fn: () => void;
-	constructor(ms: number, fn: () => void) {
-		this.ms = ms;
-		this.fn = fn;
-	}
-	touch(): void {
-		clearTimeout(this.timer);
-		this.timer = setTimeout(this.fn, this.ms);
-	}
-	cancel(): void {
-		clearTimeout(this.timer);
-	}
 }

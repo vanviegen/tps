@@ -1,5 +1,5 @@
 /**
- * Generation of a project's initial .tps/Containerfile.
+ * Generation of a project's initial Containerfile.dev.
  *
  * The base layers are byte-identical for every project, in a fixed order, so
  * podman shares them across all TPS projects. Tool layers are appended in a
@@ -63,11 +63,12 @@ export function detectTools(rootFiles: string[]): string[] {
 export function generateContainerfile(toolIds: string[]): string {
 	const layers = TOOL_OPTIONS.filter(t => toolIds.includes(t.id))
 		.map(t => `# --- ${t.label} ---\n${t.layer}`).join('\n\n');
-	return `# TPS dev container for this project.
+	return `# TPS dev container for this project (Containerfile.dev).
 #
-# Built by TPS with the task worktree as the (only) build context; at runtime
-# the worktree is mounted at /work and TPS starts code-server on port 8080 and
-# runs the \`claude\` CLI in here, both as user \`dev\` (uid 1000).
+# Built by TPS with the task's repo clone as the (only) build context; at
+# runtime that clone is mounted at /work and TPS runs code-server and the
+# \`claude\` CLI in here, as user \`dev\` (uid 1000). Anything the task serves
+# should listen on $PORT.
 #
 # Feel free to edit, but keep the base block below byte-identical to other TPS
 # projects so podman can share those layers, and keep code-server, node and

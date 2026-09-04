@@ -30,15 +30,17 @@ const manager = new ProjectManager(hub);
 hub.cmds = {
 	addProject: ({ dir, name }) => manager.add(dir, name),
 	removeProject: ({ pid }) => manager.remove(pid),
+	setProject: ({ pid, ...config }) => manager.getProject(pid).setConfig(config),
 	createContainerfile: ({ pid, tools }) => manager.getProject(pid).createContainerfile(tools ?? []),
-	createTask: async ({ pid, title, description }) =>
-		({ tid: await manager.getProject(pid).createTask(title, description) }),
+	createTask: async ({ pid }) => ({ tid: await manager.getProject(pid).createTask() }),
+	updateTask: ({ pid, tid, ...partial }) => manager.getTask(pid, tid).update(partial),
 	openTask: ({ pid, tid }) => manager.getTask(pid, tid).open(),
+	assignTask: ({ pid, tid, to }) => manager.getTask(pid, tid).assign(to === 'human' ? 'human' : 'agent'),
+	chat: ({ pid, tid, text }) => manager.getTask(pid, tid).sendChat(String(text ?? '')),
+	stopAgent: ({ pid, tid }) => manager.getTask(pid, tid).stopAgent(),
+	mergeTask: ({ pid, tid, message }) => manager.getTask(pid, tid).merge(String(message ?? '')),
 	moveTask: ({ pid, tid, phase }) => manager.getTask(pid, tid).moveTo(phase),
 	deleteTask: ({ pid, tid }) => manager.getTask(pid, tid).delete(),
-	setTaskConfig: ({ pid, tid, ...config }) => manager.getTask(pid, tid).setConfig(config),
-	stopAgent: ({ pid, tid }) => manager.getTask(pid, tid).stopAgent(),
-	runPlanAgent: ({ pid, tid }) => manager.getTask(pid, tid).runPlanAgent(),
 };
 
 const MIME: Record<string, string> = {
@@ -65,7 +67,7 @@ function codeRoute(url: URL): { port?: number; path: string } | undefined {
 	if (!m) return undefined;
 	try {
 		const task = manager.getTask(m[1], m[2]);
-		return { port: task.branch.container?.codePort, path: (m[3] || '/') + url.search };
+		return { port: task.container?.codePort, path: (m[3] || '/') + url.search };
 	} catch {
 		return { path: '/' };
 	}
@@ -97,7 +99,7 @@ let shuttingDown = false;
 async function shutdown(): Promise<void> {
 	if (shuttingDown) process.exit(1);
 	shuttingDown = true;
-	log('Shutting down: committing and removing active workspaces…');
+	log('Shutting down: stopping active workspaces…');
 	setTimeout(() => { log('Shutdown timed out'); process.exit(1); }, 60_000).unref();
 	await manager.shutdown().catch(e => log('Shutdown error:', e));
 	process.exit(0);
