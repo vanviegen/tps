@@ -1,12 +1,12 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { bot, plus, settings, squareCode } from 'staffa/icons.js';
+import { bot, plus, server, settings, squareCode } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { drawLogDetail } from './chat.ts';
 import { $state } from './conn.ts';
-import { addProjectDialog, drawHome } from './home.ts';
+import { addProjectDialog, drawHome, hostsDialog } from './home.ts';
 import { drawTask } from './task.ts';
-import { drawLiveLink, ELLIPSIS, tidOrder } from './util.ts';
+import { cmd, drawLiveLink, ELLIPSIS, tidOrder } from './util.ts';
 
 S.setDarkMode(true);
 
@@ -24,6 +24,7 @@ function navItems(): S.MenuEntry[] {
 			href: `/p/${pid}`,
 			label: () => {
 				A(`span ${ELLIPSIS} text=`, A.ref($p, 'name'));
+				drawHostMark($p);
 				A(() => {
 					const waiting = (Object.values($p.tasks ?? {}) as any[]).filter($t => $t.phase === 'human').length;
 					if (waiting) A('span.s-s ml:auto font-size:0.75em ph:0.5em text=', String(waiting), () => {
@@ -35,8 +36,21 @@ function navItems(): S.MenuEntry[] {
 				.map(tid => taskItem(pid, tid, $p.tasks[tid])),
 		});
 	}
-	items.push({ separator: true }, { label: 'Add a project…', icon: plus, click: () => addProjectDialog() });
+	items.push({ separator: true },
+		{ label: 'Add a project…', icon: plus, click: () => addProjectDialog() },
+		{ label: 'Hosts…', icon: server, click: () => hostsDialog() });
 	return items;
+}
+
+/** The host a project lives on (when not this machine), and a warning while it is unreachable. */
+function drawHostMark($p: any): void {
+	A(() => {
+		const $h = $state.hosts?.[$p.host];
+		if ($p.host && $p.host !== 'local') A('small fg:$s-muted ml:$1 text=', $h?.dest ?? $p.host);
+		if ($h && $h.status !== 'connected') A('span fg:$s-danger ml:$1 #⚠', () => {
+			S.addTooltip({ tip: () => A('text=', `${$h.dest}: ${$h.status}${$h.error ? ' · ' + $h.error : ''}`) });
+		});
+	});
 }
 
 /**
@@ -81,6 +95,32 @@ S.main({
 
 A(() => {
 	if (!$state.connected) A.clean(S.toast({ message: 'Reconnecting to the TPS server…', type: 'danger', duration: 0, dismissible: false }));
+});
+
+// Questions from the server (SSH logins, host keys) show up as a dialog; the
+// answer goes back as a command, and the question disappears once handled.
+A(() => {
+	const ids = Object.keys($state.ask ?? {});
+	if (!ids.length) return;
+	const id = ids[0];
+	const ask = A.peek(() => ({ ...$state.ask[id] }));
+	const $form = A.proxy({ value: '' });
+	let answered = false;
+	const answer = (args: object) => {
+		if (answered) return;
+		answered = true;
+		void cmd('answer', { id: Number(id), ...args });
+	};
+	void S.dialog({ header: ask.title, content: () => {
+		S.form({
+			submit: () => answer({ value: $form.value }),
+			content: () => {
+				A('p white-space:pre-wrap text=', ask.text);
+				if (ask.kind !== 'confirm') S.textline({ type: ask.kind === 'password' ? 'password' : 'text', bind: A.ref($form, 'value') });
+			},
+			actions: () => S.button({ content: ask.kind === 'confirm' ? 'Connect' : 'OK', type: 'submit' }),
+		});
+	}}).then(() => answer({ cancel: true })); // closed without answering
 });
 
 // Keep the computer awake while any agent is working.

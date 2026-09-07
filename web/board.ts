@@ -19,8 +19,17 @@ export function drawBoard($panel: S.Panel<{ pid: string }>): void {
 		$panel.title = $p.name;
 		$panel.actions = () => S.iconButton({ icon: settings, ariaLabel: 'Project settings', attrs: '.small',
 			click: () => projectSettingsDialog(pid, $p) });
+		A(() => {
+			const $h = $state.hosts?.[$p.host];
+			if (!$h || $h.status === 'connected') return;
+			A('div.s-s.danger.tonal p:$2 display:flex align-items:center gap:$2', () => {
+				A('span flex:1 text=', `${$h.dest}: ${$h.status}${$h.error ? ' · ' + $h.error : ''}`);
+				S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid: $p.host }) });
+			});
+		});
 		if ($p.dirty) {
-			A('div.s-s.warning.tonal p:$2 rich=', `⚠ **Uncommitted changes** in \`${$p.dir}\`. Task workspaces clone the committed state only, and merging may be blocked.`);
+			const where = $p.host && $p.host !== 'local' ? ` on ${$state.hosts?.[$p.host]?.dest ?? $p.host}` : '';
+			A('div.s-s.warning.tonal p:$2 rich=', `⚠ **Uncommitted changes** in \`${$p.dir}\`${where}. Task workspaces clone the committed state only, and merging may be blocked.`);
 		}
 		if ($p.needsSetup) drawSetup(pid, $p);
 		else drawColumns(pid, $p, $panel);

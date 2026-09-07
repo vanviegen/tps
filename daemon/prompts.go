@@ -1,8 +1,12 @@
-/** The system prompt for every agent turn. */
+package daemon
 
-export const DONE_FILE = '.tps-agent-done';
+import "fmt"
 
-export const SYSTEM = `You are the coding agent of one task in TPS, a kanban manager for AI coding work.
+// DoneFile is written by the agent at the end of every turn; TPS consumes it.
+const DoneFile = ".tps-agent-done"
+
+// systemPrompt is appended to every agent turn.
+const systemPrompt = `You are the coding agent of one task in TPS, a kanban manager for AI coding work.
 
 Your cwd /work is a private clone of the project repository. Your output is shown to the
 user as the task's chat log, so keep your text brief and high-level: what you did, what
@@ -15,7 +19,7 @@ Rules:
 - If the task involves serving something, listen on $PORT; the user gets a live preview
   link while something answers there.
 
-End every turn by writing the file /work/${DONE_FILE} (TPS consumes it). Its first line
+End every turn by writing the file /work/` + DoneFile + ` (TPS consumes it). Its first line
 is a single word:
 - 'ready': the task is implemented and verified. The rest of the file is the proposed
   commit message: a summary line, a blank line, then a few concise lines of detail.
@@ -23,18 +27,18 @@ is a single word:
   chat output).
 - 'reload': you changed Containerfile.dev (e.g. to install a tool you are missing) and
   need the container rebuilt from it; the conversation continues automatically in the
-  new container.`;
+  new container.`
 
-export const RELOADED_PROMPT = 'Now running in the updated container. Please continue.';
+const reloadedPrompt = "Now running in the updated container. Please continue."
 
-export function initialPrompt(title: string, description: string): string {
-	return `Work on this task:\n\n# ${title}\n\n${description}`.trim();
+func initialPrompt(title, description string) string {
+	return "Work on this task:\n\n# " + title + "\n\n" + description
 }
 
-export function conflictPrompt(defaultBranch: string, message: string): string {
-	return `Merging this task hit conflicts. /work is now mid-rebase: the task's commit is being
-replayed onto the latest '${defaultBranch}', which received other changes since this task
-started. In the conflict markers, 'ours'/HEAD is the latest ${defaultBranch}; 'theirs' is
+func conflictPrompt(defaultBranch, message string) string {
+	return fmt.Sprintf(`Merging this task hit conflicts. /work is now mid-rebase: the task's commit is being
+replayed onto the latest '%[1]s', which received other changes since this task
+started. In the conflict markers, 'ours'/HEAD is the latest %[1]s; 'theirs' is
 this task's work. The commit messages on both sides (git log) explain the intent.
 
 Resolve every conflict so the result honors BOTH sides. Just for this job, the no-rebase
@@ -44,5 +48,5 @@ commits yourself. When the rebase has completed, verify the result still works, 
 your turn as usual: 'ready' with the commit message below (amend it only if the
 resolution changed what the task does).
 
-${message}`;
+%s`, defaultBranch, message)
 }

@@ -1,21 +1,13 @@
 {
   "name": "tps",
   "version": "0.1.0",
-  "description": "TPS — a kanban-style manager for AI coding agents working in podman dev containers",
+  "description": "TPS: a kanban-style manager for AI coding agents working in podman dev containers, local or over SSH",
   "type": "module",
   "license": "MIT",
-  "bin": {
-    "tps": "./server/main.ts"
-  },
-  "engines": {
-    "node": ">=23.6"
-  },
   "scripts": {
-    "start": "node server/main.ts",
     "build": "rm -rf web/dist && esbuild web/main.ts --bundle --format=esm --splitting --minify --sourcemap --outdir=web/dist --entry-names=app",
     "watch": "npm run build -- --watch",
-    "typecheck": "tsc -p server && tsc -p web",
-    "dev": "npm run build && node --watch-path=server server/main.ts"
+    "typecheck": "tsc -p web"
   },
   "dependencies": {
     "aberdeen": "^1.23.0",
