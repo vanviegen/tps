@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,10 +20,10 @@ import (
 	"github.com/vanviegen/agent-manager/hub"
 )
 
-// A Link is the UI's connection to one daemon. It mirrors the daemon's
-// projects into the UI state under composite ids (<hid>~<pid>), forwards
-// commands and watches the other way, and for remote hosts turns app ports
-// into local listeners so the browser can open them.
+// A Link is the dashboard's connection to one daemon. It mirrors the daemon's
+// projects that the dashboard lists into the state tree under their dashboard
+// ids, forwards commands and watches the other way, and for remote hosts
+// turns app ports into local listeners so the browser can open them.
 type Link struct {
 	ui     *UI
 	hid    string
@@ -35,13 +36,14 @@ type Link struct {
 	conn     net.Conn
 	w        *bufio.Writer
 	nextID   int
-	pending  map[int]chan reply
+	pending  map[int]replyFn
+	pids     map[string]string   // dashboard project id → the daemon's pid
 	watches  map[string]bool     // keys (pid/tid) watched at the daemon
 	forwards map[string]*forward // task key → local listener for its app port
 	wake     chan struct{}
-	first    chan error // outcome of the first connection attempt
 	closed   bool
 	stopped  bool // the user stopped the daemon: don't start it again until asked
+	adopt    bool // list every project the daemon has (importing a pre-dashboard setup)
 
 	// What the host shows: the connection state plus what the daemon reported.
 	status, errText string
@@ -50,10 +52,7 @@ type Link struct {
 	restarting      bool
 }
 
-type reply struct {
-	result json.RawMessage
-	err    string
-}
+type replyFn func(result json.RawMessage, err error)
 
 type forward struct {
 	remotePort, localPort int
@@ -69,7 +68,7 @@ type proxyTarget struct {
 
 func newLink(u *UI, hid, dest string, tr transport) *Link {
 	l := &Link{ui: u, hid: hid, dest: dest, remote: dest != "", tr: tr,
-		pending: map[int]chan reply{}, watches: map[string]bool{}, forwards: map[string]*forward{}, wake: make(chan struct{}, 1), first: make(chan error, 1)}
+		pending: map[int]replyFn{}, pids: map[string]string{}, watches: map[string]bool{}, forwards: map[string]*forward{}, wake: make(chan struct{}, 1)}
 	l.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			t := pr.In.Context().Value(proxyKey{}).(proxyTarget)
@@ -94,6 +93,14 @@ func newLink(u *UI, hid, dest string, tr transport) *Link {
 	return l
 }
 
+// name is the host as shown to the user: without the ssh options in front.
+func (l *Link) name() string {
+	if fields := strings.Fields(l.dest); len(fields) > 0 {
+		return fields[len(fields)-1]
+	}
+	return "this machine"
+}
+
 func (l *Link) setStatus(status, errText string) {
 	l.mu.Lock()
 	l.status, l.errText = status, errText
@@ -102,28 +109,18 @@ func (l *Link) setStatus(status, errText string) {
 }
 
 func (l *Link) publishHost() {
-	name, warning := "localhost", ""
-	if fields := strings.Fields(l.dest); len(fields) > 0 { // the host, without ssh options in front
-		name = fields[len(fields)-1]
-	}
+	warning := ""
 	if w, ok := l.tr.(interface{ Warning() string }); ok {
 		warning = w.Warning()
 	}
 	l.mu.Lock()
-	host := map[string]any{"dest": name, "status": l.status, "error": l.errText, "warning": warning}
+	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning}
 	if l.status == "connected" {
 		host["updatable"] = l.build != BuildID()
 		host["restarting"] = l.restarting
 	}
 	l.mu.Unlock()
 	l.ui.hub.Set([]string{"hosts", l.hid}, host)
-}
-
-func (l *Link) reportFirst(err error) {
-	select {
-	case l.first <- err:
-	default:
-	}
 }
 
 // close stops the link for good.
@@ -164,7 +161,6 @@ func (l *Link) run() {
 		if err != nil {
 			log.Printf("host %s: %v", l.hid, err)
 			l.setStatus("disconnected", err.Error())
-			l.reportFirst(err)
 			select {
 			case <-time.After(backoff):
 			case <-l.wake:
@@ -191,6 +187,27 @@ func (l *Link) Wake() {
 	}
 }
 
+// awaitConnection waits for the link to be connected, or for its current
+// attempt to have failed.
+func (l *Link) awaitConnection(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		l.mu.Lock()
+		status, errText := l.status, l.errText
+		l.mu.Unlock()
+		switch status {
+		case "connected":
+			return nil
+		case "disconnected", "incompatible":
+			if errText != "" {
+				return errors.New(errText)
+			}
+		}
+	}
+	return errors.New("connecting took too long")
+}
+
 func (l *Link) serve(conn net.Conn) {
 	l.mu.Lock()
 	l.conn, l.w = conn, bufio.NewWriter(conn)
@@ -203,16 +220,18 @@ func (l *Link) serve(conn net.Conn) {
 	conn.Close()
 	l.mu.Lock()
 	l.conn, l.w = nil, nil
-	for id, ch := range l.pending {
-		ch <- reply{err: "host disconnected"}
-		delete(l.pending, id)
-	}
+	pending := l.pending
+	l.pending = map[int]replyFn{}
+	l.pids = map[string]string{}
 	l.watches = map[string]bool{}
 	for key, f := range l.forwards {
 		f.ln.Close()
 		delete(l.forwards, key)
 	}
 	l.mu.Unlock()
+	for _, cb := range pending {
+		cb(nil, errors.New("host disconnected"))
+	}
 }
 
 type inbound struct {
@@ -243,56 +262,146 @@ func (l *Link) onMessage(raw []byte) {
 		l.onChat(*msg.C, msg)
 	case msg.Re != nil:
 		l.mu.Lock()
-		ch := l.pending[*msg.Re]
+		cb := l.pending[*msg.Re]
 		delete(l.pending, *msg.Re)
 		l.mu.Unlock()
-		if ch != nil {
-			ch <- reply{result: msg.Result, err: msg.Error}
+		if cb == nil {
+			return
+		}
+		if msg.Error != "" {
+			cb(nil, errors.New(msg.Error))
+		} else {
+			cb(msg.Result, nil)
 		}
 	}
 }
 
-func (l *Link) cpid(pid string) string { return l.hid + "~" + pid }
+// --- which daemon project is which dashboard project ---
 
-// onHello replaces this host's mirrored projects with the daemon's full state.
-func (l *Link) onHello(state map[string]any) {
-	projects, _ := state["projects"].(map[string]any)
-	prefix := l.hid + "~"
-	if mirrored, ok := l.ui.hub.Get("projects").(map[string]any); ok {
-		for cpid := range mirrored {
-			if pid, ok := strings.CutPrefix(cpid, prefix); ok && projects[pid] == nil {
-				l.ui.hub.Set([]string{"projects", cpid}, nil)
-			}
+func (l *Link) pidOf(id string) (string, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	pid, ok := l.pids[id]
+	return pid, ok
+}
+
+func (l *Link) idOf(pid string) string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for id, p := range l.pids {
+		if p == pid {
+			return id
 		}
 	}
+	return ""
+}
+
+// mount mirrors a daemon project as a listed one, from here on.
+func (l *Link) mount(id, pid string, project map[string]any) {
+	l.mu.Lock()
+	l.pids[id] = pid
+	l.mu.Unlock()
+	l.ui.hub.Set([]string{"projects", id}, l.translateProject(id, pid, project))
+	l.renewWatches()
+}
+
+func (l *Link) unmount(id string) (pid string, ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	pid, ok = l.pids[id]
+	delete(l.pids, id)
+	return pid, ok
+}
+
+// register has the daemon find or add a repository, and hands the reply to
+// cb from the message loop, so no patch for the project can slip by before.
+func (l *Link) register(dir string, cb func(pid, dir string, project map[string]any, err error)) {
+	l.call("addProject", map[string]any{"dir": dir}, func(res json.RawMessage, err error) {
+		var out struct {
+			Pid     string         `json:"pid"`
+			Dir     string         `json:"dir"`
+			Project map[string]any `json:"project"`
+		}
+		if err == nil {
+			err = json.Unmarshal(res, &out)
+		}
+		cb(out.Pid, out.Dir, out.Project, err)
+	})
+}
+
+// attach makes sure the daemon has a listed project, and mirrors it.
+func (l *Link) attach(e ProjectEntry) {
+	l.register(e.Dir, func(pid, dir string, project map[string]any, err error) {
+		if err != nil {
+			l.ui.hub.Set([]string{"projects", e.ID, "error"}, err.Error())
+			return
+		}
+		if dir != e.Dir {
+			l.ui.updateEntry(e.ID, func(e *ProjectEntry) { e.Dir = dir })
+		}
+		l.mount(e.ID, pid, project)
+	})
+}
+
+// Watches don't survive a reconnect at the daemon, and can't be placed before
+// a project is mounted; renew them from what the browsers watch.
+func (l *Link) renewWatches() {
+	for _, key := range l.ui.hub.WatchedKeys() {
+		id, tid, _ := strings.Cut(key, "/")
+		if pid, ok := l.pidOf(id); ok {
+			l.watch(pid+"/"+tid, true)
+		}
+	}
+}
+
+// onHello mirrors the listed projects from the daemon's full state, having
+// the daemon add those it does not have.
+func (l *Link) onHello(state map[string]any) {
 	l.mu.Lock()
 	l.build, _ = state["build"].(string)
 	proto, _ := state["protocol"].(float64)
 	l.protocol = int(proto)
 	l.restarting, _ = state["restarting"].(bool)
+	l.pids = map[string]string{}
+	adopt := l.adopt
+	l.adopt = false
 	l.mu.Unlock()
 	switch {
 	case l.protocol > hub.Protocol:
 		// Never touch a newer daemon; it is this TPS that needs updating.
 		l.setStatus("incompatible", "this host runs a newer TPS; update this one")
-		l.reportFirst(errors.New("the daemon on " + l.dest + " is newer than this TPS; update this one"))
 		return
 	case l.protocol < hub.MinProtocol:
 		l.setStatus("updating", "")
 		go l.upgrade()
 		return
 	}
+	projects, _ := state["projects"].(map[string]any)
+	byDir := map[string]string{}
 	for pid, v := range projects {
-		l.ui.hub.Set([]string{"projects", l.cpid(pid)}, l.translateProject(pid, v))
-	}
-	l.setStatus("connected", "")
-	l.reportFirst(nil)
-	// Watches don't survive a reconnect at the daemon; renew ours.
-	for _, key := range l.ui.hub.WatchedKeys() {
-		if rest, ok := strings.CutPrefix(key, prefix); ok {
-			l.watch(rest, true)
+		if m, ok := v.(map[string]any); ok {
+			dir, _ := m["dir"].(string)
+			byDir[dir] = pid
 		}
 	}
+	for _, e := range l.ui.entriesOn(l.dest, "") {
+		if pid, ok := byDir[e.Dir]; ok {
+			l.mount(e.ID, pid, projects[pid].(map[string]any))
+			delete(byDir, e.Dir)
+		} else {
+			l.attach(e)
+		}
+	}
+	if adopt {
+		for dir, pid := range byDir {
+			e := l.ui.addEntry(l.dest, dir, "")
+			l.mount(e.ID, pid, projects[pid].(map[string]any))
+		}
+		l.ui.mu.Lock()
+		l.ui.saveL() // even when nothing was adopted, so the import happens once
+		l.ui.mu.Unlock()
+	}
+	l.setStatus("connected", "")
 }
 
 func (l *Link) onPatch(path []any, value any, del bool) {
@@ -311,12 +420,23 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 		return
 	}
 	pid := p[1]
-	out := append([]string{"projects", l.cpid(pid)}, p[2:]...)
+	id := l.idOf(pid)
+	if id == "" { // a project this dashboard does not list
+		return
+	}
+	out := append([]string{"projects", id}, p[2:]...)
 	if del {
-		l.ui.hub.Set(out, nil)
-		if len(p) == 2 {
+		if len(p) == 2 { // another dashboard removed it; we still want it
+			l.unmount(id)
 			l.closeForwards(pid + "/")
-		} else if len(p) == 4 && p[2] == "tasks" {
+			if e, ok := l.ui.entry(id); ok {
+				l.ui.hub.Set(out, skeleton(e))
+				l.attach(e)
+			}
+			return
+		}
+		l.ui.hub.Set(out, nil)
+		if len(p) == 4 && p[2] == "tasks" {
 			l.closeForwards(pid + "/" + p[3])
 		} else if len(p) == 5 && p[4] == "appPort" {
 			l.closeForwards(pid + "/" + p[3])
@@ -325,7 +445,8 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 	}
 	switch {
 	case len(p) == 2:
-		value = l.translateProject(pid, value)
+		project, _ := value.(map[string]any)
+		value = l.translateProject(id, pid, project)
 	case len(p) == 4 && p[2] == "tasks":
 		value = l.translateTask(pid+"/"+p[3], value)
 	case len(p) == 5 && p[2] == "tasks" && p[4] == "appPort":
@@ -334,12 +455,18 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 	l.ui.hub.Set(out, value)
 }
 
-func (l *Link) translateProject(pid string, v any) any {
-	project, ok := v.(map[string]any)
-	if !ok {
-		return v
+// translateProject adds what the dashboard knows (the name, the host) to a
+// daemon's project state.
+func (l *Link) translateProject(id, pid string, project map[string]any) map[string]any {
+	if project == nil {
+		project = map[string]any{}
 	}
 	project["host"] = l.hid
+	if e, ok := l.ui.entry(id); ok {
+		project["name"] = e.Name
+	} else {
+		project["name"] = filepath.Base(fmt.Sprint(project["dir"]))
+	}
 	if tasks, ok := project["tasks"].(map[string]any); ok {
 		for tid, t := range tasks {
 			tasks[tid] = l.translateTask(pid+"/"+tid, t)
@@ -429,7 +556,11 @@ func entryID(raw json.RawMessage) string {
 
 func (l *Link) onChat(key string, msg inbound) {
 	pid, tid, _ := strings.Cut(key, "/")
-	ckey := l.cpid(pid) + "/" + tid
+	id := l.idOf(pid)
+	if id == "" {
+		return
+	}
+	ckey := id + "/" + tid
 	switch {
 	case msg.Es != nil:
 		entries := make([]hub.Entry, len(msg.Es))
@@ -472,27 +603,40 @@ func (l *Link) watch(key string, on bool) {
 	_ = l.send(map[string]any{"watch": key, "on": on})
 }
 
-// cmd forwards a command to the daemon and waits for its reply.
-func (l *Link) cmd(name string, args any) (json.RawMessage, error) {
+// call sends a command to the daemon; cb gets the reply, from the message
+// loop, or the reason there will be none.
+func (l *Link) call(name string, args any, cb replyFn) {
 	l.mu.Lock()
 	if l.conn == nil || l.status == "incompatible" {
+		status := l.status
 		l.mu.Unlock()
-		return nil, fmt.Errorf("host %s is %s", l.dest, l.status)
+		cb(nil, fmt.Errorf("%s is %s", l.name(), status))
+		return
 	}
 	l.nextID++
 	id := l.nextID
-	ch := make(chan reply, 1)
-	l.pending[id] = ch
+	l.pending[id] = cb
 	l.mu.Unlock()
 	if err := l.send(map[string]any{"id": id, "cmd": name, "args": args}); err != nil {
-		return nil, err
+		l.mu.Lock()
+		delete(l.pending, id)
+		l.mu.Unlock()
+		cb(nil, err)
 	}
+}
+
+type reply struct {
+	result json.RawMessage
+	err    error
+}
+
+// cmd forwards a command to the daemon and waits for its reply.
+func (l *Link) cmd(name string, args any) (json.RawMessage, error) {
+	ch := make(chan reply, 1)
+	l.call(name, args, func(result json.RawMessage, err error) { ch <- reply{result, err} })
 	select {
 	case r := <-ch:
-		if r.err != "" {
-			return nil, errors.New(r.err)
-		}
-		return r.result, nil
+		return r.result, r.err
 	case <-time.After(10 * time.Minute):
 		return nil, errors.New("the daemon did not answer")
 	}

@@ -6,7 +6,7 @@ import A from 'aberdeen';
  * renders from. Commands go the other way and resolve with the reply.
  */
 
-export const $state: any = A.proxy({ connected: false, ready: false, projects: {}, models: [], tools: [] });
+export const $state: any = A.proxy({ connected: false, ready: false, projects: {}, hosts: {}, models: [] });
 
 let ws: WebSocket | undefined;
 let nextId = 1;

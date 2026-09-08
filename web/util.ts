@@ -1,16 +1,16 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { bot, circle, gitMerge, globe, hourglass, listTodo, loaderCircle, user } from 'staffa/icons.js';
+import { bot, check, circle, gitMerge, globe, hourglass, listTodo, loaderCircle, user } from 'staffa/icons.js';
 import { $state, send } from './conn.ts';
 
-export const PHASES = ['plan', 'agent', 'human', 'merge'] as const;
+export const PHASES = ['plan', 'agent', 'human', 'merge', 'done'] as const;
 export type Phase = typeof PHASES[number];
 
 export const PHASE_LABELS: Record<Phase, string> = {
-	plan: 'Plan', agent: 'Agent', human: 'Human', merge: 'Merge',
+	plan: 'Plan', agent: 'Agent', human: 'Human', merge: 'Merge', done: 'Done',
 };
 
-const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, merge: gitMerge };
+const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, merge: gitMerge, done: check };
 
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
@@ -20,7 +20,12 @@ A.insertGlobalCss({ '@keyframes spin': { to: 'transform:rotate(360deg)' } });
 /** Dependencies of `$t` that still block it: existing, unmerged tasks. */
 export function blockingDeps(pid: string, $t: any): string[] {
 	const $tasks = $state.projects[pid]?.tasks ?? {};
-	return ($t.dependencies ?? []).filter((d: string) => $tasks[d] && $tasks[d].phase !== 'merge');
+	return ($t.dependencies ?? []).filter((d: string) => $tasks[d] && $tasks[d].phase !== 'done');
+}
+
+/** A host's name as shown to the user. */
+export function hostName(hid: string): string {
+	return hid === 'local' ? 'this machine' : $state.hosts?.[hid]?.name ?? hid;
 }
 
 /** A task by name, for anywhere one task points at another. */

@@ -1,6 +1,7 @@
-// Package ui is the browser-facing server: it serves the embedded web app,
-// speaks the hub protocol to browsers over websockets, and relays every
-// project to the daemon that owns it (local or over SSH).
+// Package ui is the browser-facing server, the dashboard: it serves the
+// embedded web app, speaks the hub protocol to browsers over websockets, and
+// mirrors the projects it lists from the daemons that own them (local or
+// over SSH).
 package ui
 
 import (
@@ -33,10 +34,11 @@ type Options struct {
 }
 
 type UI struct {
-	hub   *hub.Hub
-	webFS fs.FS
-	mu    sync.Mutex
-	links map[string]*Link
+	hub     *hub.Hub
+	webFS   fs.FS
+	mu      sync.Mutex
+	links   map[string]*Link // by host id
+	entries []ProjectEntry   // the project list, as saved in dashboard.json
 
 	daemonBinary string
 	askpass      *askpassServer
@@ -46,13 +48,11 @@ type UI struct {
 }
 
 // Commands that belong to a project or task and are forwarded to its daemon.
-var daemonCmds = []string{"removeProject", "setProject", "createContainerfile", "createTask", "updateTask",
-	"openTask", "assignTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask"}
+var daemonCmds = []string{"setProject", "createTask", "updateTask", "openTask", "assignTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask"}
 
 func Run(o Options) error {
 	u := &UI{
-		hub: hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{},
-			"models": daemon.Models, "tools": daemon.ToolOptions}),
+		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.Models}),
 		webFS: o.WebFS, links: map[string]*Link{},
 		daemonBinary: o.DaemonBinary, asks: map[int]chan answer{},
 	}
@@ -62,9 +62,21 @@ func Run(o Options) error {
 	}
 	u.registerCmds()
 	u.hub.OnWatch = u.onWatch
-	u.addLink("local", "", localTransport{})
-	for _, h := range loadHosts() {
-		u.addHostLink(h)
+	var found bool
+	u.entries, found = loadDashboard()
+	hosts := map[string]bool{}
+	for _, e := range u.entries {
+		u.hub.Set([]string{"projects", e.ID}, skeleton(e))
+		hosts[e.Host] = true
+	}
+	if !found { // a dashboard from before it kept the list: import what its hosts have
+		hosts[""] = true
+		for _, dest := range legacyHosts() {
+			hosts[dest] = true
+		}
+	}
+	for dest := range hosts {
+		u.linkTo(dest, !found)
 	}
 	u.hub.Set([]string{"ready"}, true)
 	ln, err := net.Listen("tcp", o.Addr)
@@ -83,11 +95,22 @@ func Run(o Options) error {
 	return http.Serve(ln, u.handler())
 }
 
-func (u *UI) addLink(hid, dest string, tr transport) *Link {
-	l := newLink(u, hid, dest, tr)
+// linkTo returns the link to a host, making (and starting) one when needed.
+// With adopt, every project the daemon has is added to the list.
+func (u *UI) linkTo(dest string, adopt bool) *Link {
 	u.mu.Lock()
+	defer u.mu.Unlock()
+	hid := hostID(dest)
+	if l := u.links[hid]; l != nil {
+		return l
+	}
+	var tr transport = localTransport{}
+	if dest != "" {
+		tr = newSSHTransport(u, hid, dest)
+	}
+	l := newLink(u, hid, dest, tr)
+	l.adopt = adopt
 	u.links[hid] = l
-	u.mu.Unlock()
 	go l.run()
 	return l
 }
@@ -101,19 +124,26 @@ func (u *UI) link(hid string) (*Link, error) {
 	return nil, fmt.Errorf("Unknown host: %s", hid)
 }
 
-// splitPid takes a composite project id apart: host id and the daemon's pid.
-func splitPid(cpid string) (hid, pid string) {
-	hid, pid, ok := strings.Cut(cpid, "~")
+// resolve finds the daemon side of a listed project: its link and the pid there.
+func (u *UI) resolve(id string) (*Link, string, error) {
+	e, ok := u.entry(id)
 	if !ok {
-		return "local", cpid
+		return nil, "", fmt.Errorf("Unknown project: %s", id)
 	}
-	return hid, pid
+	l, err := u.link(hostID(e.Host))
+	if err != nil {
+		return nil, "", err
+	}
+	pid, ok := l.pidOf(id)
+	if !ok {
+		return nil, "", fmt.Errorf("%s is not connected", l.name())
+	}
+	return l, pid, nil
 }
 
 func (u *UI) onWatch(key string, count int) {
-	cpid, tid, _ := strings.Cut(key, "/")
-	hid, pid := splitPid(cpid)
-	if l, err := u.link(hid); err == nil {
+	id, tid, _ := strings.Cut(key, "/")
+	if l, pid, err := u.resolve(id); err == nil {
 		l.watch(pid+"/"+tid, count > 0)
 	}
 }
@@ -123,9 +153,8 @@ func (u *UI) registerCmds() {
 		u.hub.Cmds[name] = func(raw json.RawMessage) (any, error) {
 			args := map[string]any{}
 			_ = json.Unmarshal(raw, &args)
-			cpid, _ := args["pid"].(string)
-			hid, pid := splitPid(cpid)
-			l, err := u.link(hid)
+			id, _ := args["pid"].(string)
+			l, pid, err := u.resolve(id)
 			if err != nil {
 				return nil, err
 			}
@@ -133,42 +162,10 @@ func (u *UI) registerCmds() {
 			return l.cmd(name, args)
 		}
 	}
-	u.hub.Cmds["addProject"] = func(raw json.RawMessage) (any, error) {
-		args := map[string]any{}
-		_ = json.Unmarshal(raw, &args)
-		hid, _ := args["host"].(string)
-		if hid == "" {
-			hid = "local"
-		}
-		delete(args, "host")
-		l, err := u.link(hid)
-		if err != nil {
-			return nil, err
-		}
-		res, err := l.cmd("addProject", args)
-		if err != nil {
-			return nil, err
-		}
-		var out struct {
-			Pid string `json:"pid"`
-		}
-		_ = json.Unmarshal(res, &out)
-		return map[string]any{"pid": l.cpid(out.Pid)}, nil
-	}
-	u.hub.Cmds["connectHost"] = func(raw json.RawMessage) (any, error) {
-		var args struct {
-			Hid string `json:"hid"`
-		}
-		_ = json.Unmarshal(raw, &args)
-		l, err := u.link(args.Hid)
-		if err != nil {
-			return nil, err
-		}
-		l.Wake()
-		return nil, nil
-	}
-	u.hub.Cmds["addHost"] = u.addHost
-	u.hub.Cmds["removeHost"] = u.removeHost
+	u.hub.Cmds["addProject"] = u.addProject
+	u.hub.Cmds["removeProject"] = u.removeProject
+	u.hub.Cmds["renameProject"] = u.renameProject
+	u.hub.Cmds["connectHost"] = u.connectHost
 	u.hub.Cmds["copyCredentials"] = u.copyCredentials
 	u.hub.Cmds["stopDaemon"] = u.stopDaemon
 	u.hub.Cmds["updateDaemon"] = u.updateDaemon
@@ -220,8 +217,7 @@ func (u *UI) serveCode(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	hid, _ := splitPid(m[1])
-	l, err := u.link(hid)
+	l, _, err := u.resolve(m[1])
 	port, _ := u.hub.Get("projects", m[1], "tasks", m[2], "codePort").(float64)
 	if err != nil || port == 0 {
 		w.Header().Set("content-type", "text/html")
@@ -243,8 +239,8 @@ func (u *UI) serveStatic(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if p == "/" || path.Ext(p) == "" {
-		p = "/index.html" // SPA fallback
+	if !strings.HasPrefix(p, "/dist/") {
+		p = "/index.html" // every app path, file names in it included, gets the SPA
 	}
 	data, err := fs.ReadFile(u.webFS, "web"+p)
 	if err != nil {

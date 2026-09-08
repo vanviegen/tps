@@ -75,6 +75,9 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 		defer m.mu.Unlock()
 		if p := m.projects[pid]; p != nil {
 			if t := p.tasks[tid]; t != nil {
+				if count > 0 && t.viewers == 0 {
+					go t.refreshChanges()
+				}
 				t.viewers = count
 				t.touchL()
 			}
@@ -101,6 +104,7 @@ func (m *Manager) Start() error {
 	m.hub.Set([]string{"ready"}, true)
 	go m.ticker(60*time.Second, m.idleSweep)
 	go m.ticker(2*time.Second, m.checkLive)
+	go m.ticker(5*time.Second, m.refreshChanges)
 	go m.inhibitLoop()
 	return nil
 }
@@ -154,7 +158,7 @@ func (m *Manager) sortedProjectsL() []*Project {
 
 func (m *Manager) load(info *ProjectInfo) (*Project, error) {
 	m.mu.Lock()
-	pid := Slugify(info.Name)
+	pid := Slugify(filepath.Base(info.Dir))
 	for m.projects[pid] != nil {
 		pid += "x"
 	}
@@ -171,46 +175,43 @@ func (m *Manager) load(info *ProjectInfo) (*Project, error) {
 	return p, nil
 }
 
-func (m *Manager) Add(dir, name string) (string, error) {
-	if strings.HasPrefix(dir, "~/") || dir == "~" {
-		dir = filepath.Join(home(), dir[1:])
+// Add registers a git repository (a path relative to the home directory, or
+// absolute), or finds it when some dashboard registered it before.
+func (m *Manager) Add(dir string) (*Project, error) {
+	if dir == "~" {
+		dir = ""
 	}
-	dir, err := filepath.Abs(dir)
+	dir = strings.TrimPrefix(dir, "~/")
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(home(), dir)
+	}
+	real, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("No such directory: %s", dir)
 	}
-	if !exists(dir) {
-		return "", fmt.Errorf("No such directory: %s", dir)
-	}
-	if real, err := filepath.EvalSymlinks(dir); err == nil {
-		dir = real
-	}
-	if !gitOK(dir, "rev-parse", "--git-dir") {
-		return "", fmt.Errorf("%s is not a git repository", dir)
-	}
-	if !gitOK(dir, "rev-parse", "--verify", "-q", "HEAD") {
-		return "", fmt.Errorf("%s has no commits yet", dir)
-	}
+	dir = real
 	m.mu.Lock()
 	for _, p := range m.projects {
 		if p.dir() == dir {
 			m.mu.Unlock()
-			return "", fmt.Errorf("%s is already registered as '%s'", dir, p.info.Name)
+			return p, nil
 		}
 	}
 	m.mu.Unlock()
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = filepath.Base(dir)
+	if !gitOK(dir, "rev-parse", "--git-dir") {
+		return nil, fmt.Errorf("%s is not a git repository", dir)
 	}
-	p, err := m.load(&ProjectInfo{Dir: dir, Name: name})
+	if !gitOK(dir, "rev-parse", "--verify", "-q", "HEAD") {
+		return nil, fmt.Errorf("%s has no commits yet", dir)
+	}
+	p, err := m.load(&ProjectInfo{Dir: dir})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	m.mu.Lock()
 	m.saveL()
 	m.mu.Unlock()
-	return p.pid, nil
+	return p, nil
 }
 
 func (m *Manager) Remove(pid string) error {
@@ -301,6 +302,21 @@ func (m *Manager) checkLive() {
 	}
 }
 
+// refreshChanges keeps the changed-files overview of watched tasks current.
+func (m *Manager) refreshChanges() {
+	m.mu.Lock()
+	var watched []*Task
+	for _, t := range m.allTasksL() {
+		if t.viewers > 0 && t.info.Phase != PhasePlan {
+			watched = append(watched, t)
+		}
+	}
+	m.mu.Unlock()
+	for _, t := range watched {
+		t.refreshChanges()
+	}
+}
+
 // Shutdown stops every workspace (containers included).
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
@@ -328,16 +344,13 @@ func (m *Manager) anyWorking() bool {
 // --- commands ---
 
 type ref struct {
-	Pid     string   `json:"pid"`
-	Tid     string   `json:"tid"`
-	Name    string   `json:"name"`
-	Dir     string   `json:"dir"`
-	To      string   `json:"to"`
-	Text    string   `json:"text"`
-	Phase   Phase    `json:"phase"`
-	Tools   []string `json:"tools"`
-	Message string   `json:"message"`
-	Force   bool     `json:"force"`
+	Pid     string `json:"pid"`
+	Tid     string `json:"tid"`
+	Dir     string `json:"dir"`
+	To      string `json:"to"`
+	Text    string `json:"text"`
+	Phase   Phase  `json:"phase"`
+	Message string `json:"message"`
 }
 
 func decode(raw json.RawMessage) (ref, map[string]any, error) {
@@ -384,13 +397,18 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		}
 	}
 	return map[string]hub.CmdHandler{
+		// Replies with the project's state as well, so the dashboard can show
+		// it before the patches it was not yet listening for.
 		"addProject": func(raw json.RawMessage) (any, error) {
 			r, _, err := decode(raw)
 			if err != nil {
 				return nil, err
 			}
-			pid, err := m.Add(r.Dir, r.Name)
-			return map[string]any{"pid": pid}, err
+			p, err := m.Add(r.Dir)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"pid": p.pid, "dir": p.dir(), "project": m.hub.Snapshot("projects", p.pid)}, nil
 		},
 		"removeProject": func(raw json.RawMessage) (any, error) {
 			r, _, err := decode(raw)
@@ -401,9 +419,6 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		},
 		"setProject": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
 			return nil, p.SetConfig(partial)
-		}),
-		"createContainerfile": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
-			return nil, p.CreateContainerfile(r.Tools)
 		}),
 		"createTask": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
 			tid, err := p.CreateTask()

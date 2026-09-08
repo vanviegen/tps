@@ -17,8 +17,8 @@ import (
 // Protocol for any change a UI of the previous version could not handle, and
 // MinProtocol when old daemons can no longer be served.
 const (
-	Protocol    = 1
-	MinProtocol = 1
+	Protocol    = 2
+	MinProtocol = 2
 )
 
 // CmdHandler runs one command; the result is sent back as the reply.
@@ -93,6 +93,22 @@ func (h *Hub) Set(path []string, value any) {
 func (h *Hub) Get(path ...string) any {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.get(path...)
+}
+
+// Snapshot returns the subtree at path as JSON, or nil when there is none.
+func (h *Hub) Snapshot(path ...string) json.RawMessage {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	v := h.get(path...)
+	if v == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(v)
+	return raw
+}
+
+func (h *Hub) get(path ...string) any {
 	var cur any = h.state
 	for _, key := range path {
 		m, ok := cur.(map[string]any)

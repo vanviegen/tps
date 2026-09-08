@@ -49,6 +49,11 @@ func ensureToolbox() (string, error) {
 			return "", err
 		}
 	}
+	if cf := filepath.Join(dir, containerfile); readFile(cf) != defaultContainerfile {
+		if err := os.WriteFile(cf, []byte(defaultContainerfile), 0o644); err != nil {
+			return "", err
+		}
+	}
 	// Containers are labeled with the key of the toolbox they run on.
 	if ps, err := runCmd([]string{"podman", "ps", "--format", `{{index .Labels "tps.config"}}`}, RunOpts{}); err == nil {
 		entries, _ := os.ReadDir(toolboxRoot())

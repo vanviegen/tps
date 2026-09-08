@@ -10,7 +10,7 @@ const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.\.?\/)/i;
 
 // Marked emits raw HTML and any URL scheme as-is, so both are filtered here.
 // Links open in a new tab, leaving the dashboard alone.
-const md = new Marked({
+export const md = new Marked({
 	gfm: true,
 	breaks: true,
 	renderer: {
@@ -27,23 +27,17 @@ const md = new Marked({
 });
 
 /**
- * The task's chat log: user and assistant messages as markdown; thinking, tool
- * calls (call and result on one line) and TPS notes as compact one-liners that
- * open a detail panel next to the chat.
+ * The task's chat log, a scrolling list (sized by `attrs`): user and assistant
+ * messages as markdown; thinking, tool calls (call and result on one line)
+ * and TPS notes as compact one-liners that open a detail panel next to it.
  */
-export function drawChat(pid: string, tid: string, $panel: S.Panel): void {
+export function drawChat(pid: string, tid: string, $panel: S.Panel, attrs = ''): void {
 	const $chat = chatLog(pid, tid);
-	let el!: HTMLElement;
-	S.box({
-		attrs: 'flex:1 min-height:0',
-		// Content-sized grid rows: as flex or auto-row items, the one-liners (which
-		// clip their overflow) would be squashed to nothing once the log overflows.
-		contentAttrs: 'flex:1 min-height:0 overflow-y:auto display:grid grid-auto-rows:max-content gap:$2',
-		content: () => {
-			el = A() as HTMLElement;
-			A.onEach($chat, ($e: any, i: number) => drawEntry($e, () => void $panel.open(`/p/${pid}/t/${tid}/agent/log/${i}`)));
-		},
-	});
+	// Content-sized grid rows: as flex or auto-row items, the one-liners (which
+	// clip their overflow) would be squashed to nothing once the log overflows.
+	const el = A('div overflow-y:auto display:grid grid-auto-rows:max-content gap:$2', attrs, () => {
+		A.onEach($chat, ($e: any, i: number) => drawEntry($e, () => void $panel.open(`/p/${pid}/t/${tid}/agent/log/${i}`)));
+	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
 	let stick = true;
 	el.addEventListener('scroll', () => {

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -19,13 +20,17 @@ type RunResult struct {
 type RunOpts struct {
 	Dir     string
 	Input   *string
-	NoCheck bool // don't fail on a non-zero exit
+	Env     []string // added to the environment
+	NoCheck bool     // don't fail on a non-zero exit
 }
 
 // runCmd runs a command to completion, capturing stdout and stderr.
 func runCmd(argv []string, o RunOpts) (RunResult, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = o.Dir
+	if len(o.Env) > 0 {
+		cmd.Env = append(os.Environ(), o.Env...)
+	}
 	if o.Input != nil {
 		cmd.Stdin = strings.NewReader(*o.Input)
 	}
@@ -81,4 +86,10 @@ func Slugify(text string) string {
 		return "x"
 	}
 	return s
+}
+
+// readFile returns the file's content, or "" when it cannot be read.
+func readFile(path string) string {
+	data, _ := os.ReadFile(path)
+	return string(data)
 }

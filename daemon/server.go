@@ -42,7 +42,7 @@ func Serve(buildID string) error {
 		_ = os.Remove(sock)
 		os.Exit(code)
 	}
-	h := hub.New(map[string]any{"projects": map[string]any{}, "models": Models, "tools": ToolOptions, "build": buildID, "protocol": hub.Protocol})
+	h := hub.New(map[string]any{"projects": map[string]any{}, "models": Models, "build": buildID, "protocol": hub.Protocol})
 	m := NewManager(h, exit)
 	h.Cmds = m.Cmds()
 	if err := m.Start(); err != nil {

@@ -18,6 +18,11 @@ Rules:
   commits your working tree when the user merges the task. Read-only git is fine.
 - If the task involves serving something, listen on $PORT; the user gets a live preview
   link while something answers there.
+- Your container is disposable: it is recreated after idle periods, and anything you
+  install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
+  create or edit /work/Containerfile.dev, the project's image definition, and end your
+  turn with 'reload'. A repository without one runs the default image; its definition
+  is at /tps/Containerfile.dev, so copy that as your starting point.
 
 End every turn by writing the file /work/` + DoneFile + ` (TPS consumes it). Its first line
 is a single word:
@@ -25,9 +30,8 @@ is a single word:
   commit message: a summary line, a blank line, then a few concise lines of detail.
 - 'human': the user needs to decide, test or provide something first (say what, in your
   chat output).
-- 'reload': you changed Containerfile.dev (e.g. to install a tool you are missing) and
-  need the container rebuilt from it; the conversation continues automatically in the
-  new container.`
+- 'reload': you created or changed Containerfile.dev and need the container rebuilt
+  from it; the conversation continues automatically in the new container.`
 
 const reloadedPrompt = "Now running in the updated container. Please continue."
 

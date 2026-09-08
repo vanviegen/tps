@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,10 +22,11 @@ const (
 	PhasePlan  Phase = "plan"
 	PhaseAgent Phase = "agent"
 	PhaseHuman Phase = "human"
-	PhaseMerge Phase = "merge"
+	PhaseMerge Phase = "merge" // TPS is merging: committing, rebasing, or an agent resolving conflicts
+	PhaseDone  Phase = "done"
 )
 
-var phases = []Phase{PhasePlan, PhaseAgent, PhaseHuman, PhaseMerge}
+var phases = []Phase{PhasePlan, PhaseAgent, PhaseHuman, PhaseMerge, PhaseDone}
 
 type WorkStatus string
 
@@ -84,6 +86,7 @@ type Task struct {
 	lastActivity time.Time
 	live         bool
 	checkingLive bool
+	refreshing   bool // a changes overview is being computed
 
 	session       *ChatSession
 	sessionFlight *flight[*ChatSession]
@@ -106,6 +109,9 @@ func (t *Task) chatFile() string      { return filepath.Join(t.dir(), "chat.json
 func (t *Task) containerName() string { return "tps-" + t.p.pid + "-" + t.tid }
 func (t *Task) workingL() bool        { return t.session != nil && t.session.TurnActive() }
 func (t *Task) touchL()               { t.lastActivity = time.Now() }
+
+// agentPhaseL: an agent may be at work, on the task itself or on merging it.
+func (t *Task) agentPhaseL() bool { return t.info.Phase == PhaseAgent || t.info.Phase == PhaseMerge }
 
 func (t *Task) lock()   { t.p.m.mu.Lock() }
 func (t *Task) unlock() { t.p.m.mu.Unlock() }
@@ -178,6 +184,7 @@ func (t *Task) setPhaseL(phase Phase) {
 	if phase != PhaseAgent {
 		t.info.Waiting = false
 	}
+	t.p.touchL()
 	t.p.m.saveL()
 	t.publishL()
 }
@@ -257,13 +264,11 @@ func (t *Task) loadChat() {
 func (t *Task) Update(partial map[string]any) error {
 	t.lock()
 	defer t.unlock()
-	if t.info.Phase == PhasePlan { // fixed once the conversation has started
-		if title, ok := partial["title"].(string); ok && strings.TrimSpace(title) != "" {
-			t.info.Title = strings.TrimSpace(title)
-		}
-		if desc, ok := partial["description"].(string); ok {
-			t.info.Description = desc
-		}
+	if title, ok := partial["title"].(string); ok && strings.TrimSpace(title) != "" {
+		t.info.Title = strings.TrimSpace(title)
+	}
+	if desc, ok := partial["description"].(string); ok && t.info.Phase == PhasePlan { // what the agent was given stays
+		t.info.Description = desc
 	}
 	if model, ok := partial["model"].(string); ok {
 		t.info.Model = model
@@ -297,6 +302,7 @@ func (t *Task) Update(partial map[string]any) error {
 		}
 		t.info.Dependencies = deps
 	}
+	t.p.touchL()
 	t.p.m.saveL()
 	t.publishL()
 	if t.info.Waiting {
@@ -309,7 +315,7 @@ func (t *Task) Update(partial map[string]any) error {
 func (t *Task) blockedOnL() []string {
 	var out []string
 	for _, tid := range t.info.Dependencies {
-		if dep := t.p.tasks[tid]; dep != nil && dep.info.Phase != PhaseMerge {
+		if dep := t.p.tasks[tid]; dep != nil && dep.info.Phase != PhaseDone {
 			out = append(out, tid)
 		}
 	}
@@ -382,6 +388,7 @@ func (t *Task) SendChat(text string) error {
 		return errors.New("This task is waiting for its dependencies; remove them in the settings to start it now")
 	}
 	t.touchL()
+	t.p.touchL()
 	t.unlock()
 	e := newEntry("user")
 	e.Text = text
@@ -396,18 +403,21 @@ func sameBudget(a, b *float64) bool {
 
 // kick makes sure a claude session is running and feeds it text, in the
 // background. With fresh, any current session is stopped and a new context
-// is started.
+// is started. A task being merged stays in that phase: the agent then works
+// on the merge.
 func (t *Task) kick(text string, fresh bool) {
 	t.lock()
 	if t.overBudgetL() {
 		t.noteBudgetL()
-		if t.info.Phase == PhaseAgent {
+		if t.agentPhaseL() {
 			t.setPhaseL(PhaseHuman)
 		}
 		t.unlock()
 		return
 	}
-	t.setPhaseL(PhaseAgent)
+	if t.info.Phase != PhaseMerge {
+		t.setPhaseL(PhaseAgent)
+	}
 	// A running claude has its spending cap fixed at start; a changed budget needs a new process.
 	old := t.session
 	restart := old != nil && (fresh || !sameBudget(t.sessionBudget, t.info.Budget))
@@ -420,7 +430,7 @@ func (t *Task) kick(text string, fresh bool) {
 		if err != nil {
 			t.noteErr("agent start failed", err)
 			t.lock()
-			if t.info.Phase == PhaseAgent {
+			if t.agentPhaseL() {
 				t.setPhaseL(PhaseHuman)
 			}
 			t.unlock()
@@ -443,6 +453,7 @@ func (t *Task) stopSession(s *ChatSession) {
 	t.unlock()
 }
 
+// StopAgent hands the task to the human, interrupting any agent turn (or merge).
 func (t *Task) StopAgent() error {
 	t.lock()
 	s := t.session
@@ -451,7 +462,7 @@ func (t *Task) StopAgent() error {
 		t.stopSession(s)
 	}
 	t.lock()
-	if t.info.Phase == PhaseAgent {
+	if t.agentPhaseL() {
 		t.setPhaseL(PhaseHuman)
 	}
 	t.unlock()
@@ -484,15 +495,15 @@ func (t *Task) MoveTo(phase Phase) error {
 		}
 		return t.StopAgent()
 	default:
-		t.lock()
-		msg := t.info.CommitMessage
-		t.unlock()
-		return t.Merge(msg)
+		return t.Merge("")
 	}
 }
 
-// Merge commits the working tree as one commit, rebases onto the latest
-// default branch if it moved, and fast-forwards the project repo.
+// Merge commits the working tree as one commit, rebases it onto the latest
+// default branch if that moved, and fast-forwards the project repo. The task
+// sits in the merge phase meanwhile: rebase conflicts are handed to a fresh
+// agent there, whose 'ready' runs the merge again. A failure puts the task
+// back with the human.
 func (t *Task) Merge(message string) error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
@@ -502,6 +513,7 @@ func (t *Task) Merge(message string) error {
 	if t.midRebase() {
 		return errors.New("A rebase is still in progress in the workspace; let the agent finish it (or resolve it in VS Code) first")
 	}
+	_ = t.StopAgent()
 	t.lock()
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -510,8 +522,23 @@ func (t *Task) Merge(message string) error {
 	if message == "" {
 		message = strings.TrimSpace(t.info.Title)
 	}
+	t.info.CommitMessage = message
+	t.setPhaseL(PhaseMerge)
 	t.unlock()
-	_ = t.StopAgent()
+	err := t.merge(repo, message)
+	if err != nil {
+		t.noteErr("merge failed", err)
+		t.lock()
+		if t.info.Phase == PhaseMerge {
+			t.setPhaseL(PhaseHuman)
+		}
+		t.unlock()
+	}
+	go t.refreshChanges()
+	return err
+}
+
+func (t *Task) merge(repo, message string) error {
 	branch := t.p.defaultBranch
 	if _, err := git(repo, "add", "-A"); err != nil {
 		return err
@@ -530,17 +557,12 @@ func (t *Task) Merge(message string) error {
 	}
 	if !gitOK(repo, "merge-base", "--is-ancestor", target, "HEAD") {
 		if _, err := git(repo, "rebase", target); err != nil {
-			if t.midRebase() {
-				// Hand the conflicts to a fresh agent; when it reports ready, the merge runs again.
-				t.lock()
-				t.info.CommitMessage = message
-				t.p.m.saveL()
-				t.unlock()
-				t.note(fmt.Sprintf("rebasing onto the latest %s hit conflicts; sending in a fresh agent to resolve them", branch))
-				t.kick(conflictPrompt(branch, message), true)
-				return nil
+			if !t.midRebase() {
+				return fmt.Errorf("rebase onto %s failed", branch)
 			}
-			return fmt.Errorf("rebase onto %s failed", branch)
+			t.note(fmt.Sprintf("rebasing onto the latest %s hit conflicts; sending in a fresh agent to resolve them", branch))
+			t.kick(conflictPrompt(branch, message), true)
+			return nil
 		}
 	}
 	if head, _ := git(repo, "rev-parse", "HEAD"); head != target {
@@ -553,7 +575,7 @@ func (t *Task) Merge(message string) error {
 	}
 	t.lock()
 	t.info.CommitMessage = ""
-	t.setPhaseL(PhaseMerge)
+	t.setPhaseL(PhaseDone)
 	t.p.startUnblockedL()
 	t.unlock()
 	go t.down()
@@ -564,17 +586,22 @@ func (t *Task) midRebase() bool {
 	return exists(filepath.Join(t.repoDir(), ".git", "rebase-merge")) || exists(filepath.Join(t.repoDir(), ".git", "rebase-apply"))
 }
 
+// containerfile is what the task's container is built from: the repository's
+// own Containerfile.dev, or the default image when it has none.
+func (t *Task) containerfile() string {
+	if cf := readFile(filepath.Join(t.repoDir(), containerfile)); cf != "" {
+		return cf
+	}
+	return defaultContainerfile
+}
+
 // adopt picks up a container still running from before a daemon restart, if
 // it matches what would be started now.
 func (t *Task) adoptL() {
 	if t.info.Phase == PhasePlan || !exists(t.repoDir()) {
 		return
 	}
-	cf, err := os.ReadFile(filepath.Join(t.repoDir(), containerfile))
-	if err != nil {
-		return
-	}
-	tag := imageTag(string(cf))
+	tag := imageTag(t.containerfile())
 	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir())); c != nil {
 		t.container, t.lastTag = c, tag
 		t.status = StatusUp
@@ -595,6 +622,7 @@ func (t *Task) Discard() error {
 	t.info.Started = false
 	t.info.CommitMessage = ""
 	t.p.m.hub.SetChat(t.key(), nil)
+	t.pubL("changes", nil)
 	t.setPhaseL(PhasePlan)
 	return nil
 }
@@ -613,9 +641,84 @@ func (t *Task) Delete() error {
 	delete(t.p.tasks, t.tid)
 	t.p.m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid}, nil)
 	t.p.m.hub.SetChat(t.key(), nil)
+	t.p.touchL()
 	t.p.m.saveL()
 	t.p.startUnblockedL()
 	return nil
+}
+
+// --- the changed files overview ---
+
+type change struct {
+	Path string `json:"p"`
+	Add  int    `json:"a"`
+	Del  int    `json:"d"`
+	Bin  bool   `json:"bin,omitempty"`
+}
+
+// changes lists what the working tree changed since the commit the task
+// started from (or, mid-rebase, since the branch it is being replayed onto),
+// untracked files included. A throwaway copy of the index (so the real one
+// stays untouched, and unchanged files need no rehashing) makes git see the
+// whole tree as staged.
+func (t *Task) changes() ([]change, error) {
+	repo := t.repoDir()
+	base, err := git(repo, "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
+	if err != nil {
+		return nil, err
+	}
+	index := filepath.Join(t.dir(), "changes-index")
+	if data, err := os.ReadFile(filepath.Join(repo, ".git", "index")); err == nil {
+		_ = os.WriteFile(index, data, 0o644)
+	}
+	env := []string{"GIT_INDEX_FILE=" + index}
+	if _, err := runCmd([]string{"git", "-C", repo, "add", "-A"}, RunOpts{Env: env}); err != nil {
+		return nil, err
+	}
+	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--numstat", "--no-renames", "-z", base}, RunOpts{Env: env})
+	if err != nil {
+		return nil, err
+	}
+	return parseNumstat(r.Out), nil
+}
+
+// parseNumstat reads `git diff --numstat -z`: "added\tdeleted\tpath\0" per file, "-" counts for binaries.
+func parseNumstat(out string) []change {
+	changes := []change{}
+	for _, line := range strings.Split(out, "\x00") {
+		add, rest, ok := strings.Cut(line, "\t")
+		del, path, ok2 := strings.Cut(rest, "\t")
+		if !ok || !ok2 {
+			continue
+		}
+		c := change{Path: path, Bin: add == "-"}
+		if !c.Bin {
+			c.Add, _ = strconv.Atoi(add)
+			c.Del, _ = strconv.Atoi(del)
+		}
+		changes = append(changes, c)
+	}
+	return changes
+}
+
+// refreshChanges publishes the changes overview, unless one is being made already.
+func (t *Task) refreshChanges() {
+	t.lock()
+	if t.refreshing || !exists(t.repoDir()) {
+		t.unlock()
+		return
+	}
+	t.refreshing = true
+	t.unlock()
+	changes, err := t.changes()
+	t.lock()
+	defer t.unlock()
+	t.refreshing = false
+	if err != nil {
+		logf("%s: changes: %v", t.key(), err)
+		return
+	}
+	t.pubL("changes", changes)
 }
 
 // --- workspace (clone + container) ---
@@ -690,11 +793,7 @@ func (t *Task) doUp() (*Container, error) {
 	if !exists(t.repoDir()) {
 		return nil, errors.New("The task has no workspace (still in plan?)")
 	}
-	data, err := os.ReadFile(filepath.Join(t.repoDir(), containerfile))
-	if err != nil {
-		return nil, fmt.Errorf("The repository has no committed %s; create one from the project page", containerfile)
-	}
-	cf := string(data)
+	cf := t.containerfile()
 	tag := imageTag(cf)
 	t.lock()
 	// Don't recycle a container out from under a live claude session.
@@ -821,6 +920,7 @@ func (t *Task) startSession(fresh bool) (*ChatSession, error) {
 func (t *Task) onTurnEnd(costDelta float64) {
 	t.lock()
 	t.touchL()
+	t.p.touchL()
 	if costDelta > 0 {
 		t.info.Spent = math.Round((t.info.Spent+costDelta)*10000) / 10000
 		t.p.m.saveL()
@@ -831,11 +931,12 @@ func (t *Task) onTurnEnd(costDelta float64) {
 		return
 	}
 	t.unlock()
+	go t.refreshChanges()
 	doneFile := filepath.Join(t.repoDir(), DoneFile)
 	content, readErr := os.ReadFile(doneFile)
 	_ = os.Remove(doneFile)
 	t.lock()
-	if t.info.Phase != PhaseAgent { // stopped or dragged elsewhere meanwhile
+	if !t.agentPhaseL() { // stopped or dragged elsewhere meanwhile
 		t.unlock()
 		return
 	}
@@ -855,6 +956,22 @@ func (t *Task) onTurnEnd(costDelta float64) {
 		t.kick(reloadedPrompt, false)
 		return
 	}
+	if t.info.Phase == PhaseMerge { // the agent was resolving rebase conflicts
+		msg := t.info.CommitMessage
+		if word != "ready" {
+			if t.overBudgetL() {
+				t.noteBudgetL()
+			}
+			t.note("merge paused: send the agent back in to finish the rebase, or finish it in VS Code, then merge again")
+			t.setPhaseL(PhaseHuman)
+			t.unlock()
+			return
+		}
+		t.unlock()
+		t.note("conflicts resolved; merging")
+		_ = t.Merge(msg)
+		return
+	}
 	if word == "ready" {
 		t.info.CommitMessage = strings.TrimSpace(rest)
 		if t.info.CommitMessage == "" {
@@ -869,12 +986,7 @@ func (t *Task) onTurnEnd(costDelta float64) {
 			msg := t.info.CommitMessage
 			t.unlock()
 			t.note("the agent reports the task is ready; merging")
-			if err := t.Merge(msg); err != nil {
-				t.noteErr("automatic merge failed", err)
-				t.lock()
-				t.setPhaseL(PhaseHuman)
-				t.unlock()
-			}
+			_ = t.Merge(msg)
 			return
 		}
 		t.note("the agent reports the task is ready to merge")
@@ -893,7 +1005,7 @@ func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
 		t.session = nil
 	}
 	t.publishL()
-	if t.info.Phase == PhaseAgent && !t.stopping {
+	if t.agentPhaseL() && !t.stopping {
 		if code != 0 {
 			t.note(fmt.Sprintf("claude exited unexpectedly (%d)", code), errTail)
 		}

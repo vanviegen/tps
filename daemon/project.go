@@ -1,18 +1,18 @@
 package daemon
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"time"
 )
 
-// ProjectInfo is the persisted part of a project (in projects.json).
+// ProjectInfo is the persisted part of a project (in projects.json). Projects
+// are known by their directory; what to call them is up to each dashboard.
 type ProjectInfo struct {
 	Dir       string               `json:"dir"`
-	Name      string               `json:"name"`
 	AutoMerge bool                 `json:"autoMerge,omitempty"` // merge without confirmation when the agent reports ready
+	Activity  int64                `json:"activity,omitempty"`  // unix ms of the last change to a task
 	NextTask  int                  `json:"nextTask,omitempty"`
 	Tasks     map[string]*TaskInfo `json:"tasks"`
 }
@@ -56,7 +56,7 @@ func (p *Project) init() error {
 		}
 	}
 	p.defaultBranch = branch
-	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"name": p.info.Name, "dir": p.dir(), "autoMerge": p.info.AutoMerge, "tasks": map[string]any{}})
+	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "autoMerge": p.info.AutoMerge, "activity": p.info.Activity, "tasks": map[string]any{}})
 	tids := make([]string, 0, len(p.info.Tasks))
 	for tid := range p.info.Tasks {
 		tids = append(tids, tid)
@@ -70,7 +70,7 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 		t.loadChat()
 		p.m.mu.Lock()
-		if info.Phase == PhaseAgent && !info.Waiting { // the daemon restarted mid-turn
+		if info.Phase == PhaseMerge || (info.Phase == PhaseAgent && !info.Waiting) { // the daemon restarted mid-turn
 			t.note("TPS restarted while the agent was working; send a message to continue")
 			info.Phase = PhaseHuman
 		}
@@ -83,6 +83,12 @@ func (p *Project) init() error {
 	p.startUnblockedL()
 	p.m.mu.Unlock()
 	return nil
+}
+
+// touchL records activity, for dashboards that order projects by it.
+func (p *Project) touchL() {
+	p.info.Activity = time.Now().UnixMilli()
+	p.pub("activity", p.info.Activity)
 }
 
 // dependsOnL: true when task tid (transitively) depends on task on.
@@ -149,20 +155,9 @@ func (p *Project) taskListL() []*Task {
 }
 
 func (p *Project) refreshMeta() {
-	needsSetup := !exists(filepath.Join(p.dir(), containerfile))
 	p.pub("defaultBranch", p.defaultBranch)
-	p.pub("needsSetup", needsSetup)
 	status, _ := git(p.dir(), "status", "--porcelain")
 	p.pub("dirty", status != "")
-	if needsSetup {
-		var names []string
-		if entries, err := os.ReadDir(p.dir()); err == nil {
-			for _, e := range entries {
-				names = append(names, e.Name())
-			}
-		}
-		p.pub("detected", detectTools(names))
-	}
 }
 
 func (p *Project) SetConfig(partial map[string]any) error {
@@ -176,26 +171,7 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	return nil
 }
 
-// CreateContainerfile generates Containerfile.dev in the repo root and commits it.
-func (p *Project) CreateContainerfile(toolIDs []string) error {
-	defer p.m.work()()
-	if branch, _ := git(p.dir(), "symbolic-ref", "--short", "HEAD"); branch != p.defaultBranch {
-		return fmt.Errorf("Check out the %s branch first (or commit a %s yourself)", p.defaultBranch, containerfile)
-	}
-	if err := os.WriteFile(filepath.Join(p.dir(), containerfile), []byte(generateContainerfile(toolIDs)), 0o644); err != nil {
-		return err
-	}
-	if _, err := git(p.dir(), "add", containerfile); err != nil {
-		return err
-	}
-	if _, err := git(p.dir(), "commit", "--no-verify", "-m", "Add "+containerfile+" (TPS dev container)", "--", containerfile); err != nil {
-		return err
-	}
-	p.refreshMeta()
-	return nil
-}
-
-// CreateTask: tasks start empty; the plan page is where they get their title.
+// CreateTask: tasks start empty; the task page is where they get their title.
 func (p *Project) CreateTask() (string, error) {
 	p.m.mu.Lock()
 	defer p.m.mu.Unlock()
@@ -205,6 +181,7 @@ func (p *Project) CreateTask() (string, error) {
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t
+	p.touchL()
 	p.m.saveL()
 	t.publishL()
 	return tid, nil

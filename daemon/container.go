@@ -94,6 +94,29 @@ func exists(path string) bool {
 // change triggers a rebuild exactly when needed. Builds get the task's repo
 // clone as their only context, so they cannot pull in files from elsewhere.
 
+// The image tasks run in when the repository has no Containerfile.dev of its
+// own. Also placed in the toolbox (at /tps/Containerfile.dev) so an agent that
+// needs more can start from it.
+const defaultContainerfile = `# Dev container image for this project (Containerfile.dev).
+#
+# TPS builds it with the task's repo clone as the (only) build context, and
+# runs the task in it as uid 1000 with that clone mounted at /work. code-server
+# and claude are mounted in at run time, so nothing here is TPS-specific: use
+# whatever base suits the project, as long as it has bash and git, and a user
+# with uid 1000 who owns a home directory. Anything the task serves should
+# listen on $PORT.
+
+FROM docker.io/library/debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git sudo bash procps psmisc ripgrep less nano \
+      openssh-client unzip zip xz-utils build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd -m -u 1000 -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/dev
+USER dev
+WORKDIR /work
+`
+
 func imageTag(containerfile string) string {
 	return "localhost/tps:" + sha256hex(containerfile)[:12]
 }
