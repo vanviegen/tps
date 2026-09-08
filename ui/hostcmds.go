@@ -11,7 +11,7 @@ import (
 )
 
 func (u *UI) addHostLink(h HostConfig) *Link {
-	return u.addLink(h.ID, h.Dest, newSSHTransport(u, h.Dest))
+	return u.addLink(h.ID, h.Dest, newSSHTransport(u, h.ID, h.Dest))
 }
 
 // addHost registers an SSH destination: it must connect (prompting as
@@ -118,8 +118,15 @@ func (u *UI) copyCredentials(raw json.RawMessage) (any, error) {
 	})
 }
 
+func (u *UI) updateDaemon(raw json.RawMessage) (any, error) {
+	return u.hostCmd(raw, func(l *Link) error { return l.upgrade() })
+}
+
 func (u *UI) stopDaemon(raw json.RawMessage) (any, error) {
 	return u.hostCmd(raw, func(l *Link) error {
+		l.mu.Lock()
+		l.stopped = true
+		l.mu.Unlock()
 		_, err := l.cmd("stop", map[string]any{})
 		return err
 	})

@@ -68,5 +68,6 @@ func startLocalDaemon() error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	return cmd.Process.Release()
+	go func() { _ = cmd.Wait() }() // reap it when it exits (a restart)
+	return nil
 }

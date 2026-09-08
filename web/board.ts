@@ -144,7 +144,7 @@ function drawSetup(pid: string, $p: any): void {
 		header: 'Set up the dev container',
 		contentAttrs: 'display:flex flex-direction:column',
 		content: () => {
-			A('p rich=', 'This project has no `Containerfile.dev` yet. TPS will generate one (Debian with code-server and the claude CLI) and commit it to the repository root. Toolchains detected in the repository are preselected:');
+			A('p rich=', 'This project has no `Containerfile.dev` yet. TPS will generate a Debian based one and commit it to the repository root. Toolchains detected in the repository are preselected:');
 			A('div display:flex flex-direction:column gap:$1', () => {
 				A.onEach($state.tools, ($tool: any) => {
 					S.checkbox({ label: $tool.label, bind: A.ref($selected, $tool.id) });

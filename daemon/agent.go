@@ -28,7 +28,7 @@ if [ -f /tps-host-claude-credentials.json ] && [ ! -f "$CLAUDE_CONFIG_DIR/.crede
 	cp /tps-host-claude-credentials.json "$CLAUDE_CONFIG_DIR/.credentials.json" && chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json"
 fi
 echo $$ >/tmp/tps-agent.pid
-exec claude -p --input-format stream-json --output-format stream-json --verbose \
+exec /tps/bin/claude -p --input-format stream-json --output-format stream-json --verbose \
 	--dangerously-skip-permissions --model "$TPS_MODEL" --append-system-prompt "$TPS_SYSTEM" \
 	${TPS_BUDGET:+--max-budget-usd "$TPS_BUDGET"} $TPS_EXTRA
 `

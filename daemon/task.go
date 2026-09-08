@@ -347,6 +347,7 @@ func (t *Task) Assign(to string) error {
 	t.info.Waiting = false
 	title, desc := t.info.Title, t.info.Description
 	t.unlock()
+	defer t.p.m.work()()
 	if err := t.ensureClone(); err != nil {
 		return err
 	}
@@ -493,6 +494,7 @@ func (t *Task) MoveTo(phase Phase) error {
 // Merge commits the working tree as one commit, rebases onto the latest
 // default branch if it moved, and fast-forwards the project repo.
 func (t *Task) Merge(message string) error {
+	defer t.p.m.work()()
 	repo := t.repoDir()
 	if !exists(repo) {
 		return errors.New("The task has no work to merge yet")
@@ -562,19 +564,26 @@ func (t *Task) midRebase() bool {
 	return exists(filepath.Join(t.repoDir(), ".git", "rebase-merge")) || exists(filepath.Join(t.repoDir(), ".git", "rebase-apply"))
 }
 
-// adopt picks up a container still running from before a daemon restart.
+// adopt picks up a container still running from before a daemon restart, if
+// it matches what would be started now.
 func (t *Task) adoptL() {
 	if t.info.Phase == PhasePlan || !exists(t.repoDir()) {
 		return
 	}
-	if c, image := runningContainer(t.containerName()); c != nil {
-		t.container, t.lastTag = c, image
+	cf, err := os.ReadFile(filepath.Join(t.repoDir(), containerfile))
+	if err != nil {
+		return
+	}
+	tag := imageTag(string(cf))
+	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir())); c != nil {
+		t.container, t.lastTag = c, tag
 		t.status = StatusUp
 	}
 }
 
 // Discard: back to plan, all work is thrown away (the UI asks for confirmation).
 func (t *Task) Discard() error {
+	defer t.p.m.work()()
 	_ = t.StopAgent()
 	t.down()
 	rmContainer(t.containerName()) // also one the daemon never knew about
@@ -591,6 +600,7 @@ func (t *Task) Discard() error {
 }
 
 func (t *Task) Delete() error {
+	defer t.p.m.work()()
 	_ = t.StopAgent()
 	t.down()
 	rmContainer(t.containerName())
@@ -655,7 +665,9 @@ func (t *Task) up() (*Container, error) {
 		f = &flight[*Container]{done: make(chan struct{})}
 		t.upFlight = f
 		go func() {
+			done := t.p.m.work()
 			f.val, f.err = t.doUp()
+			done()
 			t.lock()
 			t.upFlight = nil
 			t.unlock()
@@ -693,6 +705,13 @@ func (t *Task) doUp() (*Container, error) {
 	}
 	t.setStatusL(StatusBuilding, "building container image")
 	t.unlock()
+	if !toolboxInstalled() {
+		t.note("downloading code-server and claude for this host (once per TPS version)…")
+	}
+	toolbox, err := ensureToolbox()
+	if err != nil {
+		return t.failUp(err)
+	}
 	if !imageExists(tag) {
 		t.note("building the dev container image; the first build takes a few minutes…")
 	}
@@ -702,7 +721,7 @@ func (t *Task) doUp() (*Container, error) {
 	t.lock()
 	t.setStatusL(StatusStarting, "starting container")
 	t.unlock()
-	c, err := ensureContainer(containerOpts{name: t.containerName(), image: tag, repoDir: t.repoDir(), claudeDir: t.claudeDir()})
+	c, err := ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir()})
 	if err != nil {
 		return t.failUp(err)
 	}

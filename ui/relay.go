@@ -39,9 +39,15 @@ type Link struct {
 	watches  map[string]bool     // keys (pid/tid) watched at the daemon
 	forwards map[string]*forward // task key → local listener for its app port
 	wake     chan struct{}
-	build    string
 	first    chan error // outcome of the first connection attempt
 	closed   bool
+	stopped  bool // the user stopped the daemon: don't start it again until asked
+
+	// What the host shows: the connection state plus what the daemon reported.
+	status, errText string
+	build           string // the daemon's build id
+	protocol        int
+	restarting      bool
 }
 
 type reply struct {
@@ -89,14 +95,28 @@ func newLink(u *UI, hid, dest string, tr transport) *Link {
 }
 
 func (l *Link) setStatus(status, errText string) {
-	name, warning := l.dest, ""
-	if !l.remote {
-		name = "this machine"
+	l.mu.Lock()
+	l.status, l.errText = status, errText
+	l.mu.Unlock()
+	l.publishHost()
+}
+
+func (l *Link) publishHost() {
+	name, warning := "localhost", ""
+	if fields := strings.Fields(l.dest); len(fields) > 0 { // the host, without ssh options in front
+		name = fields[len(fields)-1]
 	}
 	if w, ok := l.tr.(interface{ Warning() string }); ok {
 		warning = w.Warning()
 	}
-	l.ui.hub.Set([]string{"hosts", l.hid}, map[string]any{"dest": name, "status": status, "error": errText, "warning": warning})
+	l.mu.Lock()
+	host := map[string]any{"dest": name, "status": l.status, "error": l.errText, "warning": warning}
+	if l.status == "connected" {
+		host["updatable"] = l.build != BuildID()
+		host["restarting"] = l.restarting
+	}
+	l.mu.Unlock()
+	l.ui.hub.Set([]string{"hosts", l.hid}, host)
 }
 
 func (l *Link) reportFirst(err error) {
@@ -131,6 +151,14 @@ func (l *Link) isClosed() bool {
 func (l *Link) run() {
 	backoff := 2 * time.Second
 	for !l.isClosed() {
+		l.mu.Lock()
+		stopped := l.stopped
+		l.mu.Unlock()
+		if stopped {
+			l.setStatus("stopped", "")
+			<-l.wake
+			continue
+		}
 		l.setStatus("connecting", "")
 		conn, err := l.tr.DialDaemon()
 		if err != nil {
@@ -152,8 +180,11 @@ func (l *Link) run() {
 	}
 }
 
-// Wake retries a disconnected link right away.
+// Wake retries a disconnected (or stopped) link right away.
 func (l *Link) Wake() {
+	l.mu.Lock()
+	l.stopped = false
+	l.mu.Unlock()
 	select {
 	case l.wake <- struct{}{}:
 	default:
@@ -234,10 +265,26 @@ func (l *Link) onHello(state map[string]any) {
 			}
 		}
 	}
+	l.mu.Lock()
+	l.build, _ = state["build"].(string)
+	proto, _ := state["protocol"].(float64)
+	l.protocol = int(proto)
+	l.restarting, _ = state["restarting"].(bool)
+	l.mu.Unlock()
+	switch {
+	case l.protocol > hub.Protocol:
+		// Never touch a newer daemon; it is this TPS that needs updating.
+		l.setStatus("incompatible", "this host runs a newer TPS; update this one")
+		l.reportFirst(errors.New("the daemon on " + l.dest + " is newer than this TPS; update this one"))
+		return
+	case l.protocol < hub.MinProtocol:
+		l.setStatus("updating", "")
+		go l.upgrade()
+		return
+	}
 	for pid, v := range projects {
 		l.ui.hub.Set([]string{"projects", l.cpid(pid)}, l.translateProject(pid, v))
 	}
-	l.build, _ = state["build"].(string)
 	l.setStatus("connected", "")
 	l.reportFirst(nil)
 	// Watches don't survive a reconnect at the daemon; renew ours.
@@ -246,15 +293,19 @@ func (l *Link) onHello(state map[string]any) {
 			l.watch(rest, true)
 		}
 	}
-	if l.build != BuildID() {
-		go l.upgrade()
-	}
 }
 
 func (l *Link) onPatch(path []any, value any, del bool) {
 	p := make([]string, len(path))
 	for i, seg := range path {
 		p[i] = fmt.Sprint(seg)
+	}
+	if len(p) == 1 && p[0] == "restarting" {
+		l.mu.Lock()
+		l.restarting, _ = value.(bool)
+		l.mu.Unlock()
+		l.publishHost()
+		return
 	}
 	if len(p) < 2 || p[0] != "projects" {
 		return
@@ -424,9 +475,9 @@ func (l *Link) watch(key string, on bool) {
 // cmd forwards a command to the daemon and waits for its reply.
 func (l *Link) cmd(name string, args any) (json.RawMessage, error) {
 	l.mu.Lock()
-	if l.conn == nil {
+	if l.conn == nil || l.status == "incompatible" {
 		l.mu.Unlock()
-		return nil, fmt.Errorf("host %s is disconnected", l.dest)
+		return nil, fmt.Errorf("host %s is %s", l.dest, l.status)
 	}
 	l.nextID++
 	id := l.nextID
@@ -447,33 +498,21 @@ func (l *Link) cmd(name string, args any) (json.RawMessage, error) {
 	}
 }
 
-// upgrade asks a daemon running another build to restart into the binary we
-// run (pushed first, for a remote host); it retries while an agent is busy.
-func (l *Link) upgrade() {
-	build := l.build
-	for {
-		if l.remote {
-			if p, ok := l.tr.(pusher); ok {
-				if err := p.Push(); err != nil {
-					log.Printf("host %s: pushing the new binary failed: %v", l.hid, err)
-					return
-				}
-			}
-		}
-		_, err := l.cmd("restart", map[string]any{})
-		if err == nil {
-			log.Printf("host %s: daemon restarting into build %s", l.hid, BuildID()[:12])
-			return
-		}
-		log.Printf("host %s: daemon runs another build; restart postponed: %v", l.hid, err)
-		time.Sleep(time.Minute)
-		l.mu.Lock()
-		stale := l.conn != nil && l.build == build
-		l.mu.Unlock()
-		if !stale {
-			return
+// upgrade installs the binary this UI runs on the host (for a remote one)
+// and asks the daemon to restart into it once nothing is running.
+func (l *Link) upgrade() error {
+	if p, ok := l.tr.(pusher); ok {
+		if err := p.Push(); err != nil {
+			log.Printf("host %s: installing the new binary failed: %v", l.hid, err)
+			l.setStatus(l.status, err.Error())
+			return err
 		}
 	}
+	if _, err := l.cmd("restart", map[string]any{}); err != nil {
+		return err
+	}
+	log.Printf("host %s: daemon restarts into build %s when idle", l.hid, BuildID()[:12])
+	return nil
 }
 
 // pusher is implemented by transports that can install our binary on their host.

@@ -29,26 +29,30 @@ just mirrors what the daemon has.
 ## Getting started
 
 ```sh
-npm install && npm run build   # bundles the web UI into web/dist
-go build -o tps .              # embeds it; the binary is all you need
-./tps                          # http://localhost:4820/, opens your browser
+npm install && npm run build       # bundles the web UI into web/dist
+CGO_ENABLED=0 go build -o tps .    # embeds it; one static binary is all you need
+./tps                              # http://localhost:4820/, opens your browser
 ```
 
-Add a project from the dashboard: any git repository on this machine. To use
-another machine, add it as a host first (its name as you would give it to
-`ssh`; `~/.ssh/config` aliases, agent keys and passwords all work, and
-prompts appear in the browser). Then add projects that live there.
+*Add project* in the sidebar registers any git repository on that host. To
+use another machine, *Add host* it first: whatever you would type after
+`ssh`, so `user@host`, a `~/.ssh/config` alias, or `-p 2222 -J jump host`.
+TPS uses your ssh, so keys, agents, an open multiplexed session and
+passwords all work; prompts appear in the browser. Then add projects that
+live there.
 
-If a repository has no `Containerfile.dev` yet, TPS generates one, Debian
-based with code-server and claude-code, lets you pick extra toolchains
-(preselected by looking at the repo), and commits it. The boilerplate layers
-are identical across projects, so podman shares them.
+If a repository has no `Containerfile.dev` yet, TPS generates a Debian based
+one, lets you pick toolchains (preselected by looking at the repo), and
+commits it. The file is a plain dev image definition with nothing
+TPS-specific in it: code-server, claude and an init are downloaded once per
+host and mounted into every container. Any base works, as long as it has
+bash and git, and a user with uid 1000 who owns a home directory.
 
 ## How a task flows
 
-Every project gets a board with four columns. The sidebar lists the projects
-(with a count of the tasks sitting in Human) and their tasks; under each task
-sit its three pages: Agent (the chat), Code (VS Code in the container) and
+Every project gets a board with four columns. The sidebar is the whole tree:
+hosts, their projects (with a count of the tasks sitting in Human), their
+tasks, and under each task its three pages: Agent (the chat), Code (VS Code in the container) and
 Settings (how the run is doing, the merge button, and the settings below).
 
 1. **Plan**: A title, a markdown description, and settings (model,
@@ -80,18 +84,24 @@ Moving a task back to Plan discards all of its work, after a confirmation.
 
 - Everything about projects and tasks lives on the host that runs them: task
   state in `~/.config/tps/projects.json`, the workspaces (repo clone, claude
-  session state, chat log) under `~/.local/share/tps/`, and the daemon's
-  socket, log and, on SSH hosts, its binary next to them. The dashboard only
+  session state, chat log) and the downloaded tools under
+  `~/.local/share/tps/`, and the daemon's socket, log and, on SSH hosts, its
+  binary next to them. The dashboard only
   keeps its list of hosts in `~/.config/tps/hosts.json`. There is no database
   and your repository only ever receives the final merge commit.
 - The daemon keeps working when the dashboard goes away: merges, dependent
   tasks and budgets are handled without it, and a returning dashboard shows
   what happened. While an agent works or a dashboard is connected, the daemon
   asks the machine not to suspend (via `systemd-inhibit`, where allowed).
-- A rebuilt `tps` replaces running daemons by itself, once no agent is busy;
-  for a host of another architecture, build for it and pass
-  `--daemon-binary`. *Stop daemon* in the Hosts dialog shuts one down (with
-  its workspaces); it comes back when needed.
+- Daemons are not replaced behind your back. A host whose daemon runs another
+  build of TPS shows an update button in the sidebar;
+  the daemon then restarts into this build as soon as no agent turn, build or
+  merge is running, and its containers carry on. An update happens by itself
+  only when the daemon is too old for this TPS to talk to, and never the other
+  way around: a host with a newer TPS asks you to update this one instead.
+  For a host of another architecture, build for it and pass
+  `--daemon-binary`. Right-click a host in the sidebar for the rest: stop
+  its daemon (with its workspaces), copy your claude login there, remove it.
 - Containers get `PORT=8080` published on a random localhost port of their
   host; while something answers HTTP there, the task shows a green globe that
   opens it (tunnelled for SSH hosts).
@@ -100,6 +110,6 @@ Moving a task back to Plan discards all of its work, after a confirmation.
 - Container builds use the task's clone as their only build context, and code
   runs as an unprivileged user in a rootless container. Idle containers are
   torn down after 15 minutes; workspaces persist until the task is deleted.
-- Hacking on TPS: `npm run watch` for the web UI, `go build -o tps . && ./tps`
-  to pick up changes (the daemon restarts into the new binary). `go test ./...`
-  covers the pure parts.
+- Hacking on TPS: `npm run watch` for the web UI, `go build` and restart
+  `tps` for the rest; the sidebar then offers to update the daemon. `go test
+  ./...` covers the pure parts.

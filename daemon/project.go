@@ -178,6 +178,7 @@ func (p *Project) SetConfig(partial map[string]any) error {
 
 // CreateContainerfile generates Containerfile.dev in the repo root and commits it.
 func (p *Project) CreateContainerfile(toolIDs []string) error {
+	defer p.m.work()()
 	if branch, _ := git(p.dir(), "symbolic-ref", "--short", "HEAD"); branch != p.defaultBranch {
 		return fmt.Errorf("Check out the %s branch first (or commit a %s yourself)", p.defaultBranch, containerfile)
 	}

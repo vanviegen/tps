@@ -31,9 +31,11 @@ type sshTransport struct {
 
 const remoteDir = ".local/share/tps" // under the remote home
 
-func newSSHTransport(u *UI, dest string) *sshTransport {
-	return &sshTransport{u: u, c: sshx.New(dest, u.Ask)}
+func newSSHTransport(u *UI, hid, dest string) *sshTransport {
+	return &sshTransport{u: u, c: sshx.New(dest, func(run string) []string { return u.askpass.Env(hid, run) })}
 }
+
+func (t *sshTransport) bin() string { return t.home + "/" + remoteDir + "/bin/tps" }
 
 func (t *sshTransport) Warning() string {
 	t.mu.Lock()
@@ -45,27 +47,28 @@ func (t *sshTransport) DialDaemon() (net.Conn, error) {
 	if err := t.preflight(); err != nil {
 		return nil, err
 	}
-	sock := t.home + "/" + remoteDir + "/daemon.sock"
-	if conn, err := t.c.Dial("unix", sock); err == nil {
-		return conn, nil
-	}
+	// The relay that reaches the daemon socket is our own binary, so that goes first.
 	if err := t.Push(); err != nil {
 		return nil, err
+	}
+	sock := t.home + "/" + remoteDir + "/daemon.sock"
+	if conn, err := t.c.DialUnix(t.bin(), sock); err == nil {
+		return conn, nil
 	}
 	if err := t.startDaemon(); err != nil {
 		return nil, err
 	}
 	for i := 0; i < 50; i++ {
 		time.Sleep(200 * time.Millisecond)
-		if conn, err := t.c.Dial("unix", sock); err == nil {
+		if conn, err := t.c.DialUnix(t.bin(), sock); err == nil {
 			return conn, nil
 		}
 	}
-	return nil, fmt.Errorf("the daemon on %s did not come up; check its log there (journalctl --user, or %s/daemon.log)", t.c.Dest, remoteDir)
+	return nil, fmt.Errorf("the daemon on %s did not come up; check its log there (journalctl --user, or %s/daemon.log)", t.c.Host(), remoteDir)
 }
 
 func (t *sshTransport) DialPort(port int) (net.Conn, error) {
-	return t.c.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	return t.c.DialTCP(port)
 }
 
 // preflight learns what the host offers and refuses hosts that lack podman or git.
@@ -92,7 +95,7 @@ echo "SYSTEMD=$(command -v systemd-run >/dev/null 2>&1 && systemctl --user is-sy
 			missing = append(missing, v)
 		case "LINGER":
 			if v != "yes" {
-				t.warning = "Containers and the daemon may not outlive your login on " + t.c.Dest +
+				t.warning = "Containers and the daemon may not outlive your login on " + t.c.Host() +
 					": run `loginctl enable-linger` there (rootless podman needs it)"
 			}
 		case "SYSTEMD":
@@ -100,7 +103,7 @@ echo "SYSTEMD=$(command -v systemd-run >/dev/null 2>&1 && systemctl --user is-sy
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("%s lacks %s; TPS needs podman and git there", t.c.Dest, strings.Join(missing, " and "))
+		return fmt.Errorf("%s lacks %s; TPS needs podman and git there", t.c.Host(), strings.Join(missing, " and "))
 	}
 	if t.home == "" {
 		return errors.New("could not determine the remote home directory")
@@ -118,7 +121,7 @@ func (t *sshTransport) Push() error {
 	source := t.u.daemonBinary
 	if source == "" {
 		if goarch != runtime.GOARCH || runtime.GOOS != "linux" {
-			return fmt.Errorf("%s is linux/%s (%s); build a binary for it and pass --daemon-binary", t.c.Dest, goarch, arch)
+			return fmt.Errorf("%s is linux/%s (%s); build a binary for it and pass --daemon-binary", t.c.Host(), goarch, arch)
 		}
 		exe, err := os.Executable()
 		if err != nil {
@@ -136,14 +139,17 @@ func (t *sshTransport) Push() error {
 		return err
 	}
 	want := hex.EncodeToString(h.Sum(nil))
-	bin := home + "/" + remoteDir + "/bin/tps"
+	bin := t.bin()
 	if have, _ := t.c.Output("sha256sum " + bin + " 2>/dev/null | cut -c1-64"); have == want {
 		return nil
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	_, err = t.c.Output(fmt.Sprintf("mkdir -p %[1]s/bin && cat >%[2]s.new && chmod 755 %[2]s.new && mv -f %[2]s.new %[2]s", home+"/"+remoteDir, bin))
+	r, err := t.c.Run(fmt.Sprintf("mkdir -p %[1]s/bin && cat >%[2]s.new && chmod 755 %[2]s.new && mv -f %[2]s.new %[2]s", home+"/"+remoteDir, bin), f)
+	if err == nil && r.Code != 0 {
+		err = fmt.Errorf("installing the binary on %s failed: %s", t.c.Host(), strings.TrimSpace(r.Err))
+	}
 	return err
 }
 
@@ -151,7 +157,7 @@ func (t *sshTransport) startDaemon() error {
 	t.mu.Lock()
 	home, systemd := t.home, t.systemd
 	t.mu.Unlock()
-	bin := home + "/" + remoteDir + "/bin/tps"
+	bin := t.bin()
 	var cmd string
 	if systemd {
 		cmd = fmt.Sprintf("systemd-run --user --quiet --collect --unit tps-daemon-$(date +%%s) %s --daemon", bin)
@@ -173,5 +179,3 @@ func (t *sshTransport) CopyCredentials() error {
 	_, err = t.c.Output("mkdir -p ~/.claude && cat >~/.claude/.credentials.json && chmod 600 ~/.claude/.credentials.json")
 	return err
 }
-
-func (t *sshTransport) Close() { t.c.Close() }

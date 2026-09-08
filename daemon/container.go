@@ -119,11 +119,19 @@ func buildImage(tag, containerfile, contextDir string, onLog func(string)) error
 		return err
 	}
 	cmd := exec.Command("podman", "build", "-t", tag, "-f", file, contextDir)
-	cmd.Stdout, cmd.Stderr = writerFunc(onLog), writerFunc(onLog)
+	var tail string // the end of the build output, for the error message
+	log := writerFunc(func(s string) {
+		onLog(s)
+		tail += s
+		if len(tail) > 3000 {
+			tail = tail[len(tail)-3000:]
+		}
+	})
+	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
-			return fmt.Errorf("podman build failed (%d)", ee.ExitCode())
+			return fmt.Errorf("podman build failed (%d):\n%s", ee.ExitCode(), strings.TrimSpace(tail))
 		}
 		return err
 	}
@@ -142,39 +150,38 @@ type Container struct {
 }
 
 type containerOpts struct {
-	name, image, repoDir, claudeDir string
+	name, image, toolbox, repoDir, claudeDir string
 }
 
-// ensureContainer makes sure a container by this name, based on this image,
-// is running with the task's repo clone mounted at /work and its claude state
-// dir at /claude. Reuses a running match; otherwise replaces.
+// ensureContainer makes sure a container by this name, based on this image
+// and toolbox, is running with the task's repo clone mounted at /work and its
+// claude state dir at /claude. Reuses a running match; otherwise replaces.
 func ensureContainer(o containerOpts) (*Container, error) {
-	if c, image := runningContainer(o.name); c != nil && image == o.image {
+	config := containerConfig(o.image, o.toolbox)
+	if c := runningContainer(o.name, config); c != nil {
 		return c, nil
 	}
 	rmContainer(o.name)
-	// Bump the version when the run command/args below change, so existing
-	// containers are recycled instead of reused.
-	configJSON, _ := json.Marshal([]any{6, o.image})
-	config := string(configJSON)
 	vscode, err := sharedVscodeDir()
 	if err != nil {
 		return nil, err
 	}
 	args := []string{
-		"run", "-d", "--init", "--name", o.name, "--label", "tps.config=" + config,
+		"run", "-d", "--name", o.name, "--label", "tps.config=" + config,
 		"--userns=keep-id:uid=1000,gid=1000", "--user", "1000:1000",
 		// SELinux separation is off so the mounts stay usable without
 		// relabeling the user's real files.
 		"--security-opt", "label=disable",
+		"-v", o.toolbox + ":/tps:ro",
 		"-v", o.repoDir + ":/work",
 		"-v", o.claudeDir + ":/claude",
+		"-v", vscode + ":/vscode",
 		"-e", "CLAUDE_CONFIG_DIR=/claude",
+		"-e", "DISABLE_AUTOUPDATER=1", // the toolbox is read-only, and versioned by TPS
 		"-e", fmt.Sprintf("PORT=%d", appPort),
 		"-p", fmt.Sprintf("127.0.0.1::%d", codePort),
 		"-p", fmt.Sprintf("127.0.0.1::%d", appPort),
 		"-w", "/work",
-		"-v", vscode + ":/home/dev/.local/share/code-server",
 	}
 	if creds := filepath.Join(home(), ".claude", ".credentials.json"); exists(creds) {
 		args = append(args, "-v", creds+":/tps-host-claude-credentials.json:ro")
@@ -182,10 +189,13 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		args = append(args, "-e", "ANTHROPIC_API_KEY")
 	}
-	// The explicit --port keeps code-server from picking up $PORT, which is
-	// meant for whatever the task itself serves.
-	args = append(args, o.image, "code-server", "--bind-addr", fmt.Sprintf("0.0.0.0:%d", codePort), "--port", strconv.Itoa(codePort),
-		"--auth", "none", "--disable-workspace-trust", "/work")
+	// code-server under the toolbox's init, with the toolbox on PATH so
+	// terminals in VS Code can run claude too. The explicit --port keeps
+	// code-server from picking up $PORT, which is meant for whatever the task
+	// itself serves.
+	args = append(args, o.image, "/tps/bin/tini", "--", "sh", "-c", fmt.Sprintf(
+		"export PATH=/tps/bin:$PATH; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d --auth none --disable-workspace-trust"+
+			" --user-data-dir /vscode --extensions-dir /vscode/extensions /work", codePort))
 	if _, err := runCmd(append([]string{"podman"}, args...), RunOpts{}); err != nil {
 		return nil, err
 	}
@@ -197,28 +207,26 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	return c, c.waitReady()
 }
 
-// runningContainer finds a running container of ours by name, with the image
-// it was started from (per the label ensureContainer sets).
-func runningContainer(name string) (*Container, string) {
+// containerConfig is the label value recording what a container was started
+// with. Bump the version when ensureContainer's run command/args change, so
+// existing containers are recycled instead of reused.
+func containerConfig(image, toolbox string) string {
+	config, _ := json.Marshal([]any{7, image, filepath.Base(toolbox)})
+	return string(config)
+}
+
+// runningContainer finds a running container of ours by name, started with
+// exactly this config (per the label ensureContainer sets).
+func runningContainer(name, config string) *Container {
 	inspect, _ := runCmd([]string{"podman", "inspect", "--format", `{{index .Config.Labels "tps.config"}}` + "\t" + `{{.State.Running}}`, name}, RunOpts{NoCheck: true})
-	if inspect.Code != 0 {
-		return nil, ""
-	}
-	label, running, _ := strings.Cut(strings.TrimSpace(inspect.Out), "\t")
-	var config []any
-	if running != "true" || json.Unmarshal([]byte(label), &config) != nil || len(config) != 2 {
-		return nil, ""
-	}
-	version, _ := config[0].(float64)
-	image, _ := config[1].(string)
-	if version != 6 {
-		return nil, ""
+	if strings.TrimSpace(inspect.Out) != config+"\ttrue" {
+		return nil
 	}
 	code, app := containerPorts(name)
 	if code == 0 || app == 0 {
-		return nil, ""
+		return nil
 	}
-	return &Container{name, code, app}, image
+	return &Container{name, code, app}
 }
 
 func rmContainer(name string) {

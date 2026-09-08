@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vanviegen/agent-manager/hub"
@@ -28,6 +29,35 @@ type Manager struct {
 	hub        *hub.Hub
 	saveCh     chan []byte
 	exit       func(code int)
+	busy       atomic.Int32 // long operations in flight (builds, clones, merges, deletions)
+	restarting bool
+}
+
+// work brackets an operation a restart must not interrupt.
+func (m *Manager) work() func() {
+	m.busy.Add(1)
+	return func() { m.busy.Add(-1) }
+}
+
+// scheduleRestart makes the daemon exit as soon as nothing is running; the
+// UI then starts the binary it wants. Containers stay up and are adopted.
+func (m *Manager) scheduleRestart() {
+	m.mu.Lock()
+	pending := m.restarting
+	m.restarting = true
+	m.mu.Unlock()
+	if pending {
+		return
+	}
+	m.hub.Set([]string{"restarting"}, true)
+	go func() {
+		for range time.Tick(2 * time.Second) {
+			if m.busy.Load() == 0 && !m.anyWorking() {
+				logf("restarting now that nothing is running")
+				m.exit(0)
+			}
+		}
+	}()
 }
 
 func NewManager(h *hub.Hub, exit func(code int)) *Manager {
@@ -393,13 +423,9 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
 		"moveTask":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
 		"deleteTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
-		// The daemon exits and lets the UI start the new binary; containers stay up and are reused.
+		// Exit once idle and let the UI start the binary it wants; containers stay up and are reused.
 		"restart": func(raw json.RawMessage) (any, error) {
-			r, _, _ := decode(raw)
-			if !r.Force && m.anyWorking() {
-				return nil, errors.New("an agent is working; try again later")
-			}
-			go func() { time.Sleep(200 * time.Millisecond); m.exit(0) }()
+			m.scheduleRestart()
 			return nil, nil
 		},
 		"stop": func(raw json.RawMessage) (any, error) {

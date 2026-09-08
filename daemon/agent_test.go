@@ -62,12 +62,12 @@ func TestSessionEvents(t *testing.T) {
 
 func TestContainerfile(t *testing.T) {
 	ids := detectTools([]string{"go.mod", "Cargo.toml", "README.md", "yarn.lock"})
-	if strings.Join(ids, ",") != "corepack,go,rust" {
+	if strings.Join(ids, ",") != "node,go,rust" {
 		t.Errorf("detected %v", ids)
 	}
 	cf := generateContainerfile([]string{"rust", "python"})
 	py, rs := strings.Index(cf, "# --- Python"), strings.Index(cf, "# --- Rust")
-	if py < 0 || rs < 0 || py > rs || !strings.Contains(cf, "# --- End of TPS base ---") || !strings.HasSuffix(cf, "USER dev\nWORKDIR /work\n") {
+	if py < 0 || rs < 0 || py > rs || !strings.HasSuffix(cf, "USER dev\nWORKDIR /work\n") {
 		t.Errorf("containerfile:\n%s", cf)
 	}
 	if imageTag(cf) != imageTag(cf) || len(imageTag(cf)) != len("localhost/tps:")+12 {

@@ -12,6 +12,15 @@ import (
 	"sync"
 )
 
+// Protocol is the version of the wire protocol and state schema between a UI
+// and a daemon; MinProtocol is the oldest daemon a UI still works with. Bump
+// Protocol for any change a UI of the previous version could not handle, and
+// MinProtocol when old daemons can no longer be served.
+const (
+	Protocol    = 1
+	MinProtocol = 1
+)
+
 // CmdHandler runs one command; the result is sent back as the reply.
 type CmdHandler func(args json.RawMessage) (any, error)
 

@@ -5,10 +5,9 @@ import (
 	"strings"
 )
 
-// Generation of a project's initial Containerfile.dev. The base layers are
-// byte-identical for every project, in a fixed order, so podman shares them
-// across all TPS projects. Tool layers are appended in a canonical order for
-// the same reason.
+// Generation of a project's initial Containerfile.dev: a Debian base plus the
+// toolchains picked for the project. TPS needs nothing from the image itself;
+// its tools are mounted in at run time (see toolbox.go).
 
 type ToolOption struct {
 	ID     string         `json:"id"`
@@ -20,9 +19,11 @@ type ToolOption struct {
 const aptLayer = "RUN apt-get update && apt-get install -y --no-install-recommends %s && rm -rf /var/lib/apt/lists/*"
 
 var ToolOptions = []ToolOption{
-	{ID: "corepack", Label: "Node package managers (pnpm/yarn via corepack)",
-		detect: regexp.MustCompile(`^(pnpm-lock\.yaml|yarn\.lock|\.yarnrc\.yml)$`),
-		layer:  "RUN corepack enable"},
+	{ID: "node", Label: "Node.js 22 (npm, plus pnpm/yarn via corepack)",
+		detect: regexp.MustCompile(`^(package\.json|pnpm-lock\.yaml|yarn\.lock|\.yarnrc\.yml)$`),
+		layer: "RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \\\n" +
+			"    && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/* \\\n" +
+			"    && corepack enable"},
 	{ID: "python", Label: "Python 3 (pip, venv)",
 		detect: regexp.MustCompile(`^(requirements\.txt|pyproject\.toml|setup\.py|Pipfile)$`),
 		layer:  strings.Replace(aptLayer, "%s", "python3 python3-pip python3-venv", 1)},
@@ -73,32 +74,22 @@ func generateContainerfile(toolIDs []string) string {
 	if tools != "" {
 		tools += "\n\n"
 	}
-	return `# TPS dev container for this project (Containerfile.dev).
+	return `# Dev container image for this project (Containerfile.dev).
 #
-# Built by TPS with the task's repo clone as the (only) build context; at
-# runtime that clone is mounted at /work and TPS runs code-server and the
-# ` + "`claude`" + ` CLI in here, as user ` + "`dev`" + ` (uid 1000). Anything the task serves
-# should listen on $PORT.
-#
-# Feel free to edit, but keep the base block below byte-identical to other TPS
-# projects so podman can share those layers, and keep code-server, node and
-# claude-code installed.
+# TPS builds it with the task's repo clone as the (only) build context, and
+# runs the task in it as uid 1000 with that clone mounted at /work. code-server
+# and claude are mounted in at run time, so nothing here is TPS-specific: use
+# whatever base suits the project, as long as it has bash and git, and a user
+# with uid 1000 who owns a home directory. Anything the task serves should
+# listen on $PORT.
 
 FROM docker.io/library/debian:bookworm-slim
-
-# --- TPS base (identical across projects; add project stuff below it) ---
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git sudo bash procps psmisc ripgrep less nano \
       openssh-client unzip zip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd -m -u 1000 -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/dev
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://code-server.dev/install.sh | sh \
-    && npm install -g @anthropic-ai/claude-code
-# --- End of TPS base ---
 
 ` + tools + `USER dev
 WORKDIR /work

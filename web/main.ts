@@ -1,15 +1,16 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { bot, plus, server, settings, squareCode } from 'staffa/icons.js';
+import { bot, circleArrowUp, loaderCircle, settings, squareCode } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { drawLogDetail } from './chat.ts';
 import { $state } from './conn.ts';
-import { addProjectDialog, drawHome, hostsDialog } from './home.ts';
+import { addHostDialog, addProjectDialog, drawHome } from './home.ts';
 import { drawTask } from './task.ts';
 import { cmd, drawLiveLink, ELLIPSIS, tidOrder } from './util.ts';
 
 S.setDarkMode(true);
 
+/** Hosts, their projects, the tasks: the nav is the whole tree, with an "Add" row closing each list. */
 function navItems(): S.MenuEntry[] {
 	const items: S.MenuEntry[] = [
 		() => A('div display:flex align-items:center gap:$2 p:$2 font-size:1.25em', () => {
@@ -17,40 +18,77 @@ function navItems(): S.MenuEntry[] {
 			A('b#TPS');
 		}),
 	];
+	const hosts = Object.entries($state.hosts ?? {}) as [string, any][];
+	hosts.sort((a, b) => a[0] === 'local' ? -1 : b[0] === 'local' ? 1 : a[1].dest < b[1].dest ? -1 : 1);
 	const projects = Object.entries($state.projects ?? {}) as [string, any][];
 	projects.sort((a, b) => (a[1].name < b[1].name ? -1 : 1));
-	for (const [pid, $p] of projects) {
+	const add = (label: string, click: () => void): S.MenuItem => ({ label, attrs: 'fg:$s-muted', click });
+	for (const [hid, $h] of hosts) {
 		items.push({
-			href: `/p/${pid}`,
-			label: () => {
-				A(`span ${ELLIPSIS} text=`, A.ref($p, 'name'));
-				drawHostMark($p);
-				A(() => {
-					const waiting = (Object.values($p.tasks ?? {}) as any[]).filter($t => $t.phase === 'human').length;
-					if (waiting) A('span.s-s ml:auto font-size:0.75em ph:0.5em text=', String(waiting), () => {
-						S.addTooltip({ tip: 'Tasks in the Human column' });
-					});
-				});
-			},
-			items: Object.keys($p.tasks ?? {}).sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
-				.map(tid => taskItem(pid, tid, $p.tasks[tid])),
+			label: () => drawHostLabel(hid, $h),
+			items: [
+				...projects.filter(([, $p]) => $p.host === hid).map(([pid, $p]) => projectItem(pid, $p)),
+				add('Add project', () => addProjectDialog(hid)),
+			],
 		});
 	}
-	items.push({ separator: true },
-		{ label: 'Add a project…', icon: plus, click: () => addProjectDialog() },
-		{ label: 'Hosts…', icon: server, click: () => hostsDialog() });
+	items.push(add('Add host', () => addHostDialog()));
 	return items;
 }
 
-/** The host a project lives on (when not this machine), and a warning while it is unreachable. */
-function drawHostMark($p: any): void {
+/** The host's name, a sign when it needs attention, and its actions in a context menu. */
+function drawHostLabel(hid: string, $h: any): void {
+	S.addContextMenu({ get items() { return hostMenu(hid, $h); } });
+	A(`span ${ELLIPSIS} text=`, A.ref($h, 'dest'));
 	A(() => {
-		const $h = $state.hosts?.[$p.host];
-		if ($p.host && $p.host !== 'local') A('small fg:$s-muted ml:$1 text=', $h?.dest ?? $p.host);
-		if ($h && $h.status !== 'connected') A('span fg:$s-danger ml:$1 #⚠', () => {
-			S.addTooltip({ tip: () => A('text=', `${$h.dest}: ${$h.status}${$h.error ? ' · ' + $h.error : ''}`) });
-		});
+		const down = $h.status !== 'connected';
+		if (down || $h.warning) {
+			const tip = down ? `${$h.status}${$h.error ? ' · ' + $h.error : ''}` : $h.warning;
+			A(`span ml:$1 fg:$s-${down ? 'danger' : 'warning'} #⚠`, () => S.addTooltip({ tip }));
+		} else if ($h.restarting) {
+			A('span ml:$1 display:inline-flex fg:$s-muted', () => {
+				S.addTooltip({ tip: 'The daemon restarts as soon as nothing is running' });
+				loaderCircle({ size: '1em', attrs: 'animation: spin 1.2s linear infinite;' });
+			});
+		} else if ($h.updatable) {
+			S.iconButton({ icon: circleArrowUp, ariaLabel: 'Update the daemon on this host to this build', attrs: '.small ml:$1',
+				click: (e: Event) => { e.preventDefault(); e.stopPropagation(); void cmd('updateDaemon', { hid }); } });
+		}
 	});
+}
+
+function hostMenu(hid: string, $h: any): S.MenuEntry[] {
+	const remote = hid !== 'local';
+	const items: S.MenuEntry[] = [];
+	if ($h.status !== 'connected') items.push({ label: 'Connect', click: () => void cmd('connectHost', { hid }) });
+	else if ($h.updatable && !$h.restarting) items.push({ label: 'Update daemon to this build', icon: circleArrowUp, click: () => void cmd('updateDaemon', { hid }) });
+	if (remote) items.push({ label: 'Copy claude login to this host', click: async () => {
+		if (await cmd('copyCredentials', { hid })) S.toast({ message: `Your claude login is now on ${$h.dest}`, type: 'success' });
+	}});
+	items.push({ separator: true }, { label: 'Stop daemon', attrs: 'fg:$s-danger', click: async () => {
+		if (await S.confirm(`Stop the TPS daemon on **${$h.dest}**? Its running workspaces are shut down; Connect starts it again.`)) void cmd('stopDaemon', { hid });
+	}});
+	if (remote) items.push({ label: 'Remove host', attrs: 'fg:$s-danger', click: async () => {
+		if (await S.confirm(`Remove **${$h.dest}**? Its projects disappear from this TPS; nothing changes on the host itself.`)) void cmd('removeHost', { hid });
+	}});
+	return items;
+}
+
+function projectItem(pid: string, $p: any): S.MenuItem {
+	return {
+		href: `/p/${pid}`,
+		label: () => {
+			A(`span ${ELLIPSIS} text=`, A.ref($p, 'name'));
+			A(() => {
+				const waiting = (Object.values($p.tasks ?? {}) as any[]).filter($t => $t.phase === 'human').length;
+				if (waiting) A('span.s-s ml:auto font-size:0.75em ph:0.5em text=', String(waiting), () => {
+					S.addTooltip({ tip: 'Tasks in the Human column' });
+				});
+			});
+		},
+		items: Object.keys($p.tasks ?? {}).sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
+			.map(tid => taskItem(pid, tid, $p.tasks[tid])),
+	};
 }
 
 /**

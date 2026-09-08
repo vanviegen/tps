@@ -39,6 +39,7 @@ type UI struct {
 	links map[string]*Link
 
 	daemonBinary string
+	askpass      *askpassServer
 	askMu        sync.Mutex
 	askNext      int
 	asks         map[int]chan answer
@@ -54,6 +55,10 @@ func Run(o Options) error {
 			"models": daemon.Models, "tools": daemon.ToolOptions}),
 		webFS: o.WebFS, links: map[string]*Link{},
 		daemonBinary: o.DaemonBinary, asks: map[int]chan answer{},
+	}
+	var err error
+	if u.askpass, err = u.startAskpass(); err != nil {
+		return err
 	}
 	u.registerCmds()
 	u.hub.OnWatch = u.onWatch
@@ -166,6 +171,7 @@ func (u *UI) registerCmds() {
 	u.hub.Cmds["removeHost"] = u.removeHost
 	u.hub.Cmds["copyCredentials"] = u.copyCredentials
 	u.hub.Cmds["stopDaemon"] = u.stopDaemon
+	u.hub.Cmds["updateDaemon"] = u.updateDaemon
 	u.hub.Cmds["answer"] = u.answer
 }
 
