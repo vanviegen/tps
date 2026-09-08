@@ -1,4 +1,5 @@
 import A from 'aberdeen';
+import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { bot, check, circle, gitMerge, globe, hourglass, listTodo, loaderCircle, user } from 'staffa/icons.js';
 import { $state, send } from './conn.ts';
@@ -10,12 +11,34 @@ export const PHASE_LABELS: Record<Phase, string> = {
 	plan: 'Plan', agent: 'Agent', human: 'Human', merge: 'Merge', done: 'Done',
 };
 
-const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, merge: gitMerge, done: check };
+export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, merge: gitMerge, done: check };
 
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
 
 A.insertGlobalCss({ '@keyframes spin': { to: 'transform:rotate(360deg)' } });
+
+/**
+ * What the URL selects: a project, and within it a task, its base worktree, or
+ * neither. Everything on screen follows from this, so navigating is a link.
+ */
+export function selection(): { pid?: string; tid?: string; base?: boolean } {
+	const p = route.current.p;
+	if (p[0] !== 'p' || !p[1]) return {};
+	return { pid: p[1], tid: p[2] === 't' ? p[3] : undefined, base: p[2] === 'base' };
+}
+
+/** The path selecting a project, and in it a task (`'base'` for the base worktree). */
+export function pathTo(pid: string, tid?: string): string {
+	return `/p/${pid}` + (tid === 'base' ? '/base' : tid ? `/t/${tid}` : '');
+}
+
+/** How many things wait for a human, as a pill. Nothing waiting draws nothing. */
+export function drawBadge(count: number, attrs = ''): void {
+	if (!count) return;
+	A('span.s-s.warning font-size:0.7em font-weight:700 line-height:1 ph:0.45em pv:0.25em r:1em flex-shrink:0',
+		attrs, 'text=', String(count));
+}
 
 /** Dependencies of `$t` that still block it: existing, unmerged tasks. */
 export function blockingDeps(pid: string, $t: any): string[] {

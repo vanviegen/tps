@@ -35,8 +35,8 @@ CGO_ENABLED=0 go build -o tps .    # embeds it; one static binary is all you nee
 ./tps                              # http://localhost:4820/, opens your browser
 ```
 
-*Add project* at the bottom of the sidebar takes a directory holding a git
-repository: `~/projects/app` for one on this machine, `host:~/projects/app`
+*Add project*, the bottom entry of the project dropdown, takes a directory
+holding a git repository: `~/projects/app` for one on this machine, `host:~/projects/app`
 for one on another, where `host` is whatever you would type after `ssh`, so
 `user@host`, a `~/.ssh/config` alias, or `-p 2222 -J jump host`. Hosts you
 already use are suggested as you type. TPS uses your ssh, so keys, agents,
@@ -54,12 +54,21 @@ built from it, and the file is merged along with the rest of its work.
 
 ## How a task flows
 
-The sidebar lists your projects, most recently active first, each with the
-host it lives on and a count of the tasks sitting in Human; right-click one to
-rename it or take it off the list. A project is a board with five columns.
-Clicking a task opens its page: the title, the chat and the changed files at a
-glance (each opens VS Code, running in the container, on the file), the
-description, what can be done with it next, and its settings.
+The window is two columns. The left one holds a project dropdown and, under
+it, a task dropdown; both list the ones waiting for a human first, then the
+most recent, and both wear a badge counting what they hide that wants a human.
+The gear beside each opens its settings, and the phase icon beside the task
+opens the list of phases to move it to.
+
+The right column is whatever the left one names: the project's board of five
+columns while no task is picked, VS Code (running in the container) on the
+task's workspace once one is, and VS Code on the project's own checkout for the
+*"main" branch* entry of the task list. A view you switch away from is kept
+warm for a few minutes, so switching back is instant.
+
+Under the selectors, a task shows its description while it is still in Plan,
+and its chat with the agent once it is not: the log, and the box to steer it
+with.
 
 1. **Plan**: A title, a markdown description, and settings (model,
    dependencies, budget, merge behaviour). Nothing exists on disk yet. Once
@@ -111,11 +120,11 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   when the daemon is too old for this TPS to talk to, and never the other
   way around: a host with a newer TPS asks you to update this one instead.
   For a host of another architecture, build for it and pass
-  `--daemon-binary`. The project settings (the gear on the board) hold the
-  rest: stop the daemon (with its workspaces), copy your claude login there.
+  `--daemon-binary`. The project settings (the gear beside the project) hold
+  the rest: stop the daemon (with its workspaces), copy your claude login there.
 - Containers get `PORT=8080` published on a random localhost port of their
-  host; while something answers HTTP there, the task shows a green globe that
-  opens it (tunnelled for SSH hosts).
+  host; while something answers HTTP there, the task's card shows a green globe
+  that opens it (tunnelled for SSH hosts).
 - Each task tracks what its agent runs cost; an optional budget limit parks
   the task for you when spending reaches it.
 - Container builds use the task's clone as their only build context, and code

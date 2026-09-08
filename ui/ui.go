@@ -48,7 +48,7 @@ type UI struct {
 }
 
 // Commands that belong to a project or task and are forwarded to its daemon.
-var daemonCmds = []string{"setProject", "openProjectCode", "createTask", "updateTask", "openTask", "assignTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask"}
+var daemonCmds = []string{"setProject", "openProjectCode", "createTask", "updateTask", "openTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask"}
 
 func Run(o Options) error {
 	u := &UI{

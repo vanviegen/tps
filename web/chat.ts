@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import { Marked } from 'marked';
 import * as S from 'staffa';
-import { chatLog, watchTask } from './conn.ts';
+import { chatLog } from './conn.ts';
 import { ELLIPSIS } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -29,14 +29,14 @@ export const md = new Marked({
 /**
  * The task's chat log, filling its flex column and scrolling: user and assistant
  * messages as markdown; thinking, tool calls (call and result on one line)
- * and TPS notes as compact one-liners that open a detail panel next to it.
+ * and TPS notes as compact one-liners that open a dialog with the whole thing.
  */
-export function drawChat(pid: string, tid: string, $panel: S.Panel): void {
+export function drawChat(pid: string, tid: string): void {
 	const $chat = chatLog(pid, tid);
 	// Content-sized grid rows: as flex or auto-row items, the one-liners (which
 	// clip their overflow) would be squashed to nothing once the log overflows.
 	const el = A('div flex:1 min-height:0 overflow-y:auto display:grid grid-auto-rows:max-content gap:$2', () => {
-		A.onEach($chat, ($e: any, i: number) => drawEntry($e, () => void $panel.open(`/p/${pid}/t/${tid}/log/${i}`)));
+		A.onEach($chat, ($e: any) => drawEntry($e));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
 	let stick = true;
@@ -49,13 +49,12 @@ export function drawChat(pid: string, tid: string, $panel: S.Panel): void {
 	});
 }
 
-/** A one-liner with a detail panel: the whole row opens it. */
+/** A one-liner with more behind it: the whole row opens the detail dialog. */
 const openable = A.insertCss({ '&': 'cursor:pointer', '&:hover': 'fg:$s-text' });
 
-/** Draw an entry; `open` pushes its detail panel. */
-function drawEntry($e: any, open: () => void): void {
+function drawEntry($e: any): void {
 	const line = (draw: () => void, opens = false) =>
-		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', open, draw) : A(`small ${ELLIPSIS}`, draw);
+		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', () => detailDialog($e), draw) : A(`small ${ELLIPSIS}`, draw);
 	const prefix = (text: string) => A('b fg:$s-accent text=', text);
 	switch ($e.k) {
 		case 'user':
@@ -90,23 +89,16 @@ function drawEntry($e: any, open: () => void): void {
 	}
 }
 
-/** The pushed panel showing one log entry in full: a box per section. */
-export function drawLogDetail($panel: S.Panel<{ pid: string; tid: string; i: number }>): void {
-	const { pid, tid, i } = $panel.params;
-	$panel.maxWidth = 'medium';
-	watchTask(pid, tid);
-	A(() => {
-		const $e = chatLog(pid, tid)[i];
-		$panel.loading = !$e; // the log may still be streaming in
-		if (!$e) return;
-		const title = $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps: ' + $e.text : 'Thinking';
-		$panel.title = title;
-		const sections: [string, string | undefined][] =
-			$e.k === 'tool' ? [['Request', $e.detail], [$e.error ? 'Response (error)' : 'Response', $e.resDetail]]
-			: [[title, $e.detail]];
+/** One log entry in full: a box per section. */
+function detailDialog($e: any): void {
+	const title = $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps: ' + $e.text : 'Thinking';
+	const sections: [string, string | undefined][] =
+		$e.k === 'tool' ? [['Request', $e.detail], [$e.error ? 'Response (error)' : 'Response', $e.resDetail]]
+		: [[title, $e.detail]];
+	void S.dialog({ header: title, attrs: 'w:60rem', content: () => {
 		for (const [header, text] of sections) {
 			if (text === undefined) continue;
-			S.box({ header, contentAttrs: 'p:0', content: () => A('pre r:0 white-space:pre-wrap overflow-wrap:anywhere text=', text) });
+			S.box({ header, contentAttrs: 'p:0', content: () => A('pre r:0 max-height:60dvh white-space:pre-wrap overflow-wrap:anywhere text=', text) });
 		}
-	});
+	}});
 }

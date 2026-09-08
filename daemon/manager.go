@@ -347,7 +347,6 @@ type ref struct {
 	Pid     string `json:"pid"`
 	Tid     string `json:"tid"`
 	Dir     string `json:"dir"`
-	To      string `json:"to"`
 	Text    string `json:"text"`
 	Phase   Phase  `json:"phase"`
 	Message string `json:"message"`
@@ -430,13 +429,6 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		}),
 		"updateTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Update(partial) }),
 		"openTask":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
-		"assignTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
-			to := "agent"
-			if r.To == "human" {
-				to = "human"
-			}
-			return nil, t.Assign(to)
-		}),
 		"chat":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text) }),
 		"stopAgent":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),

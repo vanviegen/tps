@@ -1,0 +1,30 @@
+# Dev container image for this project (Containerfile.dev).
+#
+# TPS builds it with the task's repo clone as the (only) build context, and
+# runs the task in it as uid 1000 with that clone mounted at /work. code-server
+# and claude are mounted in at run time, so nothing here is TPS-specific: use
+# whatever base suits the project, as long as it has bash and git, and a user
+# with uid 1000 who owns a home directory. Anything the task serves should
+# listen on $PORT.
+#
+# TPS itself needs Go (the binary) and node (only to bundle the web UI).
+
+FROM docker.io/library/debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git sudo bash procps psmisc ripgrep less nano \
+      openssh-client unzip zip xz-utils build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG GO_VERSION=1.24.7
+ARG NODE_VERSION=22.19.0
+RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" | tar -C /usr/local -xz \
+    && case "$arch" in amd64) narch=x64 ;; arm64) narch=arm64 ;; *) narch="$arch" ;; esac \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${narch}.tar.xz" \
+       | tar -C /usr/local --strip-components=1 -xJ
+ENV PATH=/usr/local/go/bin:/usr/local/bin:$PATH GOPATH=/home/dev/go
+
+RUN useradd -m -u 1000 -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/dev
+USER dev
+WORKDIR /work
