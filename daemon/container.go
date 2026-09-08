@@ -17,9 +17,9 @@ import (
 )
 
 // VS Code state (settings, keybindings, snippets, extensions, UI state) lives
-// in one shared directory, mounted into every task container. Configure once,
-// and every task of every project has it; it also survives container
-// rebuilds. Seeded from the host's code-server or desktop VS Code settings on
+// in one shared directory, mounted into every task container and used by the
+// code-server on a project's own checkout (see code.go). Configure once, and
+// every task of every project has it; it also survives container rebuilds. Seeded from the host's code-server or desktop VS Code settings on
 // first use, defaulting to a dark theme. Trade-off of sharing the whole data
 // dir: workspace UI state is keyed by folder path (/work everywhere), so open
 // tabs can bleed between tasks.

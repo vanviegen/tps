@@ -25,7 +25,7 @@ export function blockingDeps(pid: string, $t: any): string[] {
 
 /** A host's name as shown to the user. */
 export function hostName(hid: string): string {
-	return hid === 'local' ? 'this machine' : $state.hosts?.[hid]?.name ?? hid;
+	return hid === 'local' ? 'localhost' : $state.hosts?.[hid]?.name ?? hid;
 }
 
 /** A task by name, for anywhere one task points at another. */

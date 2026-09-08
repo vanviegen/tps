@@ -29,8 +29,9 @@ function withTask($panel: TaskPanel, draw: ($t: any) => void): void {
  */
 export function drawTask($panel: TaskPanel): void {
 	const { pid, tid } = $panel.params;
-	$panel.maxWidth = 'small';
-	A('display:grid align-content:start gap:$3'); // not flex: that would shrink the boxes instead of scrolling
+	$panel.maxWidth = 'medium';
+	// max-content rows: auto ones (and flex) would squash the boxes to fit the column instead of scrolling it.
+	A('display:grid grid-auto-rows:max-content gap:$3');
 	withTask($panel, $t => {
 		A(() => { $panel.title = $t.title || 'New task'; });
 		const $draft = A.proxy({ title: (A.peek($t, 'title') ?? '') as string, description: (A.peek($t, 'description') ?? '') as string });
@@ -52,7 +53,7 @@ export function drawTask($panel: TaskPanel): void {
 		drawStatus(pid, $t);
 		A(() => {
 			if ($t.phase === 'plan') return;
-			drawChatBox(pid, tid, $t, $panel);
+			drawAgentBox(pid, tid, $t, $panel);
 			drawChanges(pid, tid, $t, $panel);
 		});
 		A(() => {
@@ -102,7 +103,7 @@ interface TaskAction {
 export function taskActions(pid: string, tid: string, $t: any, $panel: S.Panel, o: { flush?: () => Promise<boolean>; title?: string } = {}): TaskAction[] {
 	const assign = async (to: string) => {
 		if (o.flush && !await o.flush()) return;
-		if (await cmd('assignTask', { pid, tid, to })) void $panel.open(`/p/${pid}/t/${tid}/agent`);
+		if (await cmd('assignTask', { pid, tid, to })) void $panel.open(`/p/${pid}/t/${tid}`);
 	};
 	const move = (phase: Phase) => () => void moveTask(pid, tid, $t, phase);
 	const actions: TaskAction[] = [];
@@ -119,7 +120,6 @@ export function taskActions(pid: string, tid: string, $t: any, $panel: S.Panel, 
 			actions.push({ label: 'Back to plan', icon: listTodo, danger: true, click: move('plan') });
 			break;
 		case 'human':
-			actions.push({ label: 'Send the agent back in', icon: bot, click: move('agent') });
 			actions.push({ label: 'Merge…', icon: gitMerge, primary: !!$t.commitMessage, click: move('merge') });
 			actions.push({ label: 'Back to plan', icon: listTodo, danger: true, click: move('plan') });
 			break;
@@ -170,20 +170,21 @@ export async function deleteTask(pid: string, tid: string, $t: any): Promise<voi
 	void cmd('deleteTask', { pid, tid });
 }
 
-/** The chat, small, with a way to give it a panel of its own. */
-function drawChatBox(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
+/** The chat, capped so the rest of the page keeps its place; the button gives it a column of its own. */
+function drawAgentBox(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
 	S.box({
+		attrs: 'max-height:70dvh',
 		header: () => {
 			A('#Agent');
-			S.iconButton({ icon: maximize2, ariaLabel: 'Open the chat in a panel of its own', attrs: '.small ml:auto',
+			S.iconButton({ icon: maximize2, ariaLabel: 'Open the chat in a column of its own', attrs: '.small ml:auto',
 				click: () => void $panel.open(`/p/${pid}/t/${tid}/agent`) });
 		},
-		contentAttrs: 'display:flex flex-direction:column gap:$2',
-		content: () => drawAgent(pid, tid, $t, $panel, 'max-height:40dvh'),
+		contentAttrs: 'flex:1 min-height:0 display:flex flex-direction:column gap:$2',
+		content: () => drawAgent(pid, tid, $t, $panel),
 	});
 }
 
-/** The chat in a panel of its own, filling the column. */
+/** The same chat, filling a column: no page around it, so no second scrollbar either. */
 export function drawAgentPanel($panel: TaskPanel): void {
 	const { pid, tid } = $panel.params;
 	$panel.maxWidth = 'medium';
@@ -195,13 +196,13 @@ export function drawAgentPanel($panel: TaskPanel): void {
 			return;
 		}
 		S.box({ attrs: 'flex:1 min-height:0', contentAttrs: 'flex:1 min-height:0 display:flex flex-direction:column gap:$2',
-			content: () => drawAgent(pid, tid, $t, $panel, 'flex:1 min-height:0') });
+			content: () => drawAgent(pid, tid, $t, $panel) });
 	});
 }
 
-/** The chat log (sized by `logAttrs`), a strip for things worth knowing (or doing) right now, and the input. */
-function drawAgent(pid: string, tid: string, $t: any, $panel: TaskPanel, logAttrs: string): void {
-	drawChat(pid, tid, $panel, logAttrs);
+/** The chat log, a strip for things worth knowing (or doing) right now, and the input. */
+function drawAgent(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
+	drawChat(pid, tid, $panel);
 	A(() => {
 		if ($t.phase !== 'human' || !$t.commitMessage) return;
 		A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
@@ -244,7 +245,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 	});
 }
 
-const hoverable = A.insertCss({ '&:hover': 'fg:$s-text' });
+const fileRow = A.insertCss({ '&': 'break-inside:avoid', '&:hover': 'fg:$s-text text-decoration:underline' });
 
 /** The files changed so far, each opening VS Code on itself; the box as a whole opens it on the workspace. */
 function drawChanges(pid: string, tid: string, $t: any, $panel: TaskPanel): void {
@@ -253,13 +254,14 @@ function drawChanges(pid: string, tid: string, $t: any, $panel: TaskPanel): void
 		A('click=', () => void $panel.open(base));
 		S.addTooltip({ tip: 'Open VS Code in the container' });
 		squareCode({ size: '3em', attrs: 'flex-shrink:0 fg:$s-accent' });
-		A('div flex:1 min-width:0 display:flex flex-direction:column font-family:monospace font-size:0.85em', () => {
+		// Two columns once there is room for them, read down and then across.
+		A('div flex:1 min-width:0 columns: 16rem 2; column-gap:$3 font-family:monospace font-size:0.85em', () => {
 			A(() => {
 				const changes: any[] | undefined = $t.changes;
 				if (!changes) A('span fg:$s-muted #Looking for changes…');
 				else if (!changes.length) A('span fg:$s-muted #No changes yet');
 				for (const c of changes ?? []) {
-					A(`div display:flex gap:$2 fg:$s-muted`, hoverable,
+					A(`div display:flex gap:$2 fg:$s-muted`, fileRow,
 						'click=', (e: Event) => { e.stopPropagation(); void $panel.open(`${base}/${c.p.split('/').map(encodeURIComponent).join('/')}`); },
 						() => {
 							A(`span flex:1 ${ELLIPSIS} text=`, c.p);

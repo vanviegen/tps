@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { bot, pencil, plus, x } from 'staffa/icons.js';
-import { drawBoard } from './board.ts';
+import { bot, chevronLeft, pencil, plus, x } from 'staffa/icons.js';
+import { drawBoard, drawProjectCode } from './board.ts';
 import { drawLogDetail } from './chat.ts';
 import { $state } from './conn.ts';
 import { addProjectDialog, drawHome, removeProject, renameProject, sortedProjects } from './projects.ts';
@@ -10,12 +10,23 @@ import { cmd, ELLIPSIS } from './util.ts';
 
 S.setDarkMode(true);
 
+/** The shell, once `S.main()` below has handed it over; the nav's "up" reads the stack from it. */
+const $shell = A.proxy<{ stack?: S.PanelStack }>({});
+
 /** The nav is the project list, most recently active first, with an "Add" row closing it. */
 function navItems(): S.MenuEntry[] {
 	const items: S.MenuEntry[] = [
 		() => A('div display:flex align-items:center gap:$2 p:$2 font-size:1.25em', () => {
 			bot({ size: '1.7em', color: 'var(--s-accent)' });
 			A('b#TPS');
+			// The top bar (with its breadcrumbs) is hidden, so this is the way back
+			// up the stack. Nothing to go up to on a project page or the welcome.
+			A(() => {
+				const stack = $shell.stack;
+				if (!stack?.currentPanelIndex) return;
+				S.iconButton({ icon: chevronLeft, ariaLabel: 'Back to the previous page', attrs: '.small .neutral ml:auto',
+					click: () => void stack.closePanel() });
+			});
 		}),
 	];
 	for (const [pid, $p] of sortedProjects()) items.push(projectItem(pid, $p));
@@ -50,7 +61,7 @@ function projectItem(pid: string, $p: any): S.MenuItem {
 	};
 }
 
-S.main({
+$shell.stack = S.main({
 	title: 'TPS',
 	topbarAttrs: 'display:none', // every vertical pixel goes to the content; the nav says where you are
 	navWidth: 300,
@@ -58,9 +69,10 @@ S.main({
 	routes: {
 		'/': drawHome,
 		'/p/[pid]': drawBoard,
+		'/p/[pid]/code': drawProjectCode,
 		'/p/[pid]/t/[tid]': drawTask,
 		'/p/[pid]/t/[tid]/agent': drawAgentPanel,
-		'/p/[pid]/t/[tid]/agent/log/[i=integer]': drawLogDetail,
+		'/p/[pid]/t/[tid]/log/[i=integer]': drawLogDetail,
 		'/p/[pid]/t/[tid]/code': drawCodePanel,
 		'/p/[pid]/t/[tid]/code/[...file]': drawCodePanel,
 	},

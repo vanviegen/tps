@@ -27,16 +27,16 @@ export const md = new Marked({
 });
 
 /**
- * The task's chat log, a scrolling list (sized by `attrs`): user and assistant
+ * The task's chat log, filling its flex column and scrolling: user and assistant
  * messages as markdown; thinking, tool calls (call and result on one line)
  * and TPS notes as compact one-liners that open a detail panel next to it.
  */
-export function drawChat(pid: string, tid: string, $panel: S.Panel, attrs = ''): void {
+export function drawChat(pid: string, tid: string, $panel: S.Panel): void {
 	const $chat = chatLog(pid, tid);
 	// Content-sized grid rows: as flex or auto-row items, the one-liners (which
 	// clip their overflow) would be squashed to nothing once the log overflows.
-	const el = A('div overflow-y:auto display:grid grid-auto-rows:max-content gap:$2', attrs, () => {
-		A.onEach($chat, ($e: any, i: number) => drawEntry($e, () => void $panel.open(`/p/${pid}/t/${tid}/agent/log/${i}`)));
+	const el = A('div flex:1 min-height:0 overflow-y:auto display:grid grid-auto-rows:max-content gap:$2', () => {
+		A.onEach($chat, ($e: any, i: number) => drawEntry($e, () => void $panel.open(`/p/${pid}/t/${tid}/log/${i}`)));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
 	let stick = true;

@@ -1,14 +1,23 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { plus, settings } from 'staffa/icons.js';
+import { gitBranch, plus, settings, squareCode } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { moveTask, taskActions } from './task.ts';
-import { cmd, costText, drawLiveLink, drawTaskIcon, hostName, PHASES, PHASE_LABELS, taskActivity, tidOrder } from './util.ts';
+import { cmd, costText, drawLiveLink, drawTaskIcon, ELLIPSIS, hostName, PHASES, PHASE_LABELS, taskActivity, tidOrder } from './util.ts';
+
+/**
+ * One board column, and the width the strips above the board take: two columns
+ * plus the gap between them. Defined once, so the two rows can't drift apart.
+ */
+const boardWidths = A.insertCss({
+	'&': `--col: clamp(190px, calc((100% - ${PHASES.length - 1} * var(--m3)) / ${PHASES.length}), 320px);`
+		+ ' --strip: calc(2 * var(--col) + var(--m3));',
+});
 
 export function drawBoard($panel: S.Panel<{ pid: string }>): void {
 	$panel.maxWidth = 'none';
 	const pid = $panel.params.pid;
-	A('display:flex flex-direction:column gap:$3');
+	A('display:flex flex-direction:column gap:$3', boardWidths);
 	A(() => {
 		$panel.loading = !$state.ready;
 		const $p = $state.projects[pid];
@@ -19,15 +28,18 @@ export function drawBoard($panel: S.Panel<{ pid: string }>): void {
 		A(() => { $panel.title = $p.name; });
 		$panel.actions = () => S.iconButton({ icon: settings, ariaLabel: 'Project settings', attrs: '.small',
 			click: () => projectSettingsDialog(pid, $p) });
-		drawNotices($p);
+		A('div display:flex flex-wrap:wrap gap:$3', () => {
+			drawRepoBox(pid, $p, $panel);
+			drawNotices($p);
+		});
 		drawColumns(pid, $p, $panel);
 	});
 }
 
-/** What stands between the user and the board: the host's state, a failed registration, a dirty checkout. */
+/** What stands between the user and the board: the host's state, or a project that failed to register. */
 function drawNotices($p: any): void {
 	const strip = (color: string, text: string, action?: () => void) =>
-		A(`div.s-s.${color}.tonal p:$2 display:flex align-items:center gap:$2`, () => {
+		A(`div.s-s.${color}.tonal p:$2 w:var(--strip) display:flex align-items:center gap:$2`, () => {
 			A('span flex:1 rich=', text);
 			action?.();
 		});
@@ -48,10 +60,76 @@ function drawNotices($p: any): void {
 				() => S.button({ content: 'Update daemon', attrs: '.small', click: () => void cmd('updateDaemon', { hid: $p.host }) }));
 		}
 	});
+}
+
+/** Where the project's own checkout lives, what git makes of it, and the way into VS Code on it. */
+function drawRepoBox(pid: string, $p: any, $panel: S.Panel): void {
 	A(() => {
-		if (!$p.dirty) return;
-		const where = $p.host !== 'local' ? ` on ${hostName($p.host)}` : '';
-		strip('warning', `⚠ **Uncommitted changes** in \`${$p.dir}\`${where}. Task workspaces clone the committed state only, and merging may be blocked.`);
+		const dirty = !!$p.dirty;
+		A(`div.s-s.${dirty ? 'warning.tonal' : 'neutral'} p:$2 w:var(--strip) display:flex align-items:center gap:$2 cursor:pointer`,
+			'click=', () => void $panel.open(`/p/${pid}/code`),
+			() => {
+				S.addTooltip({ tip: dirty
+					? 'Task workspaces clone the committed state only, so this work stays out of them and may block a merge. Click to open VS Code on the checkout.'
+					: 'Open VS Code on this checkout' });
+				squareCode({ size: '2em', attrs: 'flex-shrink:0 fg:$s-accent' });
+				A('div flex:1 min-width:0 font-size:0.9em', () => {
+					// The directory gives way first: the host and the branch are short, and cutting them loses more.
+					A('div display:flex align-items:baseline gap:$1', () => {
+						A('b flex-shrink:0 text=', hostName($p.host));
+						A(`span ${ELLIPSIS} min-width:0 fg:$s-muted font-family:monospace text=`, $p.dir);
+						A(() => {
+							if (!$p.branch) return;
+							A('span flex-shrink:0 display:flex align-items:center gap:$0 font-family:monospace', () => {
+								gitBranch({ size: '1em' });
+								A('text=', $p.branch);
+							});
+						});
+					});
+					A('div display:flex align-items:baseline gap:$1', () => {
+						A('span flex-shrink:0 #git:');
+						A(() => {
+							if ($p.git == null) A('span fg:$s-muted #checking…');
+							else if (dirty) A(`span ${ELLIPSIS} min-width:0 text=`, `${$p.git} · not in task workspaces`);
+							else { A('span flex-shrink:0 fg:$s-success #✔'); A('span #Clean'); }
+						});
+					});
+				});
+			});
+	});
+}
+
+/** VS Code on the project's own checkout, served by the daemon that owns it. */
+export function drawProjectCode($panel: S.Panel<{ pid: string }>): void {
+	const pid = $panel.params.pid;
+	$panel.maxWidth = 'none';
+	$panel.title = 'Code';
+	A('display:flex flex-direction:column');
+	A(() => {
+		$panel.loading = !$state.ready;
+		const $p = $state.projects[pid];
+		if (!$p) {
+			if ($state.ready) S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' });
+			return;
+		}
+		const start = () => void cmd('openProjectCode', { pid });
+		A(start);
+		A(() => {
+			if (!$p.codePort) {
+				S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
+					if ($p.codeError) A('p fg:$s-danger text=', $p.codeError);
+					else { A('p#Starting VS Code on the checkout…'); A('progress w:100%'); }
+					S.button({ content: 'Retry', attrs: '.small .neutral', click: start });
+				}});
+				return;
+			}
+			A('p:0'); // edge to edge
+			// code-server's remote authority is the Host header, which the proxy passes on unchanged.
+			const src = `/code/${pid}/-/?folder=${encodeURIComponent($p.dir)}`;
+			const iframe = A('iframe flex:1 w:100% border:0', { allow: 'clipboard-read; clipboard-write' }, 'src=', src) as HTMLIFrameElement;
+			iframe.addEventListener('load', () => iframe.focus());
+			A(() => { if ($panel.visible) setTimeout(() => iframe.focus(), 100); });
+		});
 	});
 }
 
@@ -60,7 +138,7 @@ function drawColumns(pid: string, $p: any, $panel: S.Panel): void {
 	A('div display:flex gap:$3 align-items:stretch overflow-x:auto flex:1', () => {
 		for (const phase of PHASES) {
 			S.box({
-				attrs: 'flex:1 min-width:190px max-width:320px mt:0 min-height:14rem',
+				attrs: 'w:var(--col) flex:none mt:0 min-height:14rem',
 				contentAttrs: 'flex:1 display:flex flex-direction:column',
 				header: () => {
 					A('text=', PHASE_LABELS[phase]);

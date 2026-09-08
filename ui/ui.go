@@ -48,7 +48,7 @@ type UI struct {
 }
 
 // Commands that belong to a project or task and are forwarded to its daemon.
-var daemonCmds = []string{"setProject", "createTask", "updateTask", "openTask", "assignTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask"}
+var daemonCmds = []string{"setProject", "openProjectCode", "createTask", "updateTask", "openTask", "assignTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask"}
 
 func Run(o Options) error {
 	u := &UI{
@@ -210,7 +210,9 @@ func (u *UI) serveWS(w http.ResponseWriter, r *http.Request) {
 
 var codeRoute = regexp.MustCompile(`^/code/([^/]+)/([^/]+)(/.*)?$`)
 
-// serveCode proxies /code/<pid>/<tid>/... to the task's code-server.
+// serveCode proxies /code/<pid>/<tid>/... to the task's code-server, and
+// /code/<pid>/-/... to the one on the project's own checkout. Task ids are
+// numbers, so "-" can never be one.
 func (u *UI) serveCode(w http.ResponseWriter, r *http.Request) {
 	m := codeRoute.FindStringSubmatch(r.URL.Path)
 	if m == nil {
@@ -218,7 +220,11 @@ func (u *UI) serveCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	l, _, err := u.resolve(m[1])
-	port, _ := u.hub.Get("projects", m[1], "tasks", m[2], "codePort").(float64)
+	portPath := []string{"projects", m[1], "tasks", m[2], "codePort"}
+	if m[2] == "-" {
+		portPath = []string{"projects", m[1], "codePort"}
+	}
+	port, _ := u.hub.Get(portPath...).(float64)
 	if err != nil || port == 0 {
 		w.Header().Set("content-type", "text/html")
 		w.WriteHeader(http.StatusServiceUnavailable)

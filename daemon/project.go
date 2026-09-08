@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,6 +26,7 @@ type Project struct {
 	info          *ProjectInfo
 	tasks         map[string]*Task
 	defaultBranch string
+	code          *codeServer // VS Code on the checkout itself; see code.go
 }
 
 func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
@@ -127,6 +130,7 @@ func (p *Project) startUnblockedL() {
 }
 
 func (p *Project) close() {
+	p.closeCode()
 	p.m.mu.Lock()
 	tasks := p.taskListL()
 	p.m.mu.Unlock()
@@ -156,8 +160,38 @@ func (p *Project) taskListL() []*Task {
 
 func (p *Project) refreshMeta() {
 	p.pub("defaultBranch", p.defaultBranch)
+	branch, _ := git(p.dir(), "branch", "--show-current") // empty on a detached HEAD
+	p.pub("branch", branch)
 	status, _ := git(p.dir(), "status", "--porcelain")
 	p.pub("dirty", status != "")
+	p.pub("git", gitSummary(status))
+}
+
+// gitSummary boils `git status --porcelain` down to the few words the
+// dashboard has room for: "Clean", or what is changed and what is new.
+func gitSummary(status string) string {
+	changed, added := 0, 0
+	for _, line := range strings.Split(status, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "??") {
+			added++
+		} else {
+			changed++
+		}
+	}
+	var parts []string
+	if changed > 0 {
+		parts = append(parts, fmt.Sprintf("%d changed", changed))
+	}
+	if added > 0 {
+		parts = append(parts, fmt.Sprintf("%d new", added))
+	}
+	if len(parts) == 0 {
+		return "Clean"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (p *Project) SetConfig(partial map[string]any) error {

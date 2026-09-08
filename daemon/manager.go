@@ -420,6 +420,10 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"setProject": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
 			return nil, p.SetConfig(partial)
 		}),
+		"openProjectCode": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
+			p.bgOpenCode()
+			return nil, nil
+		}),
 		"createTask": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
 			tid, err := p.CreateTask()
 			return map[string]any{"tid": tid}, err

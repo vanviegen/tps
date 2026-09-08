@@ -54,7 +54,7 @@ export function addProjectDialog(): void {
 		input = wrap.querySelector('input');
 		// Enter adds the project, unless the autocomplete is offering a host to pick.
 		wrap.addEventListener('keydown', e => {
-			if (e.key !== 'Enter' || wrap.querySelector('.s-option:not(.s-add)')) return;
+			if (e.key !== 'Enter' || document.querySelector('[role=listbox] .s-option:not(.s-add)')) return;
 			e.preventDefault();
 			e.stopPropagation();
 			void submit();
