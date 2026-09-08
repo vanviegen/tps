@@ -25,7 +25,7 @@ const startScript = `
 mkdir -p "$CLAUDE_CONFIG_DIR"
 echo $$ >/tmp/tps-agent.pid
 exec /tps/bin/claude -p --input-format stream-json --output-format stream-json --verbose \
-	--dangerously-skip-permissions --model "$TPS_MODEL" --append-system-prompt "$TPS_SYSTEM" \
+	--dangerously-skip-permissions ${TPS_MODEL:+--model "$TPS_MODEL"} --append-system-prompt "$TPS_SYSTEM" \
 	${TPS_BUDGET:+--max-budget-usd "$TPS_BUDGET"} $TPS_EXTRA
 `
 
@@ -88,8 +88,13 @@ func newChatSession(opts SessionOpts) (*ChatSession, error) {
 	if opts.Budget != nil {
 		budget = fmt.Sprintf("%.2f", *opts.Budget)
 	}
+	// The default model is claude's own: pass no --model at all.
+	model := opts.Model
+	if model == DefaultModel {
+		model = ""
+	}
 	cmd := exec.Command("podman", "exec", "-i",
-		"-e", "TPS_MODEL="+opts.Model,
+		"-e", "TPS_MODEL="+model,
 		"-e", "TPS_SYSTEM="+opts.System,
 		"-e", "TPS_EXTRA="+extra,
 		"-e", "TPS_BUDGET="+budget,

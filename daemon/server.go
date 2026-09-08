@@ -18,9 +18,6 @@ func SocketPath() string {
 	return filepath.Join(home(), ".local", "share", "tps", "daemon.sock")
 }
 
-// Models offered in the task settings.
-var Models = []string{"sonnet", "opus", "haiku"}
-
 // Serve runs the daemon until it is told to stop or restart. buildID is
 // reported in the hello so that a UI can tell whether it runs a newer binary.
 func Serve(buildID string) error {
@@ -42,7 +39,7 @@ func Serve(buildID string) error {
 		_ = os.Remove(sock)
 		os.Exit(code)
 	}
-	h := hub.New(map[string]any{"projects": map[string]any{}, "models": Models, "build": buildID, "protocol": hub.Protocol})
+	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "build": buildID, "protocol": hub.Protocol})
 	m := NewManager(h, exit)
 	h.Cmds = m.Cmds()
 	if err := m.Start(); err != nil {

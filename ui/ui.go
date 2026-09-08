@@ -52,7 +52,7 @@ var daemonCmds = []string{"setProject", "openProjectCode", "createTask", "update
 
 func Run(o Options) error {
 	u := &UI{
-		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.Models}),
+		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.FallbackModels}),
 		webFS: o.WebFS, links: map[string]*Link{},
 		daemonBinary: o.DaemonBinary, asks: map[int]chan answer{},
 	}

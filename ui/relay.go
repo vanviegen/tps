@@ -50,6 +50,7 @@ type Link struct {
 	build           string // the daemon's build id
 	protocol        int
 	restarting      bool
+	models          []any // the models this host's claude offers
 }
 
 type replyFn func(result json.RawMessage, err error)
@@ -115,6 +116,9 @@ func (l *Link) publishHost() {
 	}
 	l.mu.Lock()
 	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning}
+	if l.models != nil {
+		host["models"] = l.models
+	}
 	if l.status == "connected" {
 		host["updatable"] = l.build != BuildID()
 		host["restarting"] = l.restarting
@@ -362,6 +366,7 @@ func (l *Link) onHello(state map[string]any) {
 	proto, _ := state["protocol"].(float64)
 	l.protocol = int(proto)
 	l.restarting, _ = state["restarting"].(bool)
+	l.models, _ = state["models"].([]any)
 	l.pids = map[string]string{}
 	adopt := l.adopt
 	l.adopt = false
@@ -409,9 +414,13 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 	for i, seg := range path {
 		p[i] = fmt.Sprint(seg)
 	}
-	if len(p) == 1 && p[0] == "restarting" {
+	if len(p) == 1 && (p[0] == "restarting" || p[0] == "models") {
 		l.mu.Lock()
-		l.restarting, _ = value.(bool)
+		if p[0] == "models" {
+			l.models, _ = value.([]any)
+		} else {
+			l.restarting, _ = value.(bool)
+		}
 		l.mu.Unlock()
 		l.publishHost()
 		return

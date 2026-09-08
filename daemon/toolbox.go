@@ -30,6 +30,9 @@ func toolboxRoot() string    { return filepath.Join(home(), ".local", "share", "
 func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey) }
 func toolboxInstalled() bool { return exists(toolboxDir()) }
 
+// claudeBin is the claude binary in this host's toolbox.
+func claudeBin() string { return filepath.Join(toolboxDir(), "bin", "claude") }
+
 var toolboxMu sync.Mutex
 
 // ensureToolbox downloads the toolbox if this host lacks it, and removes

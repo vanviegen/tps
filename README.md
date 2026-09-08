@@ -74,9 +74,12 @@ and its chat with the agent once it is not: the log, and the box to steer it
 with.
 
 1. **Plan**: A title, a markdown description, and settings (model,
-   dependencies, budget, merge behaviour). Nothing exists on disk yet. Once
-   the task leaves this column the description is fixed; the title and the
-   other settings stay tweakable.
+   dependencies, budget, merge behaviour). The models to pick from are the
+   ones the claude on the project's host offers (it is asked, once per daemon
+   run); *default* leaves the choice to claude's own configuration, and is
+   what a new task gets. Nothing exists on disk yet. Once the task leaves
+   this column the description is fixed; the title and the other settings
+   stay tweakable.
 2. **Agent**: Assigning the task creates a clone of the repository (hardlinked
    objects, so nearly free), spins up the container, and hands the description
    to claude. A task that depends on other tasks waits in this column first,

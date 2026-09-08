@@ -109,6 +109,19 @@ export function newTaskDialog(pid: string): void {
 	}});
 }
 
+/**
+ * The models to choose from: what the claude on the project's host offers,
+ * plus whatever the task is set to, so a model that host no longer lists
+ * still shows.
+ */
+function modelOptions(pid: string, $t: any): string[] {
+	const host = $state.hosts[$state.projects[pid]?.host];
+	const models: string[] = [...(host?.models ?? $state.models ?? [])];
+	const current = $t.model;
+	if (current && !models.includes(current)) models.push(current);
+	return models;
+}
+
 /** Everything about the task that isn't its phase: title, model, dependencies, budget, merge behaviour. */
 export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: close => {
@@ -120,9 +133,9 @@ export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 			}),
 		});
 		S.select({
-			label: 'Model', options: () => $state.models,
+			label: 'Model', options: () => modelOptions(pid, $t),
 			bind: {
-				get value() { return $t.model ?? 'sonnet'; },
+				get value() { return $t.model ?? 'default'; },
 				set value(model: string) { if (model) void cmd('updateTask', { pid, tid, model }); },
 			},
 		});

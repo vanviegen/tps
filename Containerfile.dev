@@ -23,7 +23,11 @@ RUN arch="$(dpkg --print-architecture)" \
     && case "$arch" in amd64) narch=x64 ;; arm64) narch=arm64 ;; *) narch="$arch" ;; esac \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${narch}.tar.xz" \
        | tar -C /usr/local --strip-components=1 -xJ
-ENV PATH=/usr/local/go/bin:/usr/local/bin:$PATH GOPATH=/home/dev/go
+ENV PATH=/usr/local/go/bin:/usr/local/bin:/home/dev/go/bin:$PATH \
+    GOPATH=/home/dev/go GOTOOLCHAIN=auto
+# Login shells (what the agent and VS Code terminals get) reset PATH from
+# /etc/profile, so put Go on it there as well.
+RUN printf 'PATH=/usr/local/go/bin:/usr/local/bin:$HOME/go/bin:$PATH\n' >/etc/profile.d/go.sh
 
 RUN useradd -m -u 1000 -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/dev
 USER dev

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type RunResult struct {
@@ -20,13 +22,20 @@ type RunResult struct {
 type RunOpts struct {
 	Dir     string
 	Input   *string
-	Env     []string // added to the environment
-	NoCheck bool     // don't fail on a non-zero exit
+	Env     []string      // added to the environment
+	NoCheck bool          // don't fail on a non-zero exit
+	Timeout time.Duration // kill the command after this long (0: no limit)
 }
 
 // runCmd runs a command to completion, capturing stdout and stderr.
 func runCmd(argv []string, o RunOpts) (RunResult, error) {
-	cmd := exec.Command(argv[0], argv[1:]...)
+	ctx := context.Background()
+	if o.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.Timeout)
+		defer cancel()
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = o.Dir
 	if len(o.Env) > 0 {
 		cmd.Env = append(os.Environ(), o.Env...)

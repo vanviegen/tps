@@ -852,6 +852,7 @@ func (t *Task) doUp() (*Container, error) {
 	if err != nil {
 		return t.failUp(err)
 	}
+	go t.p.m.refreshModels() // now that this host has a claude to ask
 	c, err := t.start(cf, toolbox)
 	imageErr := ""
 	if err != nil && cf != defaultContainerfile {
