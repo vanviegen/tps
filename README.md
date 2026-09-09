@@ -110,8 +110,16 @@ with.
    by the commit messages on both sides), after which the merge completes; the
    task stays in this column meanwhile. If the agent gives up midway, the task
    goes back to you with a warning; sending the agent back in resumes the rebase.
-5. **Done**: Merged. The workspace stays around until the task is deleted, so
-   the chat can still be picked up, which reopens the task.
+5. **Done**: Merged. The workspace goes — its work is on the branch, and the
+   container with it — but the conversation stays until the task is deleted,
+   so the task can be picked up again for follow-up work: a chat message sends
+   the agent back in with everything it knew, and moving the card to Human
+   takes it on yourself. Either way it gets a new clone of the default branch
+   as it stands then, exactly like a task leaving Plan, so the follow-up builds
+   on its own merged work and on whatever other tasks landed meanwhile. The
+   agent is told what happened: that its work became a commit, that the old
+   workspace (and anything only in it) is gone, and that what it changes now
+   becomes a commit of its own.
 
 Moving a task back to Plan discards all of its work, after a confirmation.
 
@@ -152,7 +160,8 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   the task for you when spending reaches it.
 - Container builds use the task's clone as their only build context, and code
   runs as an unprivileged user in a rootless container. Idle containers are
-  torn down after 15 minutes; workspaces persist until the task is deleted.
+  torn down after 15 minutes; a workspace lasts until the task merges (which
+  is what makes it disposable) or is deleted.
 - Ctrl-L (⌘L) opens *Go to*: type a few letters of a project or a task, Enter
   takes you there. It works from inside VS Code too, which is where the keyboard
   usually is; the only thing it costs you there is "select current line", and

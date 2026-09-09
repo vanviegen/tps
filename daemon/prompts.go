@@ -47,6 +47,24 @@ const reloadedPrompt = "The container has been recreated. Please continue."
 // fixImagePrompt is the request under fallbackPrompt when nothing else is pending.
 const fixImagePrompt = "Continue with the task where it left off."
 
+// continuePrompt wraps the request that reopens a task which was merged
+// already: its work is a commit now, /work is a new clone of the branch, and
+// what the agent does from here becomes a commit of its own.
+func continuePrompt(branch, request string) string {
+	return fmt.Sprintf(`This task was merged and closed since your last turn: what you had in the working tree
+became a commit on '%[1]s'. Nothing was lost — it is in the history now (git log).
+
+/work is a new clone, made when this task was picked back up: it holds your merged work
+and whatever else landed on '%[1]s' meanwhile, plus any changes the user made in it since.
+The old workspace is gone with everything that was only in it: files you never committed,
+and tools you installed by hand rather than through Containerfile.dev. Everything you know
+about the task itself still holds — carry on from where you left off. What you change from
+here becomes a separate commit when the user merges the task again, under the usual rules:
+do not commit or rebase yourself, and end your turn with the done file.
+
+%[2]s`, branch, request)
+}
+
 // fallbackPrompt wraps the request the agent is kicked with while the task
 // runs in the default image because its own Containerfile.dev is broken.
 func fallbackPrompt(err, request string) string {

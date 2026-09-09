@@ -24,7 +24,8 @@ export function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	return PHASES.map(phase => ({
 		label: PHASE_LABELS[phase],
 		icon: PHASE_ICONS[phase],
-		disabled: phase === $t.phase,
+		// A merged task has nothing left to merge: it needs picking up first.
+		disabled: phase === $t.phase || (phase === 'merge' && $t.phase === 'done'),
 		attrs: phase === 'plan' ? 'fg:$s-danger' : '',
 		click: () => void moveTask(pid, tid, $t, phase),
 	}));
@@ -302,6 +303,13 @@ export function drawPlanEditor(pid: string, tid: string | undefined, $t: any): v
 export function drawAgent(pid: string, tid: string, $t: any): void {
 	drawChat(pid, tid);
 	A(() => {
+		if ($t.phase === 'done') {
+			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+			A('div.s-s.success.tonal p:$2 text=',
+				`✔ merged into ${branch}. Messaging the agent picks the task back up: it keeps everything it `
+				+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
+			return;
+		}
 		if ($t.phase !== 'human') return;
 		if ($t.rebasing) {
 			A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
@@ -360,7 +368,17 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 /** The right column for a task: VS Code in its container, once that is up. */
 export function drawTaskCode(pid: string, tid: string, $t: any): void {
 	A(() => {
-		if ($t.status === 'up') {
+		// A merged task keeps its conversation, not its workspace: there is
+		// nothing to open until it is picked up, which clones the branch again.
+		if ($t.phase === 'done' && $t.status !== 'up') {
+			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+				A('p text=', `This task is merged, so its workspace is gone; its work is on ${branch}. `
+					+ 'Message the agent to pick it up, or take it on yourself:');
+				S.button({ content: 'Pick up as human', icon: user, attrs: '.small',
+					click: () => void cmd('moveTask', { pid, tid, phase: 'human' }) });
+			}});
+		} else if ($t.status === 'up') {
 			// code-server's remote authority is the Host header, which the proxy passes on unchanged.
 			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`);
 		} else if ($t.status === 'error') {

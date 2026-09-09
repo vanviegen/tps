@@ -53,6 +53,7 @@ type TaskInfo struct {
 	Phase         Phase    `json:"phase"`
 	Started       bool     `json:"started,omitempty"`       // a claude session exists in the task's claude dir
 	CommitMessage string   `json:"commitMessage,omitempty"` // proposed by the agent, awaiting the user's merge
+	Merged        bool     `json:"merged,omitempty"`        // the work was committed since the agent's last turn; it is told so when it is sent back in
 	Spent         float64  `json:"spent,omitempty"`         // USD spent on agent runs so far
 	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
 	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // overrides the project setting when set
@@ -99,6 +100,7 @@ type Task struct {
 	imageErr      string // why the task runs in the default image instead; told to the agent on its next kick
 	stopping      bool
 	chatMu        sync.Mutex
+	cloneMu       sync.Mutex // one workspace at a time: two messages can want one at once
 
 	run     *runSession
 	runCmd  []string // the Containerfile's CMD, known along with the container
@@ -468,7 +470,9 @@ func sameBudget(a, b *float64) bool {
 // kick makes sure a claude session is running and feeds it text, in the
 // background. With fresh, any current session is stopped and a new context
 // is started. A task being merged stays in that phase: the agent then works
-// on the merge.
+// on the merge. An agent sent back in after its work was merged (info.Merged)
+// picks the conversation up where it ended, in a workspace freshly cloned from
+// the branch, and is told as much: what follows becomes a patch of its own.
 func (t *Task) kick(text string, fresh bool) {
 	t.lock()
 	if t.overBudgetL() {
@@ -479,6 +483,8 @@ func (t *Task) kick(text string, fresh bool) {
 		t.unlock()
 		return
 	}
+	reopened := t.info.Merged
+	wasDone := t.info.Phase == PhaseDone
 	if t.midRebase() { // the agent's 'ready' then reruns the merge
 		t.setPhaseL(PhaseMerge)
 	} else if t.info.Phase != PhaseMerge {
@@ -487,19 +493,34 @@ func (t *Task) kick(text string, fresh bool) {
 	// A running claude has its spending cap fixed at start; a changed budget needs a new process.
 	old := t.session
 	restart := old != nil && (fresh || !sameBudget(t.sessionBudget, t.info.Budget))
+	branch := t.p.defaultBranch
 	t.unlock()
 	go func() {
 		if restart {
 			t.stopSession(old)
 		}
+		if reopened {
+			// The workspace is made before the container comes up on it. Straight
+			// out of Done that is a clone of the branch as it is now; a task a
+			// human picked up first has one already, with their work in it.
+			var err error
+			if wasDone {
+				err = t.freshClone()
+			} else {
+				err = t.ensureClone()
+			}
+			if err != nil {
+				t.failKick("workspace failed", err)
+				return
+			}
+			if wasDone {
+				t.note("picked up after the merge; the workspace is a fresh clone of " + branch)
+			}
+			text = continuePrompt(branch, text)
+		}
 		s, err := t.ensureSession(fresh)
 		if err != nil {
-			t.noteErr("agent start failed", err)
-			t.lock()
-			if t.agentPhaseL() {
-				t.setPhaseL(PhaseHuman)
-			}
-			t.unlock()
+			t.failKick("agent start failed", err)
 			return
 		}
 		t.lock()
@@ -510,9 +531,24 @@ func (t *Task) kick(text string, fresh bool) {
 		t.unlock()
 		s.Send(text)
 		t.lock()
+		if reopened { // told only now: a kick that never got this far leaves it to be said
+			t.info.Merged = false
+			t.p.m.saveL()
+		}
 		t.publishL()
 		t.unlock()
 	}()
+}
+
+// failKick reports why the agent never got its message, and leaves the task
+// with the human it came from.
+func (t *Task) failKick(prefix string, err error) {
+	t.noteErr(prefix, err)
+	t.lock()
+	defer t.unlock()
+	if t.agentPhaseL() {
+		t.setPhaseL(PhaseHuman)
+	}
 }
 
 func (t *Task) stopSession(s *ChatSession) {
@@ -569,6 +605,9 @@ func (t *Task) MoveTo(phase Phase) error {
 		if current == PhasePlan {
 			return t.Assign("human")
 		}
+		if current == PhaseDone {
+			return t.reopen()
+		}
 		return t.StopAgent()
 	default:
 		return t.Merge("")
@@ -584,7 +623,7 @@ func (t *Task) Merge(message string) error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
 	if !exists(repo) {
-		return errors.New("The task has no work to merge yet")
+		return errors.New("The task has no workspace to merge: it is still in Plan, or merged already")
 	}
 	if t.midRebase() {
 		return errors.New("A rebase is still in progress in the workspace; let the agent finish it (or resolve it in VS Code) first")
@@ -649,12 +688,47 @@ func (t *Task) merge(repo, message string) error {
 	} else {
 		t.note("nothing to merge; task closed")
 	}
+	// Before the task is Done, so it never sits there with a workspace someone
+	// could still open or merge a second time.
+	if err := t.dropWorkspace(); err != nil {
+		logf("%s: dropping the workspace: %v", t.key(), err)
+	}
 	t.lock()
 	t.info.CommitMessage = ""
+	t.info.Merged = true // the agent's tree is clean because of this, not because it did nothing
 	t.setPhaseL(PhaseDone)
 	t.unlock()
-	go t.down()
 	return nil
+}
+
+// dropWorkspace throws the clone away, container first: once its work is on
+// the branch there is nothing in it the project repo doesn't have, and picking
+// the task up again clones the branch afresh, the way leaving Plan does. What
+// the task knows stays: claude's own state and the chat log live beside the
+// clone, not in it.
+func (t *Task) dropWorkspace() error {
+	t.down()
+	if err := os.RemoveAll(t.repoDir()); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(t.dir(), "changes-index")) // it described the clone
+	t.lock()
+	defer t.unlock()
+	t.pubL("changes", nil)
+	return nil
+}
+
+// freshClone gives a task that was merged its workspace back: the branch as it
+// stands now. Whatever is left of the old one goes first — the merge normally
+// threw it away already, but one merged by an older TPS is still there, and it
+// is not what the task is about to be picked up with.
+func (t *Task) freshClone() error {
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
+	if err := t.dropWorkspace(); err != nil {
+		return err
+	}
+	return t.clone()
 }
 
 // kickRebase sends the agent in to finish the rebase a merge got stuck in.
@@ -667,6 +741,26 @@ func (t *Task) kickRebase(fresh bool) {
 
 func (t *Task) midRebase() bool {
 	return exists(filepath.Join(t.repoDir(), ".git", "rebase-merge")) || exists(filepath.Join(t.repoDir(), ".git", "rebase-apply"))
+}
+
+// reopen picks a merged task back up: a clone of the branch as it is now
+// (its own work included, and everything that landed since), and the
+// conversation that was kept beside it. The workspace is made here for a human
+// to work in; the agent gets the same through kick. The 'merged' mark stays
+// either way: it is the agent that has yet to hear of the merge.
+func (t *Task) reopen() error {
+	defer t.p.m.work()()
+	if err := t.freshClone(); err != nil {
+		t.noteErr("workspace failed", err)
+		return err
+	}
+	t.note("picked up after the merge; the workspace is a fresh clone of " + t.p.defaultBranch)
+	t.lock()
+	t.setPhaseL(PhaseHuman)
+	t.unlock()
+	t.bgUp()
+	go t.refreshChanges()
+	return nil
 }
 
 // containerfile is what the task's container is built from: the repository's
@@ -705,6 +799,7 @@ func (t *Task) Discard() error {
 	defer t.unlock()
 	t.info.Started = false
 	t.info.CommitMessage = ""
+	t.info.Merged = false
 	t.p.m.hub.SetChat(t.key(), nil)
 	t.pubL("changes", nil)
 	t.setPhaseL(PhasePlan)
@@ -826,6 +921,13 @@ func (t *Task) refreshChanges() {
 // --- workspace (clone + container) ---
 
 func (t *Task) ensureClone() error {
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
+	return t.clone()
+}
+
+// clone makes the workspace, unless it is there already. The caller holds cloneMu.
+func (t *Task) clone() error {
 	if exists(t.repoDir()) {
 		return nil
 	}
@@ -844,7 +946,8 @@ func (t *Task) ensureClone() error {
 	return err
 }
 
-// Open is called when a user opens the task's page: bring the workspace up.
+// Open is called when a user opens the task's page: bring the workspace up,
+// if there is one — a task in Plan has none yet, a merged one no longer.
 func (t *Task) Open() {
 	t.lock()
 	t.touchL()
@@ -893,7 +996,7 @@ func (t *Task) failUp(err error) (*Container, error) {
 
 func (t *Task) doUp() (*Container, error) {
 	if !exists(t.repoDir()) {
-		return nil, errors.New("The task has no workspace (still in plan?)")
+		return nil, errors.New("The task has no workspace: it is still in Plan, or merged already")
 	}
 	cf := t.containerfile()
 	tag := imageTag(cf)
