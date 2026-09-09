@@ -41,7 +41,7 @@ func Serve(buildID string) error {
 	}
 	// "home" lets a dashboard show this host's paths the way you would type
 	// them, with ~ standing in for the daemon user's home directory.
-	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "build": buildID, "protocol": hub.Protocol, "home": home()})
+	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "modelsError": "asking claude…", "build": buildID, "protocol": hub.Protocol, "home": home()})
 	m := NewManager(h, exit)
 	h.Cmds = m.Cmds()
 	if err := m.Start(); err != nil {

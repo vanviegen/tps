@@ -50,7 +50,9 @@ type Link struct {
 	homeDir         string // the daemon user's home there, for showing paths as ~/…
 	protocol        int
 	restarting      bool
-	models          []any // the models this host's claude offers
+	models          []any  // the models this host's claude offers
+	modelsError     string // why they are the built-in fallback instead
+	autoUpgraded    bool   // this UI already asked the daemon to restart into its build
 }
 
 type replyFn func(result json.RawMessage, err error)
@@ -119,6 +121,9 @@ func (l *Link) publishHost() {
 	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning, "home": l.homeDir}
 	if l.models != nil {
 		host["models"] = l.models
+	}
+	if l.modelsError != "" {
+		host["modelsError"] = l.modelsError
 	}
 	if l.status == "connected" {
 		host["updatable"] = l.build != BuildID()
@@ -335,6 +340,7 @@ func (l *Link) onHello(state map[string]any) {
 	l.protocol = int(proto)
 	l.restarting, _ = state["restarting"].(bool)
 	l.models, _ = state["models"].([]any)
+	l.modelsError, _ = state["modelsError"].(string)
 	l.homeDir, _ = state["home"].(string)
 	stale := map[string]bool{}
 	for pid := range l.mirrored {
@@ -363,6 +369,18 @@ func (l *Link) onHello(state map[string]any) {
 	l.renewWatches()
 	l.handOverNames(projects)
 	l.setStatus("connected", "")
+	// A daemon of another build reports stale state (the model list included)
+	// until someone presses "Update daemon"; do it for them, once per host per
+	// UI run. It is what the button does: install this binary and have the
+	// daemon exit as soon as nothing is running, which the board says it will.
+	// Too old a protocol is upgraded above, remote or not, for the same reason.
+	l.mu.Lock()
+	outdated := !l.autoUpgraded && !l.restarting && l.build != BuildID()
+	l.autoUpgraded = l.autoUpgraded || outdated
+	l.mu.Unlock()
+	if outdated {
+		go func() { _ = l.upgrade() }()
+	}
 }
 
 // handOverNames gives the daemon the names an older dashboard kept for its
@@ -391,12 +409,19 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 	for i, seg := range path {
 		p[i] = fmt.Sprint(seg)
 	}
-	if len(p) == 1 && (p[0] == "restarting" || p[0] == "models") {
+	// Top-level daemon state the host card shows.
+	if len(p) == 1 {
 		l.mu.Lock()
-		if p[0] == "models" {
+		switch p[0] {
+		case "models":
 			l.models, _ = value.([]any)
-		} else {
+		case "modelsError":
+			l.modelsError, _ = value.(string)
+		case "restarting":
 			l.restarting, _ = value.(bool)
+		default:
+			l.mu.Unlock()
+			return
 		}
 		l.mu.Unlock()
 		l.publishHost()

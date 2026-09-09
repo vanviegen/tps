@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -50,26 +50,54 @@ func parseModels(out string) []string {
 }
 
 // refreshModels asks this host's claude which models it offers and publishes
-// them. The claude binary lives in the toolbox, so this is a no-op until that
-// has been downloaded; it is retried until it yields an answer.
+// them, next to why it could not: a task settings dropdown that silently shows
+// the fallback tells nobody what went wrong. The claude binary lives in the
+// toolbox, so this waits for that download; a ticker keeps trying until claude
+// answers.
 func (m *Manager) refreshModels() {
 	m.modelsMu.Lock()
 	defer m.modelsMu.Unlock()
-	if m.modelsFound || !toolboxInstalled() {
+	if m.modelsFound {
+		return
+	}
+	if !toolboxInstalled() {
+		m.setModelsError("claude has not been downloaded on this host yet")
 		return
 	}
 	r, err := runCmd([]string{claudeBin(), "-p", "/model"}, RunOpts{Dir: home(), Timeout: 60 * time.Second})
-	models := parseModels(r.Out)
+	models := parseModels(r.Out + "\n" + r.Err)
 	if models == nil {
 		if err == nil {
-			err = errors.New("no model list in its output")
+			err = fmt.Errorf("no model list in `%s`", firstLine(r.Out+r.Err))
 		}
-		logf("Asking claude which models it offers failed: %v", err)
+		m.setModelsError(err.Error())
+		if !m.modelsFailed { // once: the retries would fill the log
+			m.modelsFailed = true
+			logf("Asking claude which models it offers failed (retrying); until it answers, tasks can pick %s: %v",
+				strings.Join(FallbackModels, ", "), err)
+		}
 		return
 	}
 	m.modelsFound = true
 	logf("Models offered by claude: %s", strings.Join(models, ", "))
+	m.hub.Set([]string{"modelsError"}, "")
 	m.hub.Set([]string{"models"}, models)
+}
+
+func (m *Manager) setModelsError(msg string) {
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+	m.hub.Set([]string{"modelsError"}, msg)
+}
+
+// firstLine of a command's output, for an error message.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	if len(line) > 200 {
+		line = line[:200]
+	}
+	return line
 }
 
 // generateTitle asks this host's claude for a task title: haiku, as naming one

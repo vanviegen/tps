@@ -32,8 +32,9 @@ type Manager struct {
 	busy       atomic.Int32 // long operations in flight (builds, clones, merges, deletions)
 	restarting bool
 
-	modelsMu    sync.Mutex // guards the one-shot model detection
-	modelsFound bool
+	modelsMu     sync.Mutex // guards the model detection
+	modelsFound  bool
+	modelsFailed bool
 }
 
 // work brackets an operation a restart must not interrupt.
@@ -109,6 +110,7 @@ func (m *Manager) Start() error {
 	}
 	m.hub.Set([]string{"ready"}, true)
 	go m.refreshModels()
+	go m.ticker(60*time.Second, m.refreshModels) // until claude answers
 	go m.ticker(60*time.Second, m.sweep)
 	go m.ticker(2*time.Second, m.checkLive)
 	go m.ticker(5*time.Second, m.refreshWatched)

@@ -6,7 +6,7 @@ import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { runDialog } from './run.ts';
-import { autoStarts, chatDraft, cmd, debounce, pathTo, selection, setChatDraft, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
+import { autoStarts, chatDraft, cmd, debounce, hostName, pathTo, selection, setChatDraft, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
 
 /** Tasks of a project waiting for a human, not counting `skip`. */
 export function humanTasks(pid: string, skip?: string): number {
@@ -193,6 +193,14 @@ function modelOptions(pid: string, $t: any): string[] {
 	return models;
 }
 
+/** Says where the list came from, so a short one isn't a silent mystery. */
+function modelHelp(pid: string): string {
+	const hid = $state.projects[pid]?.host;
+	const host = $state.hosts[hid];
+	if (!host?.modelsError) return `Offered by claude on ${hostName(hid)}.`;
+	return `claude on ${hostName(hid)} could not be asked which models it offers, so this is the built-in list: ${host.modelsError}`;
+}
+
 /**
  * Model, what the task follows, budget, merge behaviour: everything about a
  * task except its phase and title. Changes go through `save`, which either
@@ -202,7 +210,7 @@ function modelOptions(pid: string, $t: any): string[] {
  */
 export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
 	S.select({
-		label: 'Model', options: () => modelOptions(pid, $t),
+		label: 'Model', options: () => modelOptions(pid, $t), help: () => A(() => A('span', 'text=', modelHelp(pid))),
 		bind: {
 			get value() { return $t.model ?? 'default'; },
 			set value(model: string) { if (model) save({ model }); },

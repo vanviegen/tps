@@ -88,10 +88,11 @@ says what the next tasks start out with and leaves the ones that exist alone.
 1. **Plan**: A title, a markdown description, and settings (model, the tasks
    to start after, budget, merge behaviour), which start on the project's
    defaults. The models to pick from are the ones the claude on the project's
-   host offers (it is asked, once per daemon run); *default* leaves the choice
-   to claude's own configuration. Nothing exists on disk yet. Once the task leaves
-   this column the description is fixed; the title and the other settings
-   stay tweakable.
+   host offers (it is asked until it answers); when it cannot be asked, the
+   dropdown says why and falls back to a built-in list. *default* leaves the
+   choice to claude's own configuration. Nothing exists on disk yet. Once the
+   task leaves this column the description is fixed; the title and the other
+   settings stay tweakable.
 
    *Start after* names tasks this one follows: it hands itself to the agent
    once each of them is done or deleted — and you have closed its plan, so
@@ -145,15 +146,14 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   tasks and budgets are handled without it, and a returning dashboard shows
   what happened. While an agent works or a dashboard is connected, the daemon
   asks the machine not to suspend (via `systemd-inhibit`, where allowed).
-- Daemons are not replaced behind your back. The board of a project whose
-  daemon runs another build of TPS offers to update it; the daemon then
-  restarts into this build as soon as no agent turn, build or merge is
-  running, and its containers carry on. An update happens by itself only
-  when the daemon is too old for this TPS to talk to, and never the other
-  way around: a host with a newer TPS asks you to update this one instead.
-  For a host of another architecture, build for it and pass
-  `--daemon-binary`. The host's menu on the front page holds the rest: stop
-  the daemon (with its workspaces), copy your claude login there.
+- Daemons follow this TPS: one that runs another build restarts into it by
+  itself, as soon as no agent turn, build or merge is running. Its containers
+  carry on, and the board says so while it waits. Never the other way around:
+  a host with a newer TPS asks you to update this one instead. For a host of
+  another architecture, build for it and pass `--daemon-binary`; the board's
+  "Update daemon" button retries a push that failed. The host's menu on the
+  front page holds the rest: stop the daemon (with its workspaces), copy your
+  claude login there.
 - A `CMD` line in `Containerfile.dev` says how to run the project, listening on
   `$PORT` (published on a random localhost port of its host). The play button
   beside a task runs it in the task's container, showing the console and, once
