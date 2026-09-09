@@ -57,6 +57,7 @@ type TaskInfo struct {
 	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
 	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // overrides the project setting when set
 	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
+	PhaseAt       int64    `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
 }
 
@@ -139,6 +140,7 @@ func (t *Task) publishL() {
 	t.pubL("description", t.info.Description)
 	t.pubL("model", t.info.Model)
 	t.pubL("phase", t.info.Phase)
+	t.pubL("phaseAt", t.info.PhaseAt)
 	t.pubL("commitMessage", nonEmpty(t.info.CommitMessage))
 	if t.info.Spent > 0 {
 		t.pubL("spent", t.info.Spent)
@@ -198,6 +200,7 @@ func (t *Task) setStatusL(status WorkStatus, detail string) {
 
 func (t *Task) setPhaseL(phase Phase) {
 	t.info.Phase = phase
+	t.info.PhaseAt = time.Now().UnixMilli()
 	t.p.touchL()
 	t.p.m.saveL()
 	t.publishL()

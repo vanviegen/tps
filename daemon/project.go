@@ -219,7 +219,7 @@ func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	defer p.m.mu.Unlock()
 	tid := strconv.Itoa(p.info.NextTask)
 	p.info.NextTask++
-	info := &TaskInfo{Model: DefaultModel, Phase: PhasePlan}
+	info := &TaskInfo{Model: DefaultModel, Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t

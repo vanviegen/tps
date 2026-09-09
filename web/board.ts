@@ -3,7 +3,7 @@ import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { pencil, plus, settings } from 'staffa/icons.js';
 import { addTask, moveTask, phaseItems, renameTask, taskSettingsDialog } from './task.ts';
-import { autoStarts, costText, drawLiveLink, drawTaskIcon, pathTo, PHASES, PHASE_LABELS, taskActivity, taskTitle, tidOrder } from './util.ts';
+import { autoStarts, costText, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASES, PHASE_LABELS, taskActivity, taskTitle } from './util.ts';
 
 /**
  * The project's board: one box per phase, a card dropped anywhere in a box's
@@ -19,7 +19,9 @@ export function drawBoard(pid: string, $p: any): void {
 		for (const phase of PHASES) {
 			S.box({
 				attrs: 'w:var(--col) flex:none mt:0 min-height:14rem',
-				contentAttrs: 'flex:1 display:flex flex-direction:column',
+				// min-height:0 lets the body shrink below its content, so it is the
+				// part that scrolls while the header stays put.
+				contentAttrs: 'flex:1 min-height:0 overflow-y:auto display:flex flex-direction:column',
 				header: () => {
 					A('text=', PHASE_LABELS[phase]);
 					if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Add task', attrs: '.small ml:auto', click: () => void addTask(pid) });
@@ -34,7 +36,7 @@ export function drawBoard(pid: string, $p: any): void {
 					A.onEach($p.tasks, ($t: any, tid: string) => {
 						if ($t.phase !== phase) return; // each card lives in its phase's column
 						drawCard(pid, tid, $t);
-					}, (_$t: any, tid: string) => tidOrder(tid));
+					}, phaseOrder);
 				},
 			});
 		}

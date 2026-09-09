@@ -154,3 +154,12 @@ export function debounce<T extends unknown[]>(ms: number, fn: (...args: T) => vo
 export function tidOrder(tid: string): string {
 	return tid.padStart(8, '0');
 }
+
+/**
+ * Where a task sits among its peers: most recently moved first, so what just
+ * happened is on top of its column. Tasks from before phase changes were
+ * timestamped have no `phaseAt` and settle at the bottom, newest tid first.
+ */
+export function phaseOrder($t: any, tid: string): number[] {
+	return [-($t.phaseAt ?? 0), -Number(tid)];
+}
