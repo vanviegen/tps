@@ -89,7 +89,13 @@ export function draftFor(pid: string): any {
 	let $d = drafts.get(pid);
 	if (!$d) {
 		creating.delete(pid); // a fresh draft is nobody's task-in-waiting
-		drafts.set(pid, $d = A.proxy({ phase: 'plan', title: '', description: '', model: 'default' }));
+		// It starts on the project's default task settings, the same ones the
+		// server would copy in, so the plan shows what it is about to become.
+		const d = A.peek(() => ({ ...($state.projects[pid]?.defaults ?? {}) })) as any;
+		drafts.set(pid, $d = A.proxy({
+			phase: 'plan', title: '', description: '',
+			model: d.model || 'default', budget: d.budget ?? null, autoMerge: !!d.autoMerge,
+		}));
 	}
 	return $d;
 }
@@ -157,11 +163,13 @@ function modelOptions(pid: string, $t: any): string[] {
 }
 
 /**
- * Model, what the task follows, budget, merge behaviour: everything about it
- * except its phase and title. Changes go through `save`, which either tells
- * the server or fills in a draft that has yet to be created.
+ * Model, what the task follows, budget, merge behaviour: everything about a
+ * task except its phase and title. Changes go through `save`, which either
+ * tells the server, fills in a draft that has yet to be created, or (drawn on
+ * a project's defaults, which have no phase and so no `Start after`) sets what
+ * the next task there starts with.
  */
-function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
+export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
 	S.select({
 		label: 'Model', options: () => modelOptions(pid, $t),
 		bind: {
@@ -194,15 +202,15 @@ function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (pa
 		});
 	});
 	S.textline({
-		label: 'Budget limit (USD)', type: 'number',
+		label: 'Task budget limit (USD)', type: 'number',
 		help: 'The task is parked for you when spending reaches the limit; empty means no limit.',
 		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
 		input: debounce(600, (e: Event) => save({ budget: (e.target as HTMLInputElement).value })),
 	});
 	S.checkbox({
 		label: 'Merge when ready',
-		help: 'Merge as soon as the agent reports the task ready, without confirming the commit message. Defaults to the project setting.',
-		checked: A.peek($t, 'autoMerge') ?? !!A.peek(() => $state.projects[pid]?.autoMerge),
+		help: 'Merge as soon as the agent reports the task ready, without confirming the commit message.',
+		checked: !!A.peek($t, 'autoMerge'),
 		change: (e: Event) => save({ autoMerge: (e.target as HTMLInputElement).checked }),
 	});
 }

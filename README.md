@@ -47,8 +47,8 @@ new host gets the daemon installed and started, and the projects it already
 has are listed along with it.
 
 Right-click a project or a host (or use the ⋮ in a host's header) for what can
-be done with it: renaming, its settings, connecting, copying your claude login
-to a host, updating or stopping its daemon, and removing it. Removing a host
+be done with it: renaming, connecting, copying your claude login to a host,
+updating or stopping its daemon, and removing it. Removing a host
 takes it off this dashboard only; removing a project takes it off its host,
 with the tasks it holds, for every dashboard.
 
@@ -66,27 +66,30 @@ fix it first.
 
 ## How a task flows
 
-The window is two columns. The left one holds a project dropdown and, under
-it, a task dropdown; both list the ones waiting for a human first, then the
-most recent, and both wear a badge counting what they hide that wants a human.
-The gear beside each opens its settings, and the phase icon beside the task
-opens the list of phases to move it to.
+The window is two columns. The left one opens with the trail of where you are —
+TPS / project / task, each crumb a link back up, wearing a badge that counts
+what waits for a human elsewhere — and holds what there is to do here: the
+project's settings while no task is picked, and otherwise the task's phase
+icon (which opens the list of phases to move it to), the gear with its
+settings, and its chat with the agent.
 
 The right column is whatever the left one names: the project's board of five
-columns while no task is picked, VS Code (running in the container) on the
-task's workspace once one is, and VS Code on the project's own checkout for the
-*"main" branch* entry of the task list. A view you switch away from is kept
-warm for a few minutes, so switching back is instant.
+columns while no task is picked, the description of a task still in Plan, VS
+Code (running in the container) on the task's workspace once it is not, and VS
+Code on the project's own checkout behind the *"main" branch* button. A view
+you switch away from is kept warm for a few minutes, so switching back is
+instant.
 
-Under the selectors, a task shows its description while it is still in Plan,
-and its chat with the agent once it is not: the log, and the box to steer it
-with.
+A project's settings are its name, where it lives, and its *default task
+settings*: the model, the budget limit and the merge behaviour that every new
+task there is created with. They are copied into the task, so changing them
+says what the next tasks start out with and leaves the ones that exist alone.
 
 1. **Plan**: A title, a markdown description, and settings (model, the tasks
-   to start after, budget, merge behaviour). The models to pick from are the
-   ones the claude on the project's host offers (it is asked, once per daemon
-   run); *default* leaves the choice to claude's own configuration, and is
-   what a new task gets. Nothing exists on disk yet. Once the task leaves
+   to start after, budget, merge behaviour), which start on the project's
+   defaults. The models to pick from are the ones the claude on the project's
+   host offers (it is asked, once per daemon run); *default* leaves the choice
+   to claude's own configuration. Nothing exists on disk yet. Once the task leaves
    this column the description is fixed; the title and the other settings
    stay tweakable.
 
@@ -104,8 +107,8 @@ with.
    yourself, or merge.
 4. **Merge**: The working tree becomes a single commit on the default branch.
    The agent proposes the commit message when it reports the task ready; with
-   *Merge without confirmation* (a project setting each task can override)
-   that merge happens by itself, otherwise you confirm the message first. If
+   *Merge when ready* (a task setting, out of the project's defaults) that
+   merge happens by itself, otherwise you confirm the message first. If
    the default branch moved since the clone was made, the work is rebased onto
    it. Conflicts are handed to a fresh agent that resolves the rebase (guided
    by the commit messages on both sides), after which the merge completes; the
@@ -149,8 +152,8 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   when the daemon is too old for this TPS to talk to, and never the other
   way around: a host with a newer TPS asks you to update this one instead.
   For a host of another architecture, build for it and pass
-  `--daemon-binary`. The project settings (the gear beside the project) hold
-  the rest: stop the daemon (with its workspaces), copy your claude login there.
+  `--daemon-binary`. The host's menu on the front page holds the rest: stop
+  the daemon (with its workspaces), copy your claude login there.
 - A `CMD` line in `Containerfile.dev` says how to run the project, listening on
   `$PORT` (published on a random localhost port of its host). The play button
   beside a task runs it in the task's container, showing the console and, once

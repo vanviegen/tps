@@ -1,10 +1,10 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { download, ellipsisVertical, keyRound, monitor, pencil, plug, plus, power, server, settings, trash2 } from 'staffa/icons.js';
+import { download, ellipsisVertical, keyRound, monitor, pencil, plug, plus, power, server, trash2 } from 'staffa/icons.js';
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
-import { humanTasks } from './task.ts';
+import { drawTaskFields, humanTasks } from './task.ts';
 import { cmd, ELLIPSIS, hostName, pathTo, PHASE_ICONS, PHASE_LABELS, PHASES, shortDir } from './util.ts';
 
 /** Projects: the ones with a task waiting for a human first, then most recently active. */
@@ -151,7 +151,6 @@ function drawProjectBox(pid: string, $p: any): void {
 		S.addContextMenu({ link: pathTo(pid), get items(): S.MenuEntry[] {
 			return [
 				{ label: 'Rename…', icon: pencil, click: () => void renameProject(pid, $p) },
-				{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
 				{ separator: true },
 				{ label: 'Remove project…', icon: trash2, click: () => void removeProject(pid, $p) },
 			];
@@ -318,9 +317,13 @@ export function drawNotices(pid: string, $p: any): void {
 	});
 }
 
-/** The name, the merge behaviour, the host it lives on, and the way to remove it. */
-export function projectSettingsDialog(pid: string, $p: any): void {
-	void S.dialog({ header: 'Project settings', attrs: 'w:36rem', content: close => {
+/**
+ * The project in the left column: its name, what its tasks start out with,
+ * the host it lives on, and the way to remove it. A project has no chat to
+ * hold the space, so its settings are simply laid out there.
+ */
+export function drawProjectSettings(pid: string, $p: any): void {
+	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
 		S.textline({
 			label: 'Name', value: A.peek($p, 'name') ?? '',
 			change: (e: Event) => {
@@ -328,15 +331,18 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 				if (name) void cmd('setProject', { pid, name });
 			},
 		});
-		S.checkbox({
-			label: 'Merge without confirmation',
-			help: 'When the agent reports a task ready, merge it right away instead of waiting for you. Individual tasks can override this in their settings.',
-			checked: !!A.peek($p, 'autoMerge'),
-			change: (e: Event) => void cmd('setProject', { pid, autoMerge: (e.target as HTMLInputElement).checked }),
+		A('h3 mt:$2 mb:0 font-size:1em #Default task settings');
+		A('div.s-help #Copied into every new task of this project; the tasks that exist keep what they have.');
+		A(() => {
+			// The defaults land with the project itself; each is patched on its
+			// own, so typing in one is not interrupted by another being saved.
+			const $d = $p.defaults;
+			if (!$d) return;
+			drawTaskFields(pid, undefined, $d, patch => void cmd('setProject', { pid, defaults: patch }));
 		});
 		// Where it lives, for reference: the host itself is managed from its
 		// column on the front page.
-		A('div.s-field', () => {
+		A('div.s-field mt:$2', () => {
 			A('label #Host');
 			A(() => {
 				const $h = $state.hosts?.[$p.host];
@@ -345,10 +351,10 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 			});
 		});
 		A('div display:flex mt:$2', () => S.button({
-			content: 'Remove project', attrs: '.small .danger .outlined',
-			click: async () => { if (await removeProject(pid, $p)) close(); },
+			content: 'Remove project', icon: trash2, attrs: '.small .danger .outlined',
+			click: () => void removeProject(pid, $p),
 		}));
-	}});
+	});
 }
 
 /** The right column for the base worktree: VS Code on the project's own checkout. */

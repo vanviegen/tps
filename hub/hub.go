@@ -17,8 +17,8 @@ import (
 // Protocol for any change a UI of the previous version could not handle, and
 // MinProtocol when old daemons can no longer be served.
 const (
-	Protocol    = 3
-	MinProtocol = 3
+	Protocol    = 4
+	MinProtocol = 4
 )
 
 // CmdHandler runs one command; the result is sent back as the reply.

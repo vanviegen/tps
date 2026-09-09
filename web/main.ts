@@ -5,7 +5,7 @@ import { bot, chevronRight, gitBranch, play, settings } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
 import { bindPalette } from './palette.ts';
-import { drawNotices, drawProjectCode, drawProjectList, projectSettingsDialog, sortedProjects } from './projects.ts';
+import { drawNotices, drawProjectCode, drawProjectList, drawProjectSettings, sortedProjects } from './projects.ts';
 import { runDialog } from './run.ts';
 import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, phaseItems, taskSettingsDialog, useTask } from './task.ts';
 import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } from './util.ts';
@@ -96,16 +96,14 @@ function drawBaseLabel($p: any): void {
 	A('span', () => A('text=', `"${$p.defaultBranch ?? 'main'}" branch`));
 }
 
-/** Under the crumbs of a project: its checkout, its settings, and what stands in its way. */
+/** Under the crumbs of a project: its checkout, what stands in its way, and its settings. */
 function drawProjectPanel(pid: string, $p: any): void {
-	A('div display:flex align-items:center gap:$2', () => {
-		S.button({
-			content: () => drawBaseLabel($p), icon: gitBranch, attrs: '.small .neutral',
-			click: () => void route.go(pathTo(pid, 'base')),
-		});
-		S.iconButton({ icon: settings, ariaLabel: 'Project settings', attrs: 'ml:auto', click: () => projectSettingsDialog(pid, $p) });
-	});
+	A('div display:flex', () => S.button({
+		content: () => drawBaseLabel($p), icon: gitBranch, attrs: '.small .neutral',
+		click: () => void route.go(pathTo(pid, 'base')),
+	}));
 	drawNotices(pid, $p);
+	drawProjectSettings(pid, $p);
 }
 
 /** Under the crumbs of a task: its settings while in Plan, else its controls and the chat. */

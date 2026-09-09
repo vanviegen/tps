@@ -10,13 +10,23 @@ import (
 	"time"
 )
 
+// TaskDefaults is what a project hands to the tasks created in it. These are
+// copied at creation, not consulted afterwards: changing them says what the
+// next tasks start out with, and leaves the ones that exist alone.
+type TaskDefaults struct {
+	Model     string   `json:"model,omitempty"`
+	Budget    *float64 `json:"budget,omitempty"`
+	AutoMerge bool     `json:"autoMerge,omitempty"`
+}
+
 // ProjectInfo is the persisted part of a project (in projects.json). The list
 // belongs to the host: every dashboard connecting to this daemon sees the same
 // projects, under the same names.
 type ProjectInfo struct {
 	Dir       string               `json:"dir"`
 	Name      string               `json:"name"`
-	AutoMerge bool                 `json:"autoMerge,omitempty"` // merge without confirmation when the agent reports ready
+	Defaults  TaskDefaults         `json:"defaults"`
+	AutoMerge *bool                `json:"autoMerge,omitempty"` // where the merge setting sat before Defaults; see newProject
 	Activity  int64                `json:"activity,omitempty"`  // unix ms of the last change to a task
 	NextTask  int                  `json:"nextTask,omitempty"`
 	Tasks     map[string]*TaskInfo `json:"tasks"`
@@ -38,6 +48,22 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	}
 	if info.Name == "" { // added before the daemon kept names, or none was given
 		info.Name = filepath.Base(info.Dir)
+	}
+	if info.Defaults.Model == "" {
+		info.Defaults.Model = DefaultModel
+	}
+	// The merge setting used to sit on the project and be read at merge time,
+	// a task's own overriding it. It is a default for new tasks now, so the
+	// tasks that leaned on it are handed what they had.
+	if info.AutoMerge != nil {
+		info.Defaults.AutoMerge = *info.AutoMerge
+		for _, t := range info.Tasks {
+			if t.AutoMerge == nil {
+				auto := *info.AutoMerge
+				t.AutoMerge = &auto
+			}
+		}
+		info.AutoMerge = nil
 	}
 	if info.NextTask == 0 {
 		for tid := range info.Tasks {
@@ -65,7 +91,8 @@ func (p *Project) init() error {
 		}
 	}
 	p.defaultBranch = branch
-	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "name": p.info.Name, "autoMerge": p.info.AutoMerge, "activity": p.info.Activity, "tasks": map[string]any{}})
+	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "name": p.info.Name, "defaults": map[string]any{}, "activity": p.info.Activity, "tasks": map[string]any{}})
+	p.pubDefaults()
 	tids := make([]string, 0, len(p.info.Tasks))
 	for tid := range p.info.Tasks {
 		tids = append(tids, tid)
@@ -208,19 +235,42 @@ func gitSummary(status string) string {
 func (p *Project) SetConfig(partial map[string]any) error {
 	p.m.mu.Lock()
 	defer p.m.mu.Unlock()
-	if auto, ok := partial["autoMerge"]; ok {
-		p.info.AutoMerge = auto == true
-	}
 	if name, ok := partial["name"].(string); ok {
 		if name = strings.TrimSpace(name); name == "" {
 			return errors.New("Give the project a name")
 		}
 		p.info.Name = name
 	}
+	// The defaults arrive as the task settings they are, one or more at a time.
+	if defaults, ok := partial["defaults"].(map[string]any); ok {
+		d := &p.info.Defaults
+		if model, ok := defaults["model"].(string); ok && model != "" {
+			d.Model = model
+		}
+		if auto, ok := defaults["autoMerge"].(bool); ok {
+			d.AutoMerge = auto
+		}
+		if budget, ok := defaults["budget"]; ok {
+			d.Budget = parseBudget(budget)
+		}
+	}
 	p.m.saveL()
-	p.pub("autoMerge", p.info.AutoMerge)
 	p.pub("name", p.info.Name)
+	p.pubDefaults()
 	return nil
+}
+
+// pubDefaults publishes the defaults a field at a time, so that setting one
+// leaves the rest of them — the field being typed in included — alone.
+func (p *Project) pubDefaults() {
+	d := p.info.Defaults
+	p.pubDefault("model", d.Model)
+	p.pubDefault("budget", optional(d.Budget))
+	p.pubDefault("autoMerge", d.AutoMerge)
+}
+
+func (p *Project) pubDefault(field string, value any) {
+	p.m.hub.Set([]string{"projects", p.pid, "defaults", field}, value)
 }
 
 // CreateTask writes a task down, description and settings and all. A task is
@@ -232,7 +282,14 @@ func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	defer p.m.mu.Unlock()
 	tid := strconv.Itoa(p.info.NextTask)
 	p.info.NextTask++
-	info := &TaskInfo{Model: DefaultModel, Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
+	// The project's defaults are what a task starts out with; whatever the
+	// partial names (the dashboard sends the draft's settings along) wins.
+	d := p.info.Defaults // a copy, so the task's settings are its own
+	info := &TaskInfo{Model: d.Model, AutoMerge: &d.AutoMerge, Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
+	if d.Budget != nil {
+		budget := *d.Budget
+		info.Budget = &budget
+	}
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t

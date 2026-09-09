@@ -56,7 +56,7 @@ type TaskInfo struct {
 	Merged        bool     `json:"merged,omitempty"`        // the work was committed since the agent's last turn; it is told so when it is sent back in
 	Spent         float64  `json:"spent,omitempty"`         // USD spent on agent runs so far
 	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
-	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // overrides the project setting when set
+	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // merge without confirmation; copied from the project's defaults at creation
 	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
 	PhaseAt       int64    `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
@@ -182,6 +182,23 @@ func (t *Task) publishL() {
 	default:
 		t.pubL("run", nil)
 	}
+}
+
+// parseBudget reads a spending limit as it arrives from a dashboard: a number
+// or the text of a number field. Anything that is not a limit (empty, zero,
+// nonsense) means no limit at all.
+func parseBudget(raw any) *float64 {
+	var budget float64
+	switch v := raw.(type) {
+	case float64:
+		budget = v
+	case string:
+		fmt.Sscanf(strings.TrimSpace(v), "%g", &budget)
+	}
+	if budget <= 0 || math.IsInf(budget, 0) {
+		return nil
+	}
+	return &budget
 }
 
 // optional turns a nil pointer into nil (deleting the field) and otherwise the value.
@@ -313,17 +330,7 @@ func (t *Task) applyL(partial map[string]any) {
 		t.info.AutoMerge = &auto
 	}
 	if raw, ok := partial["budget"]; ok {
-		t.info.Budget = nil
-		var budget float64
-		switch v := raw.(type) {
-		case float64:
-			budget = v
-		case string:
-			fmt.Sscanf(strings.TrimSpace(v), "%g", &budget)
-		}
-		if budget > 0 && !math.IsInf(budget, 0) {
-			t.info.Budget = &budget
-		}
+		t.info.Budget = parseBudget(raw)
 	}
 	if raw, ok := partial["startAfter"].([]any); ok {
 		var after []string
@@ -1225,11 +1232,7 @@ func (t *Task) onTurnEnd(costDelta float64) {
 			t.info.CommitMessage = t.info.Title
 		}
 		t.p.m.saveL()
-		auto := t.p.info.AutoMerge
-		if t.info.AutoMerge != nil {
-			auto = *t.info.AutoMerge
-		}
-		if auto {
+		if t.info.AutoMerge != nil && *t.info.AutoMerge {
 			msg := t.info.CommitMessage
 			t.unlock()
 			t.note("the agent reports the task is ready; merging")
