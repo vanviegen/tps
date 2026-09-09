@@ -122,9 +122,12 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   For a host of another architecture, build for it and pass
   `--daemon-binary`. The project settings (the gear beside the project) hold
   the rest: stop the daemon (with its workspaces), copy your claude login there.
-- Containers get `PORT=8080` published on a random localhost port of their
-  host; while something answers HTTP there, the task's card shows a green globe
-  that opens it (tunnelled for SSH hosts).
+- A `CMD` line in `Containerfile.dev` says how to run the project, listening on
+  `$PORT` (published on a random localhost port of its host). The play button
+  beside a task runs it in the task's container, showing the console and, once
+  something answers, the live site (tunnelled for SSH hosts); the task's card
+  shows a green globe meanwhile. Closing the dialog stops the run, unless you
+  keep it going.
 - Each task tracks what its agent runs cost; an optional budget limit parks
   the task for you when spending reaches it.
 - Container builds use the task's clone as their only build context, and code

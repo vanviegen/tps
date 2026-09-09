@@ -16,8 +16,9 @@ working; treat them as steering.
 Rules:
 - Do not commit, and never push, pull, fetch, merge, rebase or switch branches: TPS
   commits your working tree when the user merges the task. Read-only git is fine.
-- If the task involves serving something, listen on $PORT; the user gets a live preview
-  link while something answers there.
+- If the task involves serving something, listen on $PORT, and give Containerfile.dev a
+  CMD line that starts it: the user runs and previews the project from the dashboard
+  with that.
 - Your container is disposable: it is recreated after idle periods, and anything you
   install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
   create or edit /work/Containerfile.dev, the project's image definition, and end your

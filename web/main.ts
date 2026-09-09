@@ -1,10 +1,11 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, chevronDown, gitBranch, plus, settings } from 'staffa/icons.js';
+import { bot, chevronDown, gitBranch, play, plus, settings } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
 import { drawAddProject, drawProjectCode, projectItem, projectSettingsDialog, sortedProjects } from './projects.ts';
+import { runDialog } from './run.ts';
 import { drawAgent, drawPlan, drawTaskCode, humanTasks, newTaskDialog, phaseItems, sortedTasks, taskItem, taskSettingsDialog, useTask } from './task.ts';
 import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection } from './util.ts';
 
@@ -116,6 +117,13 @@ function drawTaskSection(pid: string, $p: any, tid: string | undefined, base: bo
 					click: e => void S.showFloatingMenu({ items: phaseItems(pid, tid!, $t), anchor: e.currentTarget as HTMLElement }),
 				});
 				S.iconButton({ icon: settings, ariaLabel: 'Task settings', click: () => taskSettingsDialog(pid, tid!, $t) });
+				A(() => { // its own scope: the CMD arriving must not redraw the section
+					if ($t.phase === 'plan') return;
+					S.iconButton({
+						icon: play, disabled: !$t.runCmd, click: () => runDialog(pid, tid!, $t),
+						ariaLabel: $t.runCmd ? 'Run the project' : 'Run: give Containerfile.dev a CMD line first',
+					});
+				});
 			}
 		});
 	});

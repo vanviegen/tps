@@ -434,6 +434,8 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
 		"moveTask":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
 		"deleteTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
+		"runTask":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Run() }),
+		"stopRun":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopRun() }),
 		// Exit once idle and let the UI start the binary it wants; containers stay up and are reused.
 		"restart": func(raw json.RawMessage) (any, error) {
 			m.scheduleRestart()

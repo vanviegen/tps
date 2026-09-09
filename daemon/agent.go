@@ -3,7 +3,6 @@ package daemon
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -144,15 +143,7 @@ func newChatSession(opts SessionOpts) (*ChatSession, error) {
 				s.onEvent(&ev)
 			}
 		}
-		code := 0
-		if err := cmd.Wait(); err != nil {
-			var ee *exec.ExitError
-			if errors.As(err, &ee) {
-				code = ee.ExitCode()
-			} else {
-				code = -1
-			}
-		}
+		code := exitCode(cmd.Wait())
 		s.turnActive.Store(false)
 		s.errMu.Lock()
 		tail := strings.TrimSpace(s.errTail)

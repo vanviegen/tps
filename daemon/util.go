@@ -58,6 +58,19 @@ func runCmd(argv []string, o RunOpts) (RunResult, error) {
 	return r, nil
 }
 
+// exitCode of a finished command: its status, or -1 when it did not run to an exit.
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ee):
+		return ee.ExitCode()
+	default:
+		return -1
+	}
+}
+
 // git runs git in dir, returning trimmed stdout.
 func git(dir string, args ...string) (string, error) {
 	r, err := runCmd(append([]string{"git", "-C", dir}, args...), RunOpts{})

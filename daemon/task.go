@@ -95,6 +95,10 @@ type Task struct {
 	lastTag       string
 	stopping      bool
 	chatMu        sync.Mutex
+
+	run     *runSession
+	runCmd  []string // the Containerfile's CMD, known along with the container
+	runCode *int     // the last run's exit code, until the next one starts
 }
 
 func newTask(p *Project, tid string, info *TaskInfo) *Task {
@@ -157,9 +161,19 @@ func (t *Task) publishL() {
 	if t.status == StatusUp && t.container != nil {
 		t.pubL("appPort", t.container.AppPort)
 		t.pubL("codePort", t.container.CodePort)
+		t.pubL("runCmd", nonEmpty(cmdDisplay(t.runCmd)))
 	} else {
 		t.pubL("appPort", nil)
 		t.pubL("codePort", nil)
+		t.pubL("runCmd", nil)
+	}
+	switch {
+	case t.run != nil:
+		t.pubL("run", map[string]any{"status": "running"})
+	case t.runCode != nil:
+		t.pubL("run", map[string]any{"status": "exited", "code": *t.runCode})
+	default:
+		t.pubL("run", nil)
 	}
 }
 
@@ -601,9 +615,10 @@ func (t *Task) adoptL() {
 	if t.info.Phase == PhasePlan || !exists(t.repoDir()) {
 		return
 	}
-	tag := imageTag(t.containerfile())
+	cf := t.containerfile()
+	tag := imageTag(cf)
 	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir())); c != nil {
-		t.container, t.lastTag = c, tag
+		t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
 		t.status = StatusUp
 	}
 }
@@ -796,8 +811,8 @@ func (t *Task) doUp() (*Container, error) {
 	cf := t.containerfile()
 	tag := imageTag(cf)
 	t.lock()
-	// Don't recycle a container out from under a live claude session.
-	if t.container != nil && t.status == StatusUp && (t.lastTag == tag || t.session != nil) {
+	// Don't recycle a container out from under a live claude session or run.
+	if t.container != nil && t.status == StatusUp && (t.lastTag == tag || t.session != nil || t.run != nil) {
 		c := t.container
 		t.unlock()
 		return c, nil
@@ -825,7 +840,7 @@ func (t *Task) doUp() (*Container, error) {
 		return t.failUp(err)
 	}
 	t.lock()
-	t.container, t.lastTag = c, tag
+	t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
 	t.setStatusL(StatusUp, "")
 	t.unlock()
 	return c, nil
@@ -838,10 +853,13 @@ func (t *Task) down() {
 		return
 	}
 	t.setStatusL(StatusStopping, "")
-	s, c := t.session, t.container
+	s, r, c := t.session, t.run, t.container
 	t.unlock()
 	if s != nil {
 		s.Kill()
+	}
+	if r != nil {
+		r.Kill()
 	}
 	if c != nil {
 		c.Rm()
@@ -1010,6 +1028,66 @@ func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
 			t.note(fmt.Sprintf("claude exited unexpectedly (%d)", code), errTail)
 		}
 		t.setPhaseL(PhaseHuman)
+	}
+}
+
+// --- running the project: the Containerfile's CMD, in the task's container ---
+
+func (t *Task) Run() error {
+	c, err := t.up()
+	if err != nil {
+		return err
+	}
+	t.lock()
+	if t.runCmd == nil {
+		t.unlock()
+		return errors.New("Containerfile.dev has no CMD line saying how to run this project")
+	}
+	if t.run != nil {
+		t.unlock()
+		return errors.New("Already running")
+	}
+	s := newRunSession(c, t.runCmd, func(tail string) {
+		t.lock()
+		t.pubL("runLog", tail)
+		t.unlock()
+	}, t.onRunExit)
+	// Assigned before the spawn, so a second Run meanwhile sees it.
+	t.run, t.runCode = s, nil
+	t.touchL()
+	t.pubL("runLog", "")
+	t.publishL()
+	t.unlock()
+	if err := s.start(); err != nil {
+		t.lock()
+		t.run = nil
+		t.publishL()
+		t.unlock()
+		return err
+	}
+	return nil
+}
+
+func (t *Task) StopRun() error {
+	t.lock()
+	r := t.run
+	t.unlock()
+	if r != nil {
+		r.Stop()
+	}
+	return nil
+}
+
+func (t *Task) onRunExit(s *runSession, code int) {
+	t.lock()
+	if t.run == s {
+		t.run = nil
+		t.runCode = &code
+	}
+	t.publishL()
+	t.unlock()
+	if code != 0 && !s.stopped.Load() {
+		t.note(fmt.Sprintf("run exited (%d)", code))
 	}
 }
 

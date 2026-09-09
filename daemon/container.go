@@ -63,20 +63,31 @@ func seedVscodeDir(dir string) error {
 		}
 	}
 	if !exists(settingsFile) {
-		return os.WriteFile(settingsFile, []byte("{\n\t\"workbench.colorTheme\": \"Default Dark Modern\"\n}\n"), 0o644)
+		if err := os.WriteFile(settingsFile, []byte("{}\n"), 0o644); err != nil {
+			return err
+		}
 	}
-	// Add a dark theme to seeded settings that don't pick one. Settings with
-	// comments (JSONC) don't parse; leave those untouched.
+	// Settings with comments (JSONC) don't parse; those are left untouched.
 	var settings map[string]any
 	if data, err := os.ReadFile(settingsFile); err == nil && json.Unmarshal(data, &settings) == nil {
-		if _, ok := settings["workbench.colorTheme"]; !ok {
-			settings["workbench.colorTheme"] = "Default Dark Modern"
-			if out, err := json.MarshalIndent(settings, "", "\t"); err == nil {
-				_ = os.WriteFile(settingsFile, append(out, '\n'), 0o644)
+		changed := false
+		for k, v := range vscodeDefaults {
+			if _, ok := settings[k]; !ok {
+				settings[k], changed = v, true
 			}
+		}
+		if out, err := json.MarshalIndent(settings, "", "\t"); changed && err == nil {
+			_ = os.WriteFile(settingsFile, append(out, '\n'), 0o644)
 		}
 	}
 	return nil
+}
+
+// vscodeDefaults go into settings that don't set them: a dark theme, and no
+// port-forward popups (the task's $PORT is what TPS previews).
+var vscodeDefaults = map[string]any{
+	"workbench.colorTheme":    "Default Dark Modern",
+	"remote.autoForwardPorts": false,
 }
 
 func home() string {
@@ -104,7 +115,7 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # and claude are mounted in at run time, so nothing here is TPS-specific: use
 # whatever base suits the project, as long as it has bash and git, and a user
 # with uid 1000 who owns a home directory. Anything the task serves should
-# listen on $PORT.
+# listen on $PORT; a CMD line that starts it gives the dashboard a Run button.
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
