@@ -40,7 +40,7 @@ export function drawCode(key: string, src: string): void {
 		el.setAttribute('allow', 'clipboard-read; clipboard-write');
 		el.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0';
 		el.src = src;
-		el.addEventListener('load', () => el.focus());
+		el.addEventListener('load', () => { el.focus(); shareKeys(el); });
 		overlay.appendChild(el);
 		views.push(view = { key, el, uses: 0, idle: 0 });
 	}
@@ -53,6 +53,37 @@ export function drawCode(key: string, src: string): void {
 		shown.idle = Date.now();
 		sync();
 	});
+}
+
+/** A keystroke the app takes from VS Code: how to recognise it, and what it does. */
+const claims: { test: (e: KeyboardEvent) => boolean; press: () => void }[] = [];
+
+/**
+ * Take one keystroke away from VS Code. Focus lives in the iframe whenever one
+ * is up, and a keystroke there never reaches the page around it, so a shortcut
+ * that has to work everywhere needs claiming here too — the iframe is
+ * same-origin (the dashboard proxies it), which is what makes that possible.
+ * Every claim is a key VS Code no longer gets, so they are named one by one and
+ * the list stays short: the palette's (see palette.ts) is the only one.
+ */
+export function claimKeyInCode(test: (e: KeyboardEvent) => boolean, press: () => void): void {
+	claims.push({ test, press });
+}
+
+/** Offer a frame's keystrokes to the claims, before VS Code sees them. */
+function shareKeys(el: HTMLIFrameElement): void {
+	try {
+		// Capture on the frame's window, the earliest a handler in it can run.
+		el.contentWindow?.addEventListener('keydown', (e: KeyboardEvent) => {
+			for (const claim of claims) {
+				if (!claim.test(e)) continue;
+				e.preventDefault();
+				e.stopPropagation(); // VS Code's own handlers never see it
+				claim.press();
+				return;
+			}
+		}, true);
+	} catch { /* another origin after all: its keys are not ours to see */ }
 }
 
 function drop(view: View): void {

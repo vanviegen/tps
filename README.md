@@ -150,6 +150,11 @@ Moving a task back to Plan discards all of its work, after a confirmation.
 - Container builds use the task's clone as their only build context, and code
   runs as an unprivileged user in a rootless container. Idle containers are
   torn down after 15 minutes; workspaces persist until the task is deleted.
+- Ctrl-L (⌘L) opens *Go to*: type a few letters of a project or a task, Enter
+  takes you there. It works from inside VS Code too, which is where the keyboard
+  usually is; the only thing it costs you there is "select current line", and
+  the address bar keeps it everywhere else. `?` lists every shortcut that works
+  where you are.
 - Hacking on TPS: `npm run watch` for the web UI, `go build` and restart
   `tps` for the rest; the boards then offer to update the daemon. `go test
   ./...` covers the pure parts.

@@ -4,6 +4,7 @@ import * as S from 'staffa';
 import { bot, chevronRight, gitBranch, play, settings } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
+import { bindPalette } from './palette.ts';
 import { drawNotices, drawProjectCode, drawProjectList, projectSettingsDialog, sortedProjects } from './projects.ts';
 import { runDialog } from './run.ts';
 import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, phaseItems, taskSettingsDialog, useTask } from './task.ts';
@@ -11,6 +12,7 @@ import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } 
 
 S.setDarkMode(true);
 route.interceptLinks();
+bindPalette(); // the keyboard's way around: go to any project or task by name
 
 // Two columns, edge to edge: the left one says where you are and holds what to
 // do about it (the conversation included), the right one is the thing itself.
