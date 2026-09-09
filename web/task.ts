@@ -1,10 +1,11 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, circleStop, gitMerge, sendHorizontal, trash2, user } from 'staffa/icons.js';
+import { bot, circleStop, gitMerge, pencil, play, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
+import { runDialog } from './run.ts';
 import { autoStarts, chatDraft, cmd, debounce, pathTo, selection, setChatDraft, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
 
 /** Tasks of a project waiting for a human, not counting `skip`. */
@@ -20,7 +21,7 @@ export function useTask(pid: string, tid: string, $t: any): void {
 }
 
 /** The phases the task can be moved to; the one it is in is the disabled one. */
-export function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
+function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	return PHASES.map(phase => ({
 		label: PHASE_LABELS[phase],
 		icon: PHASE_ICONS[phase],
@@ -29,6 +30,21 @@ export function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 		attrs: phase === 'plan' ? 'fg:$s-danger' : '',
 		click: () => void moveTask(pid, tid, $t, phase),
 	}));
+}
+
+/**
+ * The task's whole menu: where it can go, and what else can be done to it.
+ * `extra` slots in beside Rename, for the callers that have more to offer.
+ */
+export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
+	return [
+		...phaseItems(pid, tid, $t),
+		{ separator: true },
+		{ label: 'Rename…', icon: pencil, click: () => void renameTask(pid, tid, $t) },
+		...extra,
+		{ separator: true },
+		{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) },
+	];
 }
 
 /** Move a task to a phase, confirming when that discards work, and confirming the commit message when it merges. */
@@ -157,7 +173,7 @@ function saveDraft(pid: string, $d: any): Promise<string | undefined> {
 	return pending;
 }
 
-/** Rename a task, from its card's context menu — the only place a title is ever typed by hand. */
+/** Rename a task, from its menu — the only place a title is ever typed by hand. */
 export async function renameTask(pid: string, tid: string, $t: any): Promise<void> {
 	const name = await S.prompt('Rename task', A.peek($t, 'title') ?? '');
 	const title = name?.trim();
@@ -236,28 +252,19 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
  * goes with it. Whoever is showing it (its own page, the plan it was drafted
  * on) falls back to the board; the board itself just loses a card.
  */
-export async function deleteTask(pid: string, tid: string, $t: any, close?: () => void): Promise<void> {
+export async function deleteTask(pid: string, tid: string, $t: any): Promise<void> {
 	const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped.' : '';
 	const title = A.peek($t, 'title');
 	if (!(await S.confirm(`Delete ${title ? `"${title}"` : 'this task'}? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
-	close?.();
 	if (!(await cmd('deleteTask', { pid, tid }))) return;
 	const shown = A.peek(selection);
 	if (shown.tid === tid || shown.draft) void route.go(pathTo(pid));
 }
 
-function drawDeleteTask(pid: string, tid: string, $t: any, close?: () => void): void {
-	S.button({
-		content: 'Delete task', icon: trash2, attrs: '.small .danger .outlined',
-		click: () => void deleteTask(pid, tid, $t, close),
-	});
-}
-
 /** Task settings behind a dialog: how every phase but Plan offers them. */
 export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
-	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: close => {
+	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: () => {
 		drawTaskFields(pid, tid, $t, patch => void cmd('updateTask', { pid, tid, ...patch }));
-		A('div display:flex mt:$2', () => drawDeleteTask(pid, tid, $t, close));
 	}});
 }
 
@@ -280,22 +287,16 @@ export function drawPlanSettings(pid: string, tid: string | undefined, $t: any):
 			const note = autoStartNote(pid, $t);
 			if (note) A('div.s-s.warning.tonal p:$2 font-size:0.9em text=', note);
 		});
-		// Its own scope: a draft has nothing to delete until it is written down,
-		// and growing the button then must not disturb the text being typed.
-		A(() => {
-			const id = tid ?? $t.tid;
-			if (id) A('div display:flex', () => drawDeleteTask(pid, id, $t));
-		});
 	});
 	// There is nothing to assign until something has been written. The emptiness
 	// is derived into a flag of its own, so the buttons are redrawn when it
 	// flips rather than on every keystroke.
 	const $ready = A.proxy({ value: false });
 	A(() => { $ready.value = !!($t.description ?? '').trim(); });
-	A('div display:flex gap:$2', () => {
+	A('div display:flex gap:$2 justify-content:flex-end', () => {
 		const off = !$ready.value;
-		S.button({ content: 'Assign to agent', icon: bot, key: 'mod+enter', disabled: off, click: () => void assignTask(pid, tid, $t, 'agent') });
 		S.button({ content: 'Assign to human', icon: user, attrs: '.neutral', disabled: off, click: () => void assignTask(pid, tid, $t, 'human') });
+		S.button({ content: 'Assign to agent', icon: bot, key: 'mod+enter', disabled: off, click: () => void assignTask(pid, tid, $t, 'agent') });
 	});
 }
 
@@ -350,7 +351,17 @@ export function drawPlanEditor(pid: string, tid: string | undefined, $t: any): v
 
 /** The chat, what is worth acting on right now, and the input. */
 export function drawAgent(pid: string, tid: string, $t: any): void {
-	drawChat(pid, tid);
+	// The log fills the column, with the two icons floating over its top right
+	// corner: chrome that would otherwise cost the conversation a row.
+	A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
+		drawChat(pid, tid);
+		A('div position:absolute top:0 right:0 display:flex align-items:center', chatOverlay, () => {
+			A(() => { // its own scope: the CMD arriving must not redraw the row
+				if ($t.runCmd) S.iconButton({ icon: play, ariaLabel: 'Run the project', click: () => runDialog(pid, tid, $t) });
+			});
+			S.iconButton({ icon: settings, ariaLabel: 'Task settings', click: () => taskSettingsDialog(pid, tid, $t) });
+		});
+	});
 	A(() => {
 		if ($t.phase === 'done') {
 			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
@@ -379,6 +390,10 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	});
 	drawInputBar(pid, tid, $t);
 }
+
+const chatOverlay = A.insertCss({
+	'&': 'filter: drop-shadow(0 0 2px var(--s-bg)) drop-shadow(0 0 4px var(--s-bg)) drop-shadow(0 0 6px var(--s-bg));',
+});
 
 function drawInputBar(pid: string, tid: string, $t: any): void {
 	// Whatever was typed here and never sent, from before this task was left.

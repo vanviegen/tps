@@ -14,7 +14,7 @@ export function runDialog(pid: string, tid: string, $t: any): void {
 	const url = () => `http://${location.hostname}:${$t.appPort}/`;
 	void S.dialog({
 		header: () => { A('span text=', 'Run: '); A('code text=', $t.runCmd); },
-		attrs: 'w:80rem',
+		attrs: 'w:110rem max-width:96vw',
 		onClose: () => { if (!$ui.keep) void cmd('stopRun', { pid, tid }); },
 		content: close => {
 			S.tabs({

@@ -1,13 +1,12 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, chevronRight, play, settings } from 'staffa/icons.js';
+import { bot, chevronRight, settings } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
 import { bindPalette } from './palette.ts';
 import { drawNotices, drawProjectChips, drawProjectCode, drawProjectList, projectDefaultsDialog, sortedProjects } from './projects.ts';
-import { runDialog } from './run.ts';
-import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, phaseItems, taskSettingsDialog, useTask } from './task.ts';
+import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, taskMenuItems, useTask } from './task.ts';
 import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
@@ -71,8 +70,19 @@ function drawCrumbs(): void {
 		} else if (tid) {
 			const $t = $p.tasks?.[tid];
 			drawSeparator();
-			drawCrumb(undefined, () => A(`span ${ELLIPSIS}`, () => A('text=', taskTitle($t))));
+			drawCrumb(undefined, () => {
+				if ($t) drawPhaseButton(pid!, tid, $t);
+				A(`span ${ELLIPSIS}`, () => A('text=', taskTitle($t)));
+			});
 		}
+	});
+}
+
+/** The task's phase, as an icon that drops its menu: the phases, and the task's own verbs. */
+function drawPhaseButton(pid: string, tid: string, $t: any): void {
+	S.iconButton({
+		icon: () => drawTaskIcon(pid, $t), ariaLabel: 'Change phase', attrs: '.small',
+		click: e => void S.showFloatingMenu({ items: taskMenuItems(pid, tid, $t), anchor: e.currentTarget as HTMLElement }),
 	});
 }
 
@@ -106,32 +116,14 @@ function drawProjectPanel(pid: string, $p: any): void {
 	}));
 }
 
-/** Under the crumbs of a task: its settings while in Plan, else its controls and the chat. */
+/** Under the crumbs of a task: its settings while in Plan, else the chat. */
 function drawTaskPanel(pid: string, tid: string, $t: any): void {
 	// Its own scope: watching restarts the chat stream, so it must not be torn
 	// down and set up again every time the task changes phase.
 	A(() => useTask(pid, tid, $t));
 	A(() => {
 		if ($t.phase === 'plan') return drawPlanSettings(pid, tid, $t);
-		drawTaskControls(pid, tid, $t);
 		drawAgent(pid, tid, $t);
-	});
-}
-
-/** The phase, the settings and the run, as a row of icons; the description editor has no need of them. */
-function drawTaskControls(pid: string, tid: string, $t: any): void {
-	A('div display:flex align-items:center gap:$2', () => {
-		S.iconButton({
-			icon: () => drawTaskIcon(pid, $t), ariaLabel: 'Change phase',
-			click: e => void S.showFloatingMenu({ items: phaseItems(pid, tid, $t), anchor: e.currentTarget as HTMLElement }),
-		});
-		S.iconButton({ icon: settings, ariaLabel: 'Task settings', attrs: 'ml:auto', click: () => taskSettingsDialog(pid, tid, $t) });
-		A(() => { // its own scope: the CMD arriving must not redraw the row
-			S.iconButton({
-				icon: play, disabled: !$t.runCmd, click: () => runDialog(pid, tid, $t),
-				ariaLabel: $t.runCmd ? 'Run the project' : 'Run: give Containerfile.dev a CMD line first',
-			});
-		});
 	});
 }
 
