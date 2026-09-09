@@ -62,6 +62,18 @@ export function hostName(hid: string): string {
 }
 
 /**
+ * A path on a host as you would type it there: with ~ for the home directory
+ * of the user its daemon runs as. Hosts running an older daemon don't say
+ * where that is, and get their paths in full.
+ */
+export function shortDir(hid: string, dir: string): string {
+	const home = $state.hosts?.[hid]?.home;
+	if (!home || !dir) return dir ?? '';
+	if (dir === home) return '~';
+	return dir.startsWith(home + '/') ? '~' + dir.slice(home.length) : dir;
+}
+
+/**
  * What to call a task. A task gets its title when it leaves Plan (claude is
  * asked for one), so until then its description stands in for it.
  */

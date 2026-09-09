@@ -36,11 +36,12 @@ CGO_ENABLED=0 go build -o tps .    # embeds it; one static binary is all you nee
 ```
 
 The front page is a column per host — this machine first — holding the
-projects listed there. *Add project* in a host's column takes a directory
-holding a git repository on it, like `~/projects/app`, and names the project
-after the directory unless you say otherwise. *Add host*, under the columns,
-takes whatever you would type after `ssh`: `user@host`, a `~/.ssh/config`
-alias, or `-p 2222 -J jump host`. TPS uses your ssh, so keys, agents, an open
+projects listed there, each with its directory and a count of its tasks per
+phase. *Add project* in a host's column takes a directory holding a git
+repository on it, like `~/projects/app`, and names the project after the
+directory unless you say otherwise. The last column, *Add host*, takes
+whatever you would type after `ssh`: `user@host`, a `~/.ssh/config` alias, or
+`-p 2222 -J jump host`. TPS uses your ssh, so keys, agents, an open
 multiplexed session and passwords all work; prompts appear in the browser. A
 new host gets the daemon installed and started, and the projects it already
 has are listed along with it.

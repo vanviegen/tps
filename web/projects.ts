@@ -5,7 +5,7 @@ import { download, ellipsisVertical, keyRound, monitor, pencil, plug, plus, powe
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
 import { humanTasks } from './task.ts';
-import { cmd, drawBadge, ELLIPSIS, hostName, pathTo } from './util.ts';
+import { cmd, ELLIPSIS, hostName, pathTo, PHASE_ICONS, PHASE_LABELS, PHASES, shortDir } from './util.ts';
 
 /** Projects: the ones with a task waiting for a human first, then most recently active. */
 export function sortedProjects(): [string, any][] {
@@ -50,13 +50,11 @@ async function renameProject(pid: string, $p: any): Promise<void> {
 	if (name?.trim()) void cmd('setProject', { pid, name: name.trim() });
 }
 
-/** The page at "/": a column per host, holding the projects listed there. */
+/** The right column at "/": a column per host, holding the projects listed there. */
 export function drawProjectList(): void {
-	A('div display:flex flex-direction:column gap:$3', () => {
-		A('div display:grid gap:$3 align-items:start grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));', () => {
-			// This machine leads; the rest follow by name.
-			A.onEach($state.hosts, ($h: any, hid: string) => drawHostBox(hid, $h), (_$h: any, hid: string) => hid === 'local' ? '' : '1' + hostName(hid).toLowerCase());
-		});
+	A('div display:grid gap:$3 align-items:start grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));', () => {
+		// This machine leads; the rest follow by name, and the way to add one closes the row.
+		A.onEach($state.hosts, ($h: any, hid: string) => drawHostBox(hid, $h), (_$h: any, hid: string) => hid === 'local' ? '' : '1' + hostName(hid).toLowerCase());
 		drawAddHost();
 	});
 }
@@ -146,7 +144,7 @@ async function removeHost(hid: string): Promise<void> {
 	void cmd('removeHost', { hid });
 }
 
-/** One project in its host's column: what waits there, and where it lives. */
+/** One project in its host's column: its name and where it lives, over its tasks. */
 function drawProjectBox(pid: string, $p: any): void {
 	// Its own context menu, which must not also open the host's.
 	A('div', 'contextmenu=', (e: Event) => e.stopPropagation(), () => {
@@ -160,25 +158,42 @@ function drawProjectBox(pid: string, $p: any): void {
 		}});
 		A('a display:block fg:$s-text text-decoration:none', 'href=', pathTo(pid), () => {
 			S.box({ attrs: 'cursor:pointer', contentAttrs: 'display:flex flex-direction:column gap:$1 min-width:0 p:$2', content: () => {
-				A('div display:flex align-items:center gap:$2 min-width:0', () => {
-					A(`span flex:1 ${ELLIPSIS} font-weight:600 text=`, A.ref($p, 'name'));
-					A(() => drawBadge(humanTasks(pid)));
+				A('div display:flex align-items:baseline gap:$2 min-width:0', () => {
+					// The directory takes what the name leaves, and is cut off before it.
+					A(`span min-width:0 ${ELLIPSIS} font-weight:600 text=`, A.ref($p, 'name'));
+					// flex:1 gives it a zero base size, so it takes the space the
+					// name leaves and is the one to be cut off when there is none.
+					A(`small flex:1 min-width:0 ${ELLIPSIS} fg:$s-muted`, () => A('text=', shortDir($p.host, $p.dir)));
 					A(() => {
-						if ($p.error) A('span fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
+						if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
 					});
 				});
-				A(() => {
-					const open = openTasks(pid);
-					A(`small ${ELLIPSIS} fg:$s-muted text=`, $p.dir + (open ? ` · ${open} open task${open > 1 ? 's' : ''}` : ''));
-				});
+				A(() => drawPhaseCounts(pid));
 			}});
 		});
 	});
 }
 
-/** Tasks of a project that aren't merged away yet. */
-function openTasks(pid: string): number {
-	return (Object.values($state.projects[pid]?.tasks ?? {}) as any[]).filter($t => $t.phase !== 'done').length;
+/** What the project's tasks are up to: a phase icon per phase that has any, and how many. */
+function drawPhaseCounts(pid: string): void {
+	const counts = {} as Record<string, number>;
+	for (const $t of Object.values($state.projects[pid]?.tasks ?? {}) as any[]) counts[$t.phase] = (counts[$t.phase] ?? 0) + 1;
+	A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
+		let any = false;
+		for (const phase of PHASES) {
+			const n = counts[phase];
+			if (!n) continue;
+			any = true;
+			const icon = PHASE_ICONS[phase];
+			// Waiting for a human is the one thing here worth looking at twice.
+			A(`span display:inline-flex align-items:center gap:0.25em fg:$s-${phase === 'human' ? 'warning' : 'muted'}`, () => {
+				S.addTooltip({ tip: `${n} task${n > 1 ? 's' : ''} in ${PHASE_LABELS[phase]}` });
+				icon({ size: '0.95em' });
+				A('small text=', String(n));
+			});
+		}
+		if (!any) A('small fg:$s-muted #No tasks yet');
+	});
 }
 
 /**
@@ -222,14 +237,32 @@ function dirName(dir: string): string {
 	return last === '~' || last === '.' || last === '..' ? '' : last;
 }
 
-/** Under the host columns: the way to add another one. */
+// A column that is not a host yet: it keeps a host's shape, quietly, until
+// pointed at.
+const addHostColumn = A.insertCss({
+	'&': 'cursor:pointer opacity:0.6 transition: opacity 0.12s;',
+	'&:hover, &:focus-visible': 'opacity:1',
+});
+
+/** The last column: the way to add a host, shaped like the ones it stands next to. */
 function drawAddHost(): void {
-	S.box({ attrs: '.no-shadow', contentAttrs: 'p:$2', content: () => {
-		A('button', linkButton, 'click=', addHostDialog, () => {
-			plus({ size: '1em' });
-			A('span#Add host');
+	A('div min-width:0 role=button tabindex=0', addHostColumn,
+		'click=', addHostDialog,
+		'keydown=', (e: KeyboardEvent) => {
+			if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addHostDialog(); }
+		},
+		() => {
+			S.box({
+				attrs: '.no-shadow',
+				headerAttrs: 'display:flex align-items:center gap:$2 min-width:0',
+				contentAttrs: 'p:$2',
+				header: () => {
+					A('span display:flex flex-shrink:0', () => plus({ size: '1.1em' }));
+					A(`span flex:1 ${ELLIPSIS} #Add host`);
+				},
+				content: () => A('small fg:$s-muted #Another machine to run projects on, over SSH.'),
+			});
 		});
-	}});
 }
 
 /** Adding a host: an ssh destination. Connecting to it happens in its column. */
@@ -268,7 +301,7 @@ export function drawNotices(pid: string, $p: any): void {
 			drawStrip('danger', `${$h.name}: ${$h.status}${$h.error ? ' · ' + $h.error : ''}`,
 				() => S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid: $p.host }) }));
 		} else if ($p.error) {
-			drawStrip('danger', `${$p.dir}: ${$p.error}`);
+			drawStrip('danger', `${shortDir($p.host, $p.dir)}: ${$p.error}`);
 		} else if ($h.warning) {
 			drawStrip('warning', $h.warning);
 		} else if ($h.restarting) {
@@ -280,7 +313,7 @@ export function drawNotices(pid: string, $p: any): void {
 	});
 	A(() => {
 		if (!$p.dirty) return;
-		drawStrip('warning', `Uncommitted work in \`${$p.dir}\` (${$p.git}). Task workspaces clone the committed state only, so this stays out of them and may block a merge.`,
+		drawStrip('warning', `Uncommitted work in \`${shortDir($p.host, $p.dir)}\` (${$p.git}). Task workspaces clone the committed state only, so this stays out of them and may block a merge.`,
 			() => S.button({ content: 'Open', attrs: '.small', click: () => void route.go(pathTo(pid, 'base')) }));
 	});
 }
@@ -308,7 +341,7 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 			A(() => {
 				const $h = $state.hosts?.[$p.host];
 				A('div text=', `${$p.host === 'local' ? 'This machine' : $h?.dest ?? $p.host} · ${$h?.status ?? 'unknown'}`);
-				A('div.s-help text=', $p.dir);
+				A('div.s-help text=', shortDir($p.host, $p.dir));
 			});
 		});
 		A('div display:flex mt:$2', () => S.button({

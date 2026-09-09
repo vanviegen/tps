@@ -47,6 +47,7 @@ type Link struct {
 	// What the host shows: the connection state plus what the daemon reported.
 	status, errText string
 	build           string // the daemon's build id
+	homeDir         string // the daemon user's home there, for showing paths as ~/…
 	protocol        int
 	restarting      bool
 	models          []any // the models this host's claude offers
@@ -115,7 +116,7 @@ func (l *Link) publishHost() {
 		warning = w.Warning()
 	}
 	l.mu.Lock()
-	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning}
+	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning, "home": l.homeDir}
 	if l.models != nil {
 		host["models"] = l.models
 	}
@@ -334,6 +335,7 @@ func (l *Link) onHello(state map[string]any) {
 	l.protocol = int(proto)
 	l.restarting, _ = state["restarting"].(bool)
 	l.models, _ = state["models"].([]any)
+	l.homeDir, _ = state["home"].(string)
 	stale := map[string]bool{}
 	for pid := range l.mirrored {
 		stale[pid] = true
