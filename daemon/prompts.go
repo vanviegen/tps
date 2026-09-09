@@ -32,6 +32,11 @@ End every turn by writing the file /work/` + DoneFile + ` (TPS consumes it). Its
 is a single word:
 - 'ready': the task is implemented and verified. The rest of the file is the proposed
   commit message: a summary line, a blank line, then a few concise lines of detail.
+  Merging squashes the entire task into that single commit, so write the message for
+  everything the task changed, not just this turn's work: reconsider it from scratch
+  each time you go 'ready'. Match the tone and style of the project's existing messages
+  (git log). Keep to the highlights, in general: what changed and why, not an inventory
+  of every file touched or step taken.
 - 'human': the user needs to decide, test or provide something first (say what, in your
   chat output).
 - 'reload': you created or changed Containerfile.dev and need the container rebuilt
