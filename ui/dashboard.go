@@ -24,24 +24,29 @@ func configFile(name string) string {
 	return filepath.Join(home, ".config", "tps", name)
 }
 
-// loadDashboard reads the project list; found is false when none was saved yet.
-func loadDashboard() (entries []ProjectEntry, found bool) {
+// loadDashboard reads the host and project lists; found is false when nothing
+// was saved yet.
+func loadDashboard() (entries []ProjectEntry, hosts []string, found bool) {
 	var saved struct {
+		Hosts    []string       `json:"hosts"`
 		Projects []ProjectEntry `json:"projects"`
 	}
 	data, err := os.ReadFile(configFile("dashboard.json"))
 	if err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 	_ = json.Unmarshal(data, &saved)
-	return saved.Projects, true
+	return saved.Projects, saved.Hosts, true
 }
 
-func saveDashboard(entries []ProjectEntry) error {
+func saveDashboard(entries []ProjectEntry, hosts []string) error {
 	if entries == nil {
 		entries = []ProjectEntry{}
 	}
-	data, _ := json.MarshalIndent(map[string]any{"projects": entries}, "", "\t")
+	if hosts == nil {
+		hosts = []string{}
+	}
+	data, _ := json.MarshalIndent(map[string]any{"hosts": hosts, "projects": entries}, "", "\t")
 	path := configFile("dashboard.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -149,7 +154,36 @@ func (u *UI) indexL(id string) int {
 }
 
 func (u *UI) saveL() {
-	if err := saveDashboard(u.entries); err != nil {
+	if err := saveDashboard(u.entries, u.hosts); err != nil {
 		log.Printf("saving the project list failed: %v", err)
 	}
+}
+
+// --- the host list: the ssh destinations the dashboard shows, projects or not ---
+
+func (u *UI) addHostEntry(dest string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.indexHostL(dest) < 0 {
+		u.hosts = append(u.hosts, dest)
+		u.saveL()
+	}
+}
+
+func (u *UI) removeHostEntry(dest string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if i := u.indexHostL(dest); i >= 0 {
+		u.hosts = append(u.hosts[:i], u.hosts[i+1:]...)
+		u.saveL()
+	}
+}
+
+func (u *UI) indexHostL(dest string) int {
+	for i, d := range u.hosts {
+		if d == dest {
+			return i
+		}
+	}
+	return -1
 }

@@ -19,10 +19,29 @@ A.insertGlobalCss({
 	body: 'p:0 h:100dvh min-height:0 overflow:hidden',
 });
 
+// At the root there is no project to say anything about, so the window is one
+// column: the hosts and what is listed on them. Its own scope, reading only
+// whether a project is selected, so moving between tasks doesn't touch it.
+const $atRoot = A.derive(() => !selection().pid);
+
 A('div display:flex h:100dvh align-items:stretch', () => {
-	A('div display:flex flex-direction:column gap:$3 w:var(--leftw) flex:none min-width:0 p:$3 overflow:hidden', drawSidebar);
-	A('div flex:1 min-width:0 overflow:auto p:$3 border-left: 1px solid $s-faint;', drawRight);
+	A(() => {
+		if ($atRoot.value) return drawHome();
+		A('div display:flex flex-direction:column gap:$3 w:var(--leftw) flex:none min-width:0 p:$3 overflow:hidden', drawSidebar);
+		A('div flex:1 min-width:0 overflow:auto p:$3 border-left: 1px solid $s-faint;', drawRight);
+	});
 });
+
+/** The root page: the crumb that names the app, over the host columns. */
+function drawHome(): void {
+	A('div flex:1 min-width:0 overflow:auto p:$3 display:flex flex-direction:column gap:$3', () => {
+		drawCrumbs();
+		A(() => {
+			if (!$state.ready) A('progress w:100%');
+			else drawProjectList();
+		});
+	});
+}
 
 // --- the left column ---
 
@@ -140,7 +159,7 @@ function drawRight(): void {
 	A(() => {
 		if (!$state.ready) { A('progress w:100%'); return; }
 		const { pid, tid, base, draft } = selection();
-		if (!pid) return drawProjectList();
+		if (!pid) return;
 		const $p = $state.projects[pid];
 		if (!$p) {
 			S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' });

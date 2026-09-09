@@ -35,7 +35,7 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 	if (phase === $t.phase) return;
 	if (phase === 'plan') {
 		const busy = $t.working ? ' The agent is still working; it is stopped.' : '';
-		if (!(await S.confirm(`Move this task back to **Plan**? All work is discarded: the workspace, the chat, and every unmerged change.${busy}`))) return;
+		if (!(await S.confirm(`Move this task back to Plan? All work is discarded: the workspace, the chat, and every unmerged change.${busy}`))) return;
 	} else if ((phase === 'merge' || phase === 'done') && $t.phase !== 'plan') {
 		return mergeDialog(pid, tid, $t);
 	}
@@ -211,7 +211,8 @@ function drawDeleteTask(pid: string, tid: string, $t: any, close?: () => void): 
 		content: 'Delete task', icon: trash2, attrs: '.small .danger .outlined',
 		click: async () => {
 			const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped.' : '';
-			if (!(await S.confirm(`Delete **${A.peek($t, 'title') || 'this task'}**? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
+			const title = A.peek($t, 'title');
+			if (!(await S.confirm(`Delete ${title ? `"${title}"` : 'this task'}? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
 			close?.();
 			if (await cmd('deleteTask', { pid, tid })) route.go(pathTo(pid));
 		},

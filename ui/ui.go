@@ -39,6 +39,7 @@ type UI struct {
 	mu      sync.Mutex
 	links   map[string]*Link // by host id
 	entries []ProjectEntry   // the project list, as saved in dashboard.json
+	hosts   []string         // the ssh destinations listed there; this machine is always shown
 
 	daemonBinary string
 	askpass      *askpassServer
@@ -63,19 +64,37 @@ func Run(o Options) error {
 	u.registerCmds()
 	u.hub.OnWatch = u.onWatch
 	var found bool
-	u.entries, found = loadDashboard()
-	hosts := map[string]bool{}
+	u.entries, u.hosts, found = loadDashboard()
 	for _, e := range u.entries {
 		u.hub.Set([]string{"projects", e.ID}, skeleton(e))
-		hosts[e.Host] = true
 	}
-	if !found { // a dashboard from before it kept the list: import what its hosts have
-		hosts[""] = true
-		for _, dest := range legacyHosts() {
-			hosts[dest] = true
+	// The hosts to show: those listed, those a project lives on (a dashboard
+	// from before the list), and this machine, which is always one of them.
+	var dests []string
+	seen := map[string]bool{"": true}
+	add := func(dest string) {
+		if !seen[dest] {
+			seen[dest] = true
+			dests = append(dests, dest)
 		}
 	}
-	for dest := range hosts {
+	for _, dest := range u.hosts {
+		add(dest)
+	}
+	for _, e := range u.entries {
+		add(e.Host)
+	}
+	if !found { // a dashboard from before it kept the list: import what its hosts have
+		for _, dest := range legacyHosts() {
+			add(dest)
+		}
+	}
+	u.hosts = dests
+	u.mu.Lock()
+	u.saveL()
+	u.mu.Unlock()
+	u.linkTo("", !found)
+	for _, dest := range dests {
 		u.linkTo(dest, !found)
 	}
 	u.hub.Set([]string{"ready"}, true)
@@ -165,6 +184,8 @@ func (u *UI) registerCmds() {
 	u.hub.Cmds["addProject"] = u.addProject
 	u.hub.Cmds["removeProject"] = u.removeProject
 	u.hub.Cmds["renameProject"] = u.renameProject
+	u.hub.Cmds["addHost"] = u.addHost
+	u.hub.Cmds["removeHost"] = u.removeHost
 	u.hub.Cmds["connectHost"] = u.connectHost
 	u.hub.Cmds["copyCredentials"] = u.copyCredentials
 	u.hub.Cmds["stopDaemon"] = u.stopDaemon

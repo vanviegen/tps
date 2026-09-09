@@ -35,13 +35,20 @@ CGO_ENABLED=0 go build -o tps .    # embeds it; one static binary is all you nee
 ./tps                              # http://localhost:4820/, opens your browser
 ```
 
-*Add project*, the bottom entry of the project dropdown, takes a directory
-holding a git repository: `~/projects/app` for one on this machine, `host:~/projects/app`
-for one on another, where `host` is whatever you would type after `ssh`, so
-`user@host`, a `~/.ssh/config` alias, or `-p 2222 -J jump host`. Hosts you
-already use are suggested as you type. TPS uses your ssh, so keys, agents,
-an open multiplexed session and passwords all work; prompts appear in the
-browser. A new host gets the daemon installed and started.
+The front page is a column per host — this machine first — holding the
+projects listed there. *Add project* in a host's column takes a directory
+holding a git repository on it, like `~/projects/app`, and names the project
+after the directory unless you say otherwise. *Add host*, under the columns,
+takes whatever you would type after `ssh`: `user@host`, a `~/.ssh/config`
+alias, or `-p 2222 -J jump host`. TPS uses your ssh, so keys, agents, an open
+multiplexed session and passwords all work; prompts appear in the browser. A
+new host gets the daemon installed and started, and the projects it already
+has are listed along with it.
+
+Right-click a project or a host (or use the ⋮ in a host's header) for what can
+be done with it: renaming, its settings, connecting, copying your claude login
+to a host, updating or stopping its daemon, and taking it off the list — which
+changes nothing on the host itself, so adding it again brings its tasks back.
 
 Tasks run in a Debian image with the basics (git, curl, a compiler). A
 repository with its own `Containerfile.dev` at the root gets that instead: a
