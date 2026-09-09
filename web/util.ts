@@ -163,3 +163,46 @@ export function tidOrder(tid: string): string {
 export function phaseOrder($t: any, tid: string): number[] {
 	return [-($t.phaseAt ?? 0), -Number(tid)];
 }
+
+/**
+ * Message drafts: what was typed into a task's chat input but never sent. They
+ * live in localStorage, so leaving the task — or closing the tab — does not
+ * throw away half a thought. One key holds them all, which makes dropping the
+ * ones whose task is gone a matter of rewriting it.
+ */
+const DRAFTS_KEY = 'tps.chatDrafts';
+
+function readDrafts(): Record<string, string> {
+	try {
+		const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
+		return drafts && typeof drafts === 'object' ? drafts : {};
+	} catch {
+		return {};
+	}
+}
+
+/** What was left unsent in this task's chat input, if anything. */
+export function chatDraft(pid: string, tid: string): string {
+	const text = readDrafts()[`${pid}/${tid}`];
+	return typeof text === 'string' ? text : '';
+}
+
+/** Remember (or, for empty text, forget) this task's unsent message. */
+export function setChatDraft(pid: string, tid: string, text: string): void {
+	const drafts = readDrafts();
+	const key = `${pid}/${tid}`;
+	if ((drafts[key] ?? '') === text) return;
+	if (text) drafts[key] = text;
+	else delete drafts[key];
+	// Deleted and merged tasks leave their draft behind; sweep those up here,
+	// but only once the task list is known — before that everything looks gone.
+	if (A.peek(() => $state.ready)) {
+		for (const k of Object.keys(drafts)) {
+			const [p, t] = k.split('/');
+			if (!A.peek(() => $state.projects[p]?.tasks?.[t])) delete drafts[k];
+		}
+	}
+	try {
+		localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+	} catch {} // storage off or full: a draft is a convenience, not data
+}

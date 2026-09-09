@@ -5,7 +5,7 @@ import { bot, circleStop, gitMerge, sendHorizontal, trash2, user } from 'staffa/
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
-import { autoStarts, cmd, debounce, pathTo, selection, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
+import { autoStarts, chatDraft, cmd, debounce, pathTo, selection, setChatDraft, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
 
 /** Tasks of a project waiting for a human, not counting `skip`. */
 export function humanTasks(pid: string, skip?: string): number {
@@ -324,21 +324,28 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 }
 
 function drawInputBar(pid: string, tid: string, $t: any): void {
-	const $has = A.proxy({ text: false });
-	let area: HTMLTextAreaElement | undefined;
+	// Whatever was typed here and never sent, from before this task was left.
+	const draft = chatDraft(pid, tid);
+	const $has = A.proxy({ text: !!draft.trim() });
+	// Looked up rather than remembered: with a draft restored, the field is in
+	// use before it has seen a single keystroke.
+	const area = () => row.querySelector('textarea') as HTMLTextAreaElement;
 	const sendMsg = () => {
-		const text = area?.value.trim();
+		const el = area();
+		const text = el.value.trim();
 		if (!text) return;
-		area!.value = '';
-		area!.dispatchEvent(new Event('input')); // shrink it back down, and drop $has.text
+		el.value = '';
+		el.dispatchEvent(new Event('input')); // shrink it back down, drop $has.text, and forget the draft
 		void cmd('chat', { pid, tid, text });
 	};
-	A('div display:flex align-items:flex-end gap:$2', () => {
+	const row = A('div display:flex align-items:flex-end gap:$2', () => {
 		S.textarea({
 			placeholder: 'Message the agent…', attrs: 'flex:1', inputAttrs: 'max-height:40dvh overflow-y:auto',
+			value: draft,
 			input: (e: Event) => {
-				area = e.target as HTMLTextAreaElement;
-				$has.text = !!area.value.trim();
+				const text = (e.target as HTMLTextAreaElement).value;
+				$has.text = !!text.trim();
+				setChatDraft(pid, tid, text);
 			},
 		});
 		// One button beside the field: send while there is text, else stop while claude works.
@@ -347,7 +354,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 			else if ($t.working) S.button({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: '.danger',
 				click: () => void cmd('stopAgent', { pid, tid }) });
 		});
-	});
+	}) as HTMLElement;
 }
 
 /** The right column for a task: VS Code in its container, once that is up. */
