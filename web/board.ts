@@ -1,8 +1,8 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { pencil, plus, settings } from 'staffa/icons.js';
-import { addTask, moveTask, phaseItems, renameTask, taskSettingsDialog } from './task.ts';
+import { pencil, plus, settings, trash2 } from 'staffa/icons.js';
+import { addTask, deleteTask, moveTask, phaseItems, renameTask, taskSettingsDialog } from './task.ts';
 import { autoStarts, costText, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASES, PHASE_LABELS, taskActivity, taskTitle } from './util.ts';
 
 /**
@@ -57,7 +57,9 @@ function drawCard(pid: string, tid: string, $t: any): void {
 			S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
 				return [...phaseItems(pid, tid, $t), { separator: true },
 					{ label: 'Rename…', icon: pencil, click: () => void renameTask(pid, tid, $t) },
-					{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }];
+					{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) },
+					{ separator: true },
+					{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) }];
 			}});
 			S.box({ attrs: 'cursor:pointer', contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
 				A('div display:flex align-items:center gap:$2 font-weight:600', () => {

@@ -68,17 +68,23 @@ export function mergeDialog(pid: string, tid: string, $t: any): void {
 
 /**
  * Start a task: no dialog, and nothing created yet either — the draft below is
- * opened, and only becomes a task once it is assigned.
+ * opened, and only becomes a task once there is something to write down.
  */
 export function addTask(pid: string): void {
+	// A draft that has been written down is a task of its own by now, so this
+	// starts a new one rather than reopening it (see saveDraft).
+	const $d = drafts.get(pid);
+	if ($d && A.peek($d, 'tid')) drafts.delete(pid);
 	route.go(pathTo(pid, 'draft'));
 }
 
 /**
  * The task being written for a project: it lives in the browser only until its
  * description has something in it, at which point it is written down for real
- * (see saveDraft). It looks enough like a task for the editor and the settings
- * to work on it unchanged.
+ * and remembers the `tid` it became (see saveDraft). It looks enough like a
+ * task for the editor and the settings to work on it unchanged, and it keeps
+ * the plan page — the cursor in the description included — for as long as that
+ * page is open.
  */
 const drafts = new Map<string, any>();
 
@@ -87,6 +93,12 @@ const creating = new Map<string, Promise<string | undefined>>();
 
 export function draftFor(pid: string): any {
 	let $d = drafts.get(pid);
+	// A draft that was written down and has since left Plan (or been deleted)
+	// is not a draft anymore: this page starts a new one.
+	if ($d) {
+		const tid = A.peek($d, 'tid');
+		if (tid && A.peek(() => $state.projects[pid]?.tasks?.[tid]?.phase) !== 'plan') $d = undefined;
+	}
 	if (!$d) {
 		creating.delete(pid); // a fresh draft is nobody's task-in-waiting
 		// It starts on the project's default task settings, the same ones the
@@ -115,10 +127,14 @@ function draftPatch($d: any): Record<string, unknown> {
 
 /**
  * Write the draft down, once there is something worth keeping — a description
- * may be a long spec, and it should not hang on the tab staying open. The task
- * takes over from there: the URL is replaced (the draft being gone, not worth
- * going back to) and the editor saves to the server from then on. Everyone who
- * asks meanwhile joins the same creation rather than starting another.
+ * may be a long spec, and it should not hang on the tab staying open. It
+ * happens mid-sentence, so nothing about the page may change: the draft simply
+ * learns the tid it was written down as, and everything from there on updates
+ * that task instead of creating one. Redrawing the plan around the new task —
+ * a different URL, a different object — would take the cursor out of the text
+ * being typed, which is why the draft, not the task, keeps this page (it is
+ * let go of in addTask and draftFor, once the page is left). Everyone who asks
+ * meanwhile joins the same creation rather than starting another.
  */
 function saveDraft(pid: string, $d: any): Promise<string | undefined> {
 	let pending = creating.get(pid);
@@ -131,11 +147,10 @@ function saveDraft(pid: string, $d: any): Promise<string | undefined> {
 				return undefined;
 			}
 			const tid = created.tid as string;
+			$d.tid = tid; // from here on it is a task, and this page is editing it
 			// Whatever was typed or set while that was in flight follows it.
 			const late = Object.entries(draftPatch($d)).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(sent[k]));
 			if (late.length) void cmd('updateTask', { pid, tid, ...Object.fromEntries(late) });
-			void route.go(pathTo(pid, tid), 'replace');
-			drafts.delete(pid);
 			return tid;
 		})());
 	}
@@ -189,9 +204,10 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 			// chips read as names rather than as numbers.
 			options: () => {
 				const after: string[] = $t.startAfter ?? [];
+				const self = tid ?? A.peek($t, 'tid'); // a draft written down while this is open
 				const $tasks = $state.projects[pid]?.tasks ?? {};
 				return Object.keys($tasks)
-					.filter(o => o !== tid && (after.includes(o) || $tasks[o].phase !== 'done'))
+					.filter(o => o !== self && (after.includes(o) || $tasks[o].phase !== 'done'))
 					.sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
 					.map(o => ({ value: o, label: taskName(pid, o) }));
 			},
@@ -215,16 +231,25 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	});
 }
 
+/**
+ * Throw a task away, after asking: everything it did that was never merged
+ * goes with it. Whoever is showing it (its own page, the plan it was drafted
+ * on) falls back to the board; the board itself just loses a card.
+ */
+export async function deleteTask(pid: string, tid: string, $t: any, close?: () => void): Promise<void> {
+	const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped.' : '';
+	const title = A.peek($t, 'title');
+	if (!(await S.confirm(`Delete ${title ? `"${title}"` : 'this task'}? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
+	close?.();
+	if (!(await cmd('deleteTask', { pid, tid }))) return;
+	const shown = A.peek(selection);
+	if (shown.tid === tid || shown.draft) void route.go(pathTo(pid));
+}
+
 function drawDeleteTask(pid: string, tid: string, $t: any, close?: () => void): void {
 	S.button({
 		content: 'Delete task', icon: trash2, attrs: '.small .danger .outlined',
-		click: async () => {
-			const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped.' : '';
-			const title = A.peek($t, 'title');
-			if (!(await S.confirm(`Delete ${title ? `"${title}"` : 'this task'}? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
-			close?.();
-			if (await cmd('deleteTask', { pid, tid })) route.go(pathTo(pid));
-		},
+		click: () => void deleteTask(pid, tid, $t, close),
 	});
 }
 
@@ -239,19 +264,28 @@ export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 /**
  * A task still in Plan, in the left column: its settings — laid out rather than
  * hidden behind an icon, there being nothing else to do with the space yet —
- * and the two ways out of Plan. A draft is created on its way out, not before.
+ * and the two ways out of Plan. A draft may be written down while this is open
+ * (see saveDraft), so which task a setting belongs to is looked up as it is
+ * changed, rather than fixed when this is drawn.
  */
 export function drawPlanSettings(pid: string, tid: string | undefined, $t: any): void {
-	const save = tid
-		? (patch: object) => void cmd('updateTask', { pid, tid, ...patch })
-		: (patch: object) => Object.assign($t, patch);
+	const save = (patch: object) => {
+		const id = tid ?? A.peek($t, 'tid');
+		if (id) void cmd('updateTask', { pid, tid: id, ...patch });
+		else Object.assign($t, patch); // nothing to update yet: it lands in the draft
+	};
 	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
 		drawTaskFields(pid, tid, $t, save);
 		A(() => {
 			const note = autoStartNote(pid, $t);
 			if (note) A('div.s-s.warning.tonal p:$2 font-size:0.9em text=', note);
 		});
-		if (tid) A('div display:flex', () => drawDeleteTask(pid, tid, $t)); // a draft has nothing to delete
+		// Its own scope: a draft has nothing to delete until it is written down,
+		// and growing the button then must not disturb the text being typed.
+		A(() => {
+			const id = tid ?? $t.tid;
+			if (id) A('div display:flex', () => drawDeleteTask(pid, id, $t));
+		});
 	});
 	// There is nothing to assign until something has been written. The emptiness
 	// is derived into a flag of its own, so the buttons are redrawn when it
@@ -275,25 +309,32 @@ function autoStartNote(pid: string, $t: any): string | undefined {
 /** Hand the task to the agent or a human, writing a draft down first if the typing beat the debounce to it. */
 async function assignTask(pid: string, tid: string | undefined, $t: any, phase: Phase): Promise<void> {
 	if (!(A.peek($t, 'description') ?? '').trim()) return;
+	tid ??= A.peek($t, 'tid');
 	if (!tid && !(tid = await saveDraft(pid, $t))) return;
 	// The editor's debounce may still owe the server the last keystroke, and
 	// the agent is about to be handed whatever the server has.
 	if (!(await cmd('updateTask', { pid, tid, description: (A.peek($t, 'description') ?? '').trim() }))) return;
 	void cmd('moveTask', { pid, tid, phase });
 	// Handed off to the agent, there is nothing left to do here: the board is
-	// more use than watching the workspace come up in the right column.
+	// more use than watching the workspace come up in the right column. Taken
+	// on yourself, the task's own page is — and that is also how a draft, which
+	// has been writing to a task of its own for a while now, hands over.
 	if (phase === 'agent') route.go(pathTo(pid));
+	else if (A.peek(selection).tid !== tid) route.go(pathTo(pid, tid), 'replace');
 }
 
 /**
  * A task still in Plan, in the right column: the description, with room to
  * write it. Every keystroke lands in the task (or draft) it belongs to right
  * away, so the crumb and the Assign buttons keep up and nothing is lost to a
- * redraw; only the server is spared the chatter.
+ * redraw; only the server is spared the chatter. Which task that is is looked
+ * up as it is sent, never subscribed to: a draft becomes one somewhere in the
+ * middle of a sentence, and this field must not be rebuilt around that.
  */
 export function drawPlanEditor(pid: string, tid: string | undefined, $t: any): void {
 	const store = debounce(600, (description: string) => {
-		if (tid) void cmd('updateTask', { pid, tid, description });
+		const id = tid ?? A.peek($t, 'tid');
+		if (id) void cmd('updateTask', { pid, tid: id, description });
 		else if (description.trim()) void saveDraft(pid, $t);
 	});
 	S.textarea({
