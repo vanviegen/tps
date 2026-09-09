@@ -34,12 +34,11 @@ type Options struct {
 }
 
 type UI struct {
-	hub     *hub.Hub
-	webFS   fs.FS
-	mu      sync.Mutex
-	links   map[string]*Link // by host id
-	entries []ProjectEntry   // the project list, as saved in dashboard.json
-	hosts   []string         // the ssh destinations listed there; this machine is always shown
+	hub   *hub.Hub
+	webFS fs.FS
+	mu    sync.Mutex
+	links map[string]*Link // by host id
+	hosts []string         // the ssh destinations listed in dashboard.json; this machine is always shown
 
 	daemonBinary string
 	askpass      *askpassServer
@@ -48,8 +47,9 @@ type UI struct {
 	asks         map[int]chan answer
 }
 
-// Commands that belong to a project or task and are forwarded to its daemon.
-var daemonCmds = []string{"setProject", "openProjectCode", "createTask", "updateTask", "openTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask", "runTask", "stopRun"}
+// Commands that belong to a project or task and are forwarded to its daemon,
+// with the project id translated into the pid the daemon knows it by.
+var daemonCmds = []string{"setProject", "removeProject", "openProjectCode", "createTask", "updateTask", "openTask", "chat", "stopAgent", "mergeTask", "moveTask", "deleteTask", "runTask", "stopRun"}
 
 func Run(o Options) error {
 	u := &UI{
@@ -63,39 +63,25 @@ func Run(o Options) error {
 	}
 	u.registerCmds()
 	u.hub.OnWatch = u.onWatch
-	var found bool
-	u.entries, u.hosts, found = loadDashboard()
-	for _, e := range u.entries {
-		u.hub.Set([]string{"projects", e.ID}, skeleton(e))
-	}
-	// The hosts to show: those listed, those a project lives on (a dashboard
-	// from before the list), and this machine, which is always one of them.
-	var dests []string
+	hosts, legacy := loadHosts()
+	// This machine is always shown, and shown first; the rest are those listed
+	// (and those a project of an older dashboard lived on).
 	seen := map[string]bool{"": true}
-	add := func(dest string) {
+	for _, l := range legacy {
+		hosts = append(hosts, l.Host)
+	}
+	for _, dest := range hosts {
 		if !seen[dest] {
 			seen[dest] = true
-			dests = append(dests, dest)
+			u.hosts = append(u.hosts, dest)
 		}
 	}
-	for _, dest := range u.hosts {
-		add(dest)
-	}
-	for _, e := range u.entries {
-		add(e.Host)
-	}
-	if !found { // a dashboard from before it kept the list: import what its hosts have
-		for _, dest := range legacyHosts() {
-			add(dest)
-		}
-	}
-	u.hosts = dests
 	u.mu.Lock()
 	u.saveL()
 	u.mu.Unlock()
-	u.linkTo("", !found)
-	for _, dest := range dests {
-		u.linkTo(dest, !found)
+	u.linkTo("", legacy)
+	for _, dest := range u.hosts {
+		u.linkTo(dest, legacy)
 	}
 	u.hub.Set([]string{"ready"}, true)
 	ln, err := net.Listen("tcp", o.Addr)
@@ -115,8 +101,8 @@ func Run(o Options) error {
 }
 
 // linkTo returns the link to a host, making (and starting) one when needed.
-// With adopt, every project the daemon has is added to the list.
-func (u *UI) linkTo(dest string, adopt bool) *Link {
+// Names an older dashboard gave the projects there are handed over once.
+func (u *UI) linkTo(dest string, legacy []legacyProject) *Link {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	hid := hostID(dest)
@@ -128,7 +114,11 @@ func (u *UI) linkTo(dest string, adopt bool) *Link {
 		tr = newSSHTransport(u, hid, dest)
 	}
 	l := newLink(u, hid, dest, tr)
-	l.adopt = adopt
+	for _, e := range legacy {
+		if e.Host == dest && e.Name != "" {
+			l.names[e.Dir] = e.Name
+		}
+	}
 	u.links[hid] = l
 	go l.run()
 	return l
@@ -143,19 +133,16 @@ func (u *UI) link(hid string) (*Link, error) {
 	return nil, fmt.Errorf("Unknown host: %s", hid)
 }
 
-// resolve finds the daemon side of a listed project: its link and the pid there.
+// resolve takes a project apart into the host it lives on and the pid its
+// daemon knows it by: "<host id>:<pid>" is all a project id is.
 func (u *UI) resolve(id string) (*Link, string, error) {
-	e, ok := u.entry(id)
+	hid, pid, ok := strings.Cut(id, ":")
 	if !ok {
 		return nil, "", fmt.Errorf("Unknown project: %s", id)
 	}
-	l, err := u.link(hostID(e.Host))
+	l, err := u.link(hid)
 	if err != nil {
 		return nil, "", err
-	}
-	pid, ok := l.pidOf(id)
-	if !ok {
-		return nil, "", fmt.Errorf("%s is not connected", l.name())
 	}
 	return l, pid, nil
 }
@@ -182,8 +169,6 @@ func (u *UI) registerCmds() {
 		}
 	}
 	u.hub.Cmds["addProject"] = u.addProject
-	u.hub.Cmds["removeProject"] = u.removeProject
-	u.hub.Cmds["renameProject"] = u.renameProject
 	u.hub.Cmds["addHost"] = u.addHost
 	u.hub.Cmds["removeHost"] = u.removeHost
 	u.hub.Cmds["connectHost"] = u.connectHost

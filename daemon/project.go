@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -9,10 +10,12 @@ import (
 	"time"
 )
 
-// ProjectInfo is the persisted part of a project (in projects.json). Projects
-// are known by their directory; what to call them is up to each dashboard.
+// ProjectInfo is the persisted part of a project (in projects.json). The list
+// belongs to the host: every dashboard connecting to this daemon sees the same
+// projects, under the same names.
 type ProjectInfo struct {
 	Dir       string               `json:"dir"`
+	Name      string               `json:"name"`
 	AutoMerge bool                 `json:"autoMerge,omitempty"` // merge without confirmation when the agent reports ready
 	Activity  int64                `json:"activity,omitempty"`  // unix ms of the last change to a task
 	NextTask  int                  `json:"nextTask,omitempty"`
@@ -32,6 +35,9 @@ type Project struct {
 func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if info.Tasks == nil {
 		info.Tasks = map[string]*TaskInfo{}
+	}
+	if info.Name == "" { // added before the daemon kept names, or none was given
+		info.Name = filepath.Base(info.Dir)
 	}
 	if info.NextTask == 0 {
 		for tid := range info.Tasks {
@@ -59,7 +65,7 @@ func (p *Project) init() error {
 		}
 	}
 	p.defaultBranch = branch
-	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "autoMerge": p.info.AutoMerge, "activity": p.info.Activity, "tasks": map[string]any{}})
+	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "name": p.info.Name, "autoMerge": p.info.AutoMerge, "activity": p.info.Activity, "tasks": map[string]any{}})
 	tids := make([]string, 0, len(p.info.Tasks))
 	for tid := range p.info.Tasks {
 		tids = append(tids, tid)
@@ -205,8 +211,15 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	if auto, ok := partial["autoMerge"]; ok {
 		p.info.AutoMerge = auto == true
 	}
+	if name, ok := partial["name"].(string); ok {
+		if name = strings.TrimSpace(name); name == "" {
+			return errors.New("Give the project a name")
+		}
+		p.info.Name = name
+	}
 	p.m.saveL()
 	p.pub("autoMerge", p.info.AutoMerge)
+	p.pub("name", p.info.Name)
 	return nil
 }
 

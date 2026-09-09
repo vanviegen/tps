@@ -30,10 +30,16 @@ function projectsOn(hid: string): [string, any][] {
 		.sort((a, b) => a[1].name.localeCompare(b[1].name));
 }
 
-/** Drop a project from the list, once confirmed; used from its box and from its settings. */
+/**
+ * Remove a project from its host, once confirmed; used from its box and from
+ * its settings. The list belongs to the host, so this is not just a matter of
+ * this dashboard: the tasks go with it, on every dashboard.
+ */
 async function removeProject(pid: string, $p: any): Promise<boolean> {
 	const host = A.peek(() => hostName($p.host));
-	if (!(await S.confirm(`Remove "${A.peek($p, 'name')}" from the list? Nothing changes on ${host}: its tasks keep running there, and come back when you add the project again.`))) return false;
+	const tasks = A.peek(() => Object.keys($state.projects[pid]?.tasks ?? {}).length);
+	const also = tasks ? ` Its ${tasks} task${tasks > 1 ? 's are' : ' is'} deleted, workspaces and all.` : '';
+	if (!(await S.confirm(`Remove "${A.peek($p, 'name')}" from ${host}?${also} The repository itself is left alone, and every dashboard using ${host} stops showing the project.`))) return false;
 	if (!(await cmd('removeProject', { pid }))) return false;
 	route.go('/');
 	return true;
@@ -41,7 +47,7 @@ async function removeProject(pid: string, $p: any): Promise<boolean> {
 
 async function renameProject(pid: string, $p: any): Promise<void> {
 	const name = await S.prompt('Name for this project:', A.peek($p, 'name') ?? '');
-	if (name?.trim()) void cmd('renameProject', { pid, name: name.trim() });
+	if (name?.trim()) void cmd('setProject', { pid, name: name.trim() });
 }
 
 /** The page at "/": a column per host, holding the projects listed there. */
@@ -149,7 +155,7 @@ function drawProjectBox(pid: string, $p: any): void {
 				{ label: 'Rename…', icon: pencil, click: () => void renameProject(pid, $p) },
 				{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
 				{ separator: true },
-				{ label: 'Remove from list', icon: trash2, click: () => void removeProject(pid, $p) },
+				{ label: 'Remove project…', icon: trash2, click: () => void removeProject(pid, $p) },
 			];
 		}});
 		A('a display:block fg:$s-text text-decoration:none', 'href=', pathTo(pid), () => {
@@ -279,14 +285,14 @@ export function drawNotices(pid: string, $p: any): void {
 	});
 }
 
-/** The name, the merge behaviour, the host it lives on, and the way off the list. */
+/** The name, the merge behaviour, the host it lives on, and the way to remove it. */
 export function projectSettingsDialog(pid: string, $p: any): void {
 	void S.dialog({ header: 'Project settings', attrs: 'w:36rem', content: close => {
 		S.textline({
 			label: 'Name', value: A.peek($p, 'name') ?? '',
 			change: (e: Event) => {
 				const name = (e.target as HTMLInputElement).value.trim();
-				if (name) void cmd('renameProject', { pid, name });
+				if (name) void cmd('setProject', { pid, name });
 			},
 		});
 		S.checkbox({
@@ -306,7 +312,7 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 			});
 		});
 		A('div display:flex mt:$2', () => S.button({
-			content: 'Remove from list', attrs: '.small .danger .outlined',
+			content: 'Remove project', attrs: '.small .danger .outlined',
 			click: async () => { if (await removeProject(pid, $p)) close(); },
 		}));
 	}});

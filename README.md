@@ -13,9 +13,9 @@ localhost and relays to daemons. `tps --daemon` is the workflow itself: it
 owns the projects and tasks of one host, runs git, podman and claude there,
 and keeps running until you stop it. The dashboard starts a daemon on this
 machine when needed, and installs and starts one on every SSH host it uses.
-The dashboard keeps only its own list of projects; the daemon behind each
-one holds the tasks. Several dashboards (a laptop, a desktop) can use the
-same daemon at once, each showing the projects it lists.
+The daemon owns the list of projects on its host, their names included; the
+dashboard only keeps the hosts to connect to. Several dashboards (a laptop,
+a desktop) can use the same daemon at once, and all show the same projects.
 
 ## Requirements
 
@@ -47,8 +47,9 @@ has are listed along with it.
 
 Right-click a project or a host (or use the ⋮ in a host's header) for what can
 be done with it: renaming, its settings, connecting, copying your claude login
-to a host, updating or stopping its daemon, and taking it off the list — which
-changes nothing on the host itself, so adding it again brings its tasks back.
+to a host, updating or stopping its daemon, and removing it. Removing a host
+takes it off this dashboard only; removing a project takes it off its host,
+with the tasks it holds, for every dashboard.
 
 Tasks run in a Debian image with the basics (git, curl, a compiler). A
 repository with its own `Containerfile.dev` at the root gets that instead: a
@@ -120,12 +121,14 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   state in `~/.config/tps/projects.json`, the workspaces (repo clone, claude
   session state, chat log) and the downloaded tools under
   `~/.local/share/tps/`, and the daemon's socket, log and, on SSH hosts, its
-  binary next to them. The dashboard only keeps its list of projects, with
-  the names you gave them, in `~/.config/tps/dashboard.json`. There is no
-  database and your repository only ever receives the final merge commit.
-- Taking a project off the list changes nothing on its host: the daemon keeps
-  its tasks, and they are back when the project is added again. A project
-  without tasks is forgotten by the daemon too.
+  binary next to them. Projects, with the names you gave them, are part of
+  that: the dashboard only keeps the list of hosts, in
+  `~/.config/tps/dashboard.json`. There is no database and your repository
+  only ever receives the final merge commit.
+- Removing a project is a change on its host, so every dashboard using it
+  sees the project go, and its tasks and workspaces are deleted. Removing a
+  *host* changes nothing on the host itself: its projects and tasks are back
+  when you add it again.
 - The daemon keeps working when the dashboard goes away: merges, dependent
   tasks and budgets are handled without it, and a returning dashboard shows
   what happened. While an agent works or a dashboard is connected, the daemon

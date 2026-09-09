@@ -183,8 +183,9 @@ func (m *Manager) load(info *ProjectInfo) (*Project, error) {
 }
 
 // Add registers a git repository (a path relative to the home directory, or
-// absolute), or finds it when some dashboard registered it before.
-func (m *Manager) Add(dir string) (*Project, error) {
+// absolute) under the name given, or returns it as it is when it is already
+// registered: the list is the host's, and dashboards share it.
+func (m *Manager) Add(dir, name string) (*Project, error) {
 	if dir == "~" {
 		dir = ""
 	}
@@ -211,7 +212,7 @@ func (m *Manager) Add(dir string) (*Project, error) {
 	if !gitOK(dir, "rev-parse", "--verify", "-q", "HEAD") {
 		return nil, fmt.Errorf("%s has no commits yet", dir)
 	}
-	p, err := m.load(&ProjectInfo{Dir: dir})
+	p, err := m.load(&ProjectInfo{Dir: dir, Name: strings.TrimSpace(name)})
 	if err != nil {
 		return nil, err
 	}
@@ -221,12 +222,15 @@ func (m *Manager) Add(dir string) (*Project, error) {
 	return p, nil
 }
 
+// Remove unregisters a project, with the tasks and workspaces it holds. The
+// repository itself is left alone.
 func (m *Manager) Remove(pid string) error {
 	p, err := m.project(pid)
 	if err != nil {
 		return err
 	}
 	p.forget()
+	_ = os.RemoveAll(p.tasksDir()) // else a project added later under the same pid inherits it
 	m.mu.Lock()
 	delete(m.projects, pid)
 	m.saveL()
@@ -362,6 +366,7 @@ type ref struct {
 	Pid     string `json:"pid"`
 	Tid     string `json:"tid"`
 	Dir     string `json:"dir"`
+	Name    string `json:"name"`
 	Text    string `json:"text"`
 	Phase   Phase  `json:"phase"`
 	Message string `json:"message"`
@@ -418,11 +423,11 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			if err != nil {
 				return nil, err
 			}
-			p, err := m.Add(r.Dir)
+			p, err := m.Add(r.Dir, r.Name)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"pid": p.pid, "dir": p.dir(), "project": m.hub.Snapshot("projects", p.pid)}, nil
+			return map[string]any{"pid": p.pid, "project": m.hub.Snapshot("projects", p.pid)}, nil
 		},
 		"removeProject": func(raw json.RawMessage) (any, error) {
 			r, _, err := decode(raw)
