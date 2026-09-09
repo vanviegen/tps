@@ -5,7 +5,7 @@ import { bot, circleStop, gitMerge, sendHorizontal, trash2, user } from 'staffa/
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
-import { autoStarts, cmd, debounce, pathTo, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
+import { autoStarts, cmd, debounce, pathTo, selection, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
 
 /** Tasks of a project waiting for a human, not counting `skip`. */
 export function humanTasks(pid: string, skip?: string): number {
@@ -49,6 +49,8 @@ export function mergeDialog(pid: string, tid: string, $t: any): void {
 		S.form({
 			submit: () => {
 				close();
+				// The merge restarts a lot of machinery; the board is the nicer place to wait it out.
+				if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
 				void cmd('mergeTask', { pid, tid, message: $merge.message });
 			},
 			content: () => {
