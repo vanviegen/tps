@@ -73,7 +73,7 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 		t.loadChat()
 		p.m.mu.Lock()
-		if info.Phase == PhaseMerge || (info.Phase == PhaseAgent && !info.Waiting) { // the daemon restarted mid-turn
+		if info.Phase == PhaseMerge || info.Phase == PhaseAgent { // the daemon restarted mid-turn
 			t.note("TPS restarted while the agent was working; send a message to continue")
 			info.Phase = PhaseHuman
 		}
@@ -82,9 +82,6 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 	}
 	p.refreshMeta()
-	p.m.mu.Lock()
-	p.startUnblockedL()
-	p.m.mu.Unlock()
 	return nil
 }
 
@@ -94,8 +91,8 @@ func (p *Project) touchL() {
 	p.pub("activity", p.info.Activity)
 }
 
-// dependsOnL: true when task tid (transitively) depends on task on.
-func (p *Project) dependsOnL(tid, on string, seen map[string]bool) bool {
+// startsAfterL: true when task tid (transitively) follows task on.
+func (p *Project) startsAfterL(tid, on string, seen map[string]bool) bool {
 	if tid == on {
 		return true
 	}
@@ -107,8 +104,8 @@ func (p *Project) dependsOnL(tid, on string, seen map[string]bool) bool {
 	}
 	seen[tid] = true
 	if t := p.tasks[tid]; t != nil {
-		for _, d := range t.info.Dependencies {
-			if p.dependsOnL(d, on, seen) {
+		for _, d := range t.info.StartAfter {
+			if p.startsAfterL(d, on, seen) {
 				return true
 			}
 		}
@@ -116,16 +113,24 @@ func (p *Project) dependsOnL(tid, on string, seen map[string]bool) bool {
 	return false
 }
 
-// startUnblockedL starts any task that was waiting on dependencies now merged or gone.
-func (p *Project) startUnblockedL() {
+// autoStartL hands over every task whose wait is over (see autoStartableL). It
+// is called wherever that may have just changed: a task reaching Done or being
+// deleted, a setting changed, and a plan being closed.
+func (p *Project) autoStartL() {
 	for _, t := range p.tasks {
-		if t.info.Waiting && len(t.blockedOnL()) == 0 {
-			go func() {
-				if err := t.Assign("agent"); err != nil {
-					logf("autostart %s: %v", t.key(), err)
-				}
-			}()
+		if !t.autoStartableL() {
+			continue
 		}
+		t.autoStarting = true
+		go func() {
+			err := t.Assign("agent")
+			t.lock()
+			t.autoStarting = false
+			t.unlock()
+			if err != nil {
+				logf("auto-start %s: %v", t.key(), err)
+			}
+		}()
 	}
 }
 

@@ -83,6 +83,9 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 				}
 				t.viewers = count
 				t.touchL()
+				if count == 0 {
+					p.autoStartL() // closing a plan lets a task that was waiting for it go
+				}
 			}
 		}
 	}
@@ -106,7 +109,7 @@ func (m *Manager) Start() error {
 	}
 	m.hub.Set([]string{"ready"}, true)
 	go m.refreshModels()
-	go m.ticker(60*time.Second, m.idleSweep)
+	go m.ticker(60*time.Second, m.sweep)
 	go m.ticker(2*time.Second, m.checkLive)
 	go m.ticker(5*time.Second, m.refreshWatched)
 	go m.inhibitLoop()
@@ -260,7 +263,10 @@ func (m *Manager) allTasksL() []*Task {
 	return out
 }
 
-func (m *Manager) idleSweep() {
+// sweep is the minute's housekeeping: the 'dirty' flags, the auto-starts no
+// event announced (a daemon that restarted with tasks already waiting), and
+// the workspaces nobody is using.
+func (m *Manager) sweep() {
 	m.mu.Lock()
 	projects := m.sortedProjectsL()
 	m.mu.Unlock()
@@ -268,6 +274,9 @@ func (m *Manager) idleSweep() {
 		p.refreshMeta() // keep the 'dirty' flag current
 	}
 	m.mu.Lock()
+	for _, p := range m.projects {
+		p.autoStartL()
+	}
 	var idle []*Task
 	for _, t := range m.allTasksL() {
 		if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown {

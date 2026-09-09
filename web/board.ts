@@ -3,7 +3,7 @@ import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { pencil, plus, settings } from 'staffa/icons.js';
 import { addTask, moveTask, phaseItems, renameTask, taskSettingsDialog } from './task.ts';
-import { costText, drawLiveLink, drawTaskIcon, pathTo, PHASES, PHASE_LABELS, taskActivity, taskTitle, tidOrder } from './util.ts';
+import { autoStarts, costText, drawLiveLink, drawTaskIcon, pathTo, PHASES, PHASE_LABELS, taskActivity, taskTitle, tidOrder } from './util.ts';
 
 /**
  * The project's board: one box per phase, a card dropped anywhere in a box's
@@ -70,7 +70,7 @@ function drawCard(pid: string, tid: string, $t: any): void {
 						if (cost) A('small text=', cost);
 					});
 					A(() => {
-						if ($t.waiting) A('small text=', '⏳ ' + taskActivity(pid, $t).text);
+						if (autoStarts($t)) A('small text=', '⏳ ' + taskActivity(pid, $t).text);
 						else if ($t.phase === 'human' && $t.rebasing) A('small fg:$s-warning #⚠ merge paused');
 						else if ($t.phase === 'human' && $t.commitMessage) A('small fg:$s-success #✔ ready to merge');
 					});

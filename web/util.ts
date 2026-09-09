@@ -45,10 +45,15 @@ export function drawBadge(count: number): void {
 		'text=', String(count));
 }
 
-/** Dependencies of `$t` that still block it: existing, unmerged tasks. */
-export function blockingDeps(pid: string, $t: any): string[] {
+/** A task in Plan set to follow others: it leaves Plan by itself once they are done. */
+export function autoStarts($t: any): boolean {
+	return $t.phase === 'plan' && !!$t.startAfter?.length;
+}
+
+/** The tasks `$t` follows that are not there yet: existing tasks not yet done. */
+export function waitingFor(pid: string, $t: any): string[] {
 	const $tasks = $state.projects[pid]?.tasks ?? {};
-	return ($t.dependencies ?? []).filter((d: string) => $tasks[d] && $tasks[d].phase !== 'done');
+	return ($t.startAfter ?? []).filter((d: string) => $tasks[d] && $tasks[d].phase !== 'done');
 }
 
 /** A host's name as shown to the user. */
@@ -76,10 +81,11 @@ export function taskName(pid: string, tid: string): string {
 
 /** What the workspace is up to (or what the task waits for), as text plus a color role. */
 export function taskActivity(pid: string, $t: any): { text: string; color: string } {
-	if ($t.waiting) {
-		const deps = blockingDeps(pid, $t);
-		const what = deps.length > 1 ? `${deps.length} tasks` : deps.length ? taskName(pid, deps[0]) : 'dependencies';
-		return { text: `waiting for ${what}`, color: 'warning' };
+	if (autoStarts($t)) {
+		const pending = waitingFor(pid, $t);
+		if (!pending.length) return { text: 'starts once its plan is closed', color: 'warning' };
+		const what = pending.length > 1 ? `${pending.length} tasks` : taskName(pid, pending[0]);
+		return { text: `starts after ${what}`, color: 'warning' };
 	}
 	switch ($t.status) {
 		case 'building': return { text: 'building the container image', color: 'warning' };
@@ -93,12 +99,12 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 
 /**
  * The task at a glance: its phase as an icon (a spinner while claude works, an
- * hourglass while it waits for dependencies), colored by the container status.
+ * hourglass while it waits for the tasks it follows), colored by the container status.
  */
 export function drawTaskIcon(pid: string, $t: any): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
-		const icon = $t.working ? loaderCircle : $t.waiting ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
+		const icon = $t.working ? loaderCircle : autoStarts($t) ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
 		const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 		A(`span display:inline-flex flex-shrink:0 fg:$s-${activity.color}`, () => {
 			S.addTooltip({ tip: () => A('text=', `${phase}${$t.working ? ', claude is working' : ''} · ${activity.text}`) });

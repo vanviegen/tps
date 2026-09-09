@@ -1,11 +1,11 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, circleStop, gitMerge, sendHorizontal, trash2, user, x } from 'staffa/icons.js';
+import { bot, circleStop, gitMerge, sendHorizontal, trash2, user } from 'staffa/icons.js';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
-import { cmd, debounce, ELLIPSIS, pathTo, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, type Phase } from './util.ts';
+import { autoStarts, cmd, debounce, pathTo, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
 
 /** Tasks of a project waiting for a human, not counting `skip`. */
 export function humanTasks(pid: string, skip?: string): number {
@@ -97,7 +97,7 @@ function draftPatch($d: any): Record<string, unknown> {
 		description: A.peek($d, 'description') ?? '',
 		model: A.peek($d, 'model'),
 	};
-	for (const field of ['dependencies', 'budget', 'autoMerge']) {
+	for (const field of ['startAfter', 'budget', 'autoMerge']) {
 		const value = A.peek($d, field);
 		if (value != null) patch[field] = A.unproxy(value);
 	}
@@ -154,7 +154,7 @@ function modelOptions(pid: string, $t: any): string[] {
 }
 
 /**
- * Model, dependencies, budget, merge behaviour: everything about the task
+ * Model, what the task follows, budget, merge behaviour: everything about it
  * except its phase and title. Changes go through `save`, which either tells
  * the server or fills in a draft that has yet to be created.
  */
@@ -166,35 +166,29 @@ function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (pa
 			set value(model: string) { if (model) save({ model }); },
 		},
 	});
-	// Laid out like a staffa field, as the list of dependencies is not a control of its own.
-	A('div.s-field', () => {
-		A('label #Dependencies');
-		A(() => {
-			const deps: string[] = $t.dependencies ?? [];
-			const $tasks = $state.projects[pid]?.tasks ?? {};
-			for (const d of deps) {
-				const $dep = $tasks[d];
-				const done = !$dep || $dep.phase === 'done';
-				A('div display:flex align-items:center gap:$1', () => {
-					A(`span flex:1 ${ELLIPSIS} ${done ? 'fg:$s-muted' : ''} text=`, taskName(pid, d) + (done ? ' ✔' : ''));
-					S.iconButton({ icon: x, ariaLabel: 'Remove dependency', attrs: '.small',
-						click: () => save({ dependencies: deps.filter(o => o !== d) }) });
-				});
-			}
-			const options = Object.keys($tasks)
-				.filter(o => o !== tid && !deps.includes(o) && $tasks[o].phase !== 'done')
-				.sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
-				.map(o => ({ value: o, label: taskName(pid, o) }));
-			if (options.length) S.select({
-				placeholder: 'Add a task this one depends on…', options,
-				bind: {
-					get value() { return ''; },
-					set value(d: string) { if (d) save({ dependencies: [...deps, d] }); },
-				},
-			});
-			else if (!deps.length) A('div.s-help #No other open tasks in this project.');
+	// Only while the task is in Plan: following others is how it leaves Plan,
+	// so once it has, there is nothing left to set here.
+	A(() => {
+		if ($t.phase !== 'plan') return;
+		S.autocomplete({
+			label: 'Start after', multi: true, allowCustom: false,
+			placeholder: 'Tasks to wait for…',
+			help: 'The task hands itself to the agent once each of these is done or deleted, and nobody has its plan open — a description still being written is never sent off. Its workspace is made at that moment, so it includes their merged work.',
+			// The tasks it already follows stay listed even when done, so their
+			// chips read as names rather than as numbers.
+			options: () => {
+				const after: string[] = $t.startAfter ?? [];
+				const $tasks = $state.projects[pid]?.tasks ?? {};
+				return Object.keys($tasks)
+					.filter(o => o !== tid && (after.includes(o) || $tasks[o].phase !== 'done'))
+					.sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
+					.map(o => ({ value: o, label: taskName(pid, o) }));
+			},
+			bind: {
+				get value() { return $t.startAfter ?? []; },
+				set value(after: string[]) { save({ startAfter: [...after] }); },
+			},
 		});
-		A('div.s-help #The agent only starts once each of these is merged or deleted; the workspace then includes their work.');
 	});
 	S.textline({
 		label: 'Budget limit (USD)', type: 'number',
@@ -241,6 +235,10 @@ export function drawPlanSettings(pid: string, tid: string | undefined, $t: any):
 		: (patch: object) => Object.assign($t, patch);
 	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
 		drawTaskFields(pid, tid, $t, save);
+		A(() => {
+			const note = autoStartNote(pid, $t);
+			if (note) A('div.s-s.warning.tonal p:$2 font-size:0.9em text=', note);
+		});
 		if (tid) A('div display:flex', () => drawDeleteTask(pid, tid, $t)); // a draft has nothing to delete
 	});
 	// There is nothing to assign until something has been written. The emptiness
@@ -253,6 +251,13 @@ export function drawPlanSettings(pid: string, tid: string | undefined, $t: any):
 		S.button({ content: 'Assign to agent', icon: bot, disabled: off, click: () => void assignTask(pid, tid, $t, 'agent') });
 		S.button({ content: 'Assign to human', icon: user, attrs: '.neutral', disabled: off, click: () => void assignTask(pid, tid, $t, 'human') });
 	});
+}
+
+/** What the task is waiting for, the open plan included — that holds it back too. */
+function autoStartNote(pid: string, $t: any): string | undefined {
+	if (!autoStarts($t)) return;
+	const also = waitingFor(pid, $t).length ? ', and once you close this plan' : '';
+	return `⏳ This task ${taskActivity(pid, $t).text}${also}.`;
 }
 
 /** Hand the task to the agent or a human, writing a draft down first if the typing beat the debounce to it. */
@@ -305,7 +310,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		}
 	});
 	A(() => {
-		if (!$t.waiting && !['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
+		if (!['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
 		const { text, color } = taskActivity(pid, $t);
 		A(`div.s-s.${color}.tonal p:$2 text=`, text);
 	});

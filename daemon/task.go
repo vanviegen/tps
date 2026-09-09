@@ -57,8 +57,7 @@ type TaskInfo struct {
 	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
 	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // overrides the project setting when set
 	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
-	Dependencies  []string `json:"dependencies,omitempty"`  // tids that must be merged or deleted first
-	Waiting       bool     `json:"waiting,omitempty"`       // assigned to the agent, parked until the dependencies resolve
+	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
 }
 
 // flight is one in-progress operation shared by everyone who asks for it
@@ -89,6 +88,7 @@ type Task struct {
 	live         bool
 	checkingLive bool
 	refreshing   bool // a changes overview is being computed
+	autoStarting bool // an auto-start is under way, so it isn't started twice
 
 	session       *ChatSession
 	sessionFlight *flight[*ChatSession]
@@ -147,15 +147,10 @@ func (t *Task) publishL() {
 	}
 	t.pubL("budget", optional(t.info.Budget))
 	t.pubL("autoMerge", optional(t.info.AutoMerge))
-	if len(t.info.Dependencies) > 0 {
-		t.pubL("dependencies", t.info.Dependencies)
+	if len(t.info.StartAfter) > 0 {
+		t.pubL("startAfter", t.info.StartAfter)
 	} else {
-		t.pubL("dependencies", nil)
-	}
-	if t.info.Waiting {
-		t.pubL("waiting", true)
-	} else {
-		t.pubL("waiting", nil)
+		t.pubL("startAfter", nil)
 	}
 	if t.midRebase() {
 		t.pubL("rebasing", true)
@@ -203,12 +198,10 @@ func (t *Task) setStatusL(status WorkStatus, detail string) {
 
 func (t *Task) setPhaseL(phase Phase) {
 	t.info.Phase = phase
-	if phase != PhaseAgent {
-		t.info.Waiting = false
-	}
 	t.p.touchL()
 	t.p.m.saveL()
 	t.publishL()
+	t.p.autoStartL() // a task reaching Done may be the last one another was waiting for
 }
 
 // --- chat log (no manager lock needed) ---
@@ -290,9 +283,7 @@ func (t *Task) Update(partial map[string]any) error {
 	t.p.touchL()
 	t.p.m.saveL()
 	t.publishL()
-	if t.info.Waiting {
-		t.p.startUnblockedL()
-	}
+	t.p.autoStartL()
 	return nil
 }
 
@@ -329,30 +320,39 @@ func (t *Task) applyL(partial map[string]any) {
 			t.info.Budget = &budget
 		}
 	}
-	if raw, ok := partial["dependencies"].([]any); ok {
-		var deps []string
+	if raw, ok := partial["startAfter"].([]any); ok {
+		var after []string
 		seen := map[string]bool{}
 		for _, d := range raw {
 			s, ok := d.(string)
-			if !ok || seen[s] || s == t.tid || t.p.tasks[s] == nil || t.p.dependsOnL(s, t.tid, nil) { // dropping cycles keeps waiting tasks startable
+			if !ok || seen[s] || s == t.tid || t.p.tasks[s] == nil || t.p.startsAfterL(s, t.tid, nil) { // dropping cycles keeps waiting tasks startable
 				continue
 			}
 			seen[s] = true
-			deps = append(deps, s)
+			after = append(after, s)
 		}
-		t.info.Dependencies = deps
+		t.info.StartAfter = after
 	}
 }
 
-// blockedOnL lists the dependencies that still stand in the way: existing, unmerged tasks.
-func (t *Task) blockedOnL() []string {
-	var out []string
-	for _, tid := range t.info.Dependencies {
+// blockedL: some task this one follows is not done yet. A deleted one is
+// nothing to wait for.
+func (t *Task) blockedL() bool {
+	for _, tid := range t.info.StartAfter {
 		if dep := t.p.tasks[tid]; dep != nil && dep.info.Phase != PhaseDone {
-			out = append(out, tid)
+			return true
 		}
 	}
-	return out
+	return false
+}
+
+// autoStartableL: a task set to follow others, whose wait is over. Until then
+// it stays in Plan, so there is no half-made workspace anywhere; an open plan
+// holds it back as well, that being someone still writing the description the
+// agent is about to be handed.
+func (t *Task) autoStartableL() bool {
+	return t.info.Phase == PhasePlan && len(t.info.StartAfter) > 0 && !t.autoStarting &&
+		t.viewers == 0 && strings.TrimSpace(t.info.Description) != "" && !t.blockedL()
 }
 
 // overBudgetL: the budget (if any) leaves no meaningful room for another run.
@@ -408,22 +408,15 @@ func (t *Task) setTitleL(title string) {
 }
 
 // Assign leaves the plan phase: create the workspace and hand the task over.
-// With unresolved dependencies the task just parks in the agent column; once
-// they are all merged or deleted, startUnblocked calls this again. The clone
-// is made only then, so it includes the dependencies' merged work.
+// A task set to follow others waits for them in Plan (see autoStartL), so its
+// clone is made once their work is merged and includes it; assigning it by
+// hand meanwhile is the way to start it anyway, without waiting.
 func (t *Task) Assign(to string) error {
 	if err := t.ensureTitle(); err != nil {
 		return err
 	}
 	t.lock()
 	t.touchL()
-	if to == "agent" && len(t.blockedOnL()) > 0 {
-		t.info.Waiting = true
-		t.setPhaseL(PhaseAgent)
-		t.unlock()
-		return nil
-	}
-	t.info.Waiting = false
 	desc := t.info.Description
 	t.unlock()
 	defer t.p.m.work()()
@@ -454,10 +447,6 @@ func (t *Task) SendChat(text string) error {
 	if t.info.Phase == PhasePlan {
 		t.unlock()
 		return errors.New("Assign the task to the agent first")
-	}
-	if t.info.Waiting {
-		t.unlock()
-		return errors.New("This task is waiting for its dependencies; remove them in the settings to start it now")
 	}
 	t.touchL()
 	t.p.touchL()
@@ -552,7 +541,7 @@ func (t *Task) StopAgent() error {
 // MoveTo maps board drags onto the real actions.
 func (t *Task) MoveTo(phase Phase) error {
 	t.lock()
-	current, waiting := t.info.Phase, t.info.Waiting
+	current := t.info.Phase
 	t.unlock()
 	valid := false
 	for _, p := range phases {
@@ -574,7 +563,7 @@ func (t *Task) MoveTo(phase Phase) error {
 		}
 		return t.SendChat("Please continue working on the task.")
 	case PhaseHuman:
-		if current == PhasePlan || waiting { // a waiting task has no clone yet
+		if current == PhasePlan {
 			return t.Assign("human")
 		}
 		return t.StopAgent()
@@ -660,7 +649,6 @@ func (t *Task) merge(repo, message string) error {
 	t.lock()
 	t.info.CommitMessage = ""
 	t.setPhaseL(PhaseDone)
-	t.p.startUnblockedL()
 	t.unlock()
 	go t.down()
 	return nil
@@ -736,7 +724,7 @@ func (t *Task) Delete() error {
 	t.p.m.hub.SetChat(t.key(), nil)
 	t.p.touchL()
 	t.p.m.saveL()
-	t.p.startUnblockedL()
+	t.p.autoStartL() // a deleted task is no longer something to wait for
 	return nil
 }
 
