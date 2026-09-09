@@ -363,7 +363,9 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	// corner: chrome that would otherwise cost the conversation a row.
 	A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
 		drawChat(pid, tid);
-		A('div position:absolute top:0 right:0 display:flex align-items:center', chatOverlay, () => {
+		// A neutral surface, opaque and rounded, so the log scrolls under them
+		// rather than through them.
+		A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
 			A(() => { // its own scope: the CMD arriving must not redraw the row
 				if ($t.runCmd) S.iconButton({ icon: play, ariaLabel: 'Run the project', click: () => runDialog(pid, tid, $t) });
 			});
@@ -398,10 +400,6 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	});
 	drawInputBar(pid, tid, $t);
 }
-
-const chatOverlay = A.insertCss({
-	'&': 'filter: drop-shadow(0 0 2px var(--s-bg)) drop-shadow(0 0 4px var(--s-bg)) drop-shadow(0 0 6px var(--s-bg));',
-});
 
 function drawInputBar(pid: string, tid: string, $t: any): void {
 	// Whatever was typed here and never sent, from before this task was left.
