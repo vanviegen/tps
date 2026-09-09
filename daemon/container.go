@@ -114,8 +114,11 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # runs the task in it as uid 1000 with that clone mounted at /work. code-server
 # and claude are mounted in at run time, so nothing here is TPS-specific: use
 # whatever base suits the project, as long as it has bash and git, and a user
-# with uid 1000 who owns a home directory. Anything the task serves should
-# listen on $PORT; a CMD line that starts it gives the dashboard a Run button.
+# with uid 1000 who owns a home directory. Anything the task serves should listen
+# on $PORT, bound to 0.0.0.0 — the port TPS forwards in arrives on the container's
+# own address, so localhost-only would be unreachable, and TPS publishes it on the
+# host's loopback, so 0.0.0.0 here is not exposure. A CMD line that starts it gives
+# the dashboard a Run button.
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8

@@ -71,3 +71,32 @@ func (m *Manager) refreshModels() {
 	logf("Models offered by claude: %s", strings.Join(models, ", "))
 	m.hub.Set([]string{"models"}, models)
 }
+
+// generateTitle asks this host's claude for a task title: haiku, as naming one
+// is little work, and a one-shot -p run, as there is nothing to discuss. It
+// answers "" when it can't be asked (no toolbox yet, no network) or won't say
+// anything usable; the stand-in title then simply stays.
+func generateTitle(description string) string {
+	r, err := runCmd([]string{claudeBin(), "-p", titlePrompt(description), "--model", "haiku"}, RunOpts{Dir: home(), Timeout: 30 * time.Second})
+	if err != nil {
+		logf("asking claude for a task title failed: %v", err)
+		return ""
+	}
+	return head(strings.Trim(strings.TrimSpace(r.Out), `"'`), 60)
+}
+
+// draftTitle is what a task is called until claude has thought about it: the
+// head of its description, with markdown heading marks and space stripped.
+func draftTitle(description string) string {
+	return head(description, 25)
+}
+
+// head: the first line of text, at most max characters, saying where it cut.
+func head(text string, max int) string {
+	line, _, _ := strings.Cut(strings.TrimLeft(strings.TrimSpace(text), "# \t"), "\n")
+	line = strings.TrimSpace(line)
+	if runes := []rune(line); len(runes) > max {
+		line = strings.TrimSpace(string(runes[:max])) + "…"
+	}
+	return line
+}

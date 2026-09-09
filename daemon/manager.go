@@ -108,7 +108,7 @@ func (m *Manager) Start() error {
 	go m.refreshModels()
 	go m.ticker(60*time.Second, m.idleSweep)
 	go m.ticker(2*time.Second, m.checkLive)
-	go m.ticker(5*time.Second, m.refreshChanges)
+	go m.ticker(5*time.Second, m.refreshWatched)
 	go m.inhibitLoop()
 	return nil
 }
@@ -306,8 +306,9 @@ func (m *Manager) checkLive() {
 	}
 }
 
-// refreshChanges keeps the changed-files overview of watched tasks current.
-func (m *Manager) refreshChanges() {
+// refreshWatched keeps what the dashboard has open current: the changed files,
+// and the CMD behind its Run button, which an agent may just have written.
+func (m *Manager) refreshWatched() {
 	m.mu.Lock()
 	var watched []*Task
 	for _, t := range m.allTasksL() {
@@ -318,6 +319,7 @@ func (m *Manager) refreshChanges() {
 	m.mu.Unlock()
 	for _, t := range watched {
 		t.refreshChanges()
+		t.syncRunCmd()
 	}
 }
 
@@ -428,7 +430,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			return nil, nil
 		}),
 		"createTask": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
-			tid, err := p.CreateTask()
+			tid, err := p.CreateTask(partial)
 			return map[string]any{"tid": tid}, err
 		}),
 		"updateTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Update(partial) }),

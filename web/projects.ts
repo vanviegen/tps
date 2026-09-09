@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { plus } from 'staffa/icons.js';
+import { plus, trash2 } from 'staffa/icons.js';
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
 import { humanTasks } from './task.ts';
@@ -16,27 +16,68 @@ export function sortedProjects(): [string, any][] {
 		(a[1].name < b[1].name ? -1 : 1));
 }
 
-/** One row of the project selector: its name, dimly its host, a sign when something is wrong. */
-export function projectItem(pid: string, $p: any): S.MenuItem {
-	return {
-		href: pathTo(pid),
-		label: () => {
-			A(`span flex:1 ${ELLIPSIS} text=`, A.ref($p, 'name'));
-			A(() => {
-				const $h = $state.hosts?.[$p.host];
-				if ($p.host !== 'local' && $h?.name) A(`small ${ELLIPSIS} fg:$s-muted text=`, $h.name);
-				const problem = $p.error || ($h && $h.status !== 'connected' ? `${$h.name}: ${$h.status}` : '');
-				if (problem) A('span fg:$s-danger #⚠', () => S.addTooltip({ tip: problem }));
-			});
-			A(() => drawBadge(humanTasks(pid)));
-		},
-	};
+/** Drop a project from the list, once confirmed; used from its row and from its settings. */
+async function removeProject(pid: string, $p: any): Promise<boolean> {
+	const host = A.peek(() => hostName($p.host));
+	if (!(await S.confirm(`Remove **${A.peek($p, 'name')}** from the list? Nothing changes on ${host}: its tasks keep running there, and come back when you add the project again.`))) return false;
+	if (!(await cmd('removeProject', { pid }))) return false;
+	route.go('/');
+	return true;
 }
 
-/** The right column while no project is picked: one line names the repository. */
-export function drawAddProject(): void {
+/** The right column at "/": every listed project, plus the way to add one. */
+export function drawProjectList(): void {
+	A('div display:flex flex-direction:column gap:$3 max-width:44rem', () => {
+		A(() => {
+			const projects = sortedProjects();
+			if (!projects.length) return;
+			S.box({ header: 'Projects', contentAttrs: 'p:0', content: () => {
+				for (const [pid, $p] of projects) drawProjectRow(pid, $p);
+			}});
+		});
+		drawAddProject();
+	});
+}
+
+// Rows are flush against each other; the last one leaves the box's edge alone.
+const projectRow = A.insertCss({
+	'&': 'display:flex align-items:center gap:$2 p:$2',
+	'&:not(:last-child)': 'border-bottom: 1px solid $s-faint;',
+});
+
+/** One project: its name and what waits there, over where it lives and how busy it is. */
+function drawProjectRow(pid: string, $p: any): void {
+	A('div', projectRow, () => {
+		// The remove button sits beside the link, not inside it.
+		A('a flex:1 min-width:0 display:flex flex-direction:column gap:$1', 'href=', pathTo(pid), () => {
+			A('div display:flex align-items:center gap:$2 min-width:0', () => {
+				A(`span ${ELLIPSIS} text=`, A.ref($p, 'name'));
+				A(() => drawBadge(humanTasks(pid)));
+				A(() => {
+					const $h = $state.hosts?.[$p.host];
+					const problem = $p.error || ($h && $h.status !== 'connected' ? `${$h.name}: ${$h.status}` : '');
+					if (problem) A('span fg:$s-danger #⚠', () => S.addTooltip({ tip: problem }));
+				});
+			});
+			A(() => {
+				const where = $p.host === 'local' ? $p.dir : `${hostName($p.host)}:${$p.dir}`;
+				const open = openTasks(pid);
+				A(`small ${ELLIPSIS} fg:$s-muted text=`, where + (open ? ` · ${open} open task${open > 1 ? 's' : ''}` : ''));
+			});
+		});
+		S.iconButton({ icon: trash2, ariaLabel: 'Remove from list', attrs: '.small', click: () => void removeProject(pid, $p) });
+	});
+}
+
+/** Tasks of a project that aren't merged away yet. */
+function openTasks(pid: string): number {
+	return (Object.values($state.projects[pid]?.tasks ?? {}) as any[]).filter($t => $t.phase !== 'done').length;
+}
+
+/** The way to add a project: a bare directory, listed underneath the others. */
+function drawAddProject(): void {
 	const $form = A.proxy({ spec: '', name: '' });
-	S.box({ attrs: 'max-width:44rem', header: 'Add project', content: () => {
+	S.box({ header: 'Add project', content: () => {
 		S.form({
 			submit: async () => {
 				if (!$form.spec.trim()) return;
@@ -55,6 +96,37 @@ export function drawAddProject(): void {
 			actions: () => S.button({ content: 'Add', icon: plus, type: 'submit' }),
 		});
 	}});
+}
+
+/** A strip per thing worth knowing: the host's state, the project, its checkout. */
+export function drawNotices(pid: string, $p: any): void {
+	const strip = (color: string, text: string, action?: () => void) =>
+		A(`div.s-s.${color}.tonal p:$2 display:flex align-items:center gap:$2`, () => {
+			A('span flex:1 rich=', text);
+			action?.();
+		});
+	A(() => {
+		const $h = $state.hosts?.[$p.host];
+		if (!$h) return;
+		if ($h.status !== 'connected') {
+			strip('danger', `${$h.name}: ${$h.status}${$h.error ? ' · ' + $h.error : ''}`,
+				() => S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid: $p.host }) }));
+		} else if ($p.error) {
+			strip('danger', `${$p.dir}: ${$p.error}`);
+		} else if ($h.warning) {
+			strip('warning', $h.warning);
+		} else if ($h.restarting) {
+			strip('neutral', `The daemon on ${$h.name} restarts into this build as soon as nothing is running.`);
+		} else if ($h.updatable) {
+			strip('neutral', `The daemon on ${$h.name} runs another build of TPS.`,
+				() => S.button({ content: 'Update daemon', attrs: '.small', click: () => void cmd('updateDaemon', { hid: $p.host }) }));
+		}
+	});
+	A(() => {
+		if (!$p.dirty) return;
+		strip('warning', `Uncommitted work in \`${$p.dir}\` (${$p.git}). Task workspaces clone the committed state only, so this stays out of them and may block a merge.`,
+			() => S.button({ content: 'Open', attrs: '.small', click: () => void route.go(pathTo(pid, 'base')) }));
+	});
 }
 
 /** The name, the merge behaviour, the host it lives on, and the way off the list. */
@@ -92,12 +164,7 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 		});
 		A('div display:flex mt:$2', () => S.button({
 			content: 'Remove from list', attrs: '.small .danger .outlined',
-			click: async () => {
-				const host = A.peek(() => hostName($p.host));
-				if (!(await S.confirm(`Remove **${A.peek($p, 'name')}** from the list? Nothing changes on ${host}: its tasks keep running there, and come back when you add the project again.`))) return;
-				close();
-				if (await cmd('removeProject', { pid })) route.go('/');
-			},
+			click: async () => { if (await removeProject(pid, $p)) close(); },
 		}));
 	}});
 }

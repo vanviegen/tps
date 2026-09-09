@@ -32,3 +32,9 @@ RUN printf 'PATH=/usr/local/go/bin:/usr/local/bin:$HOME/go/bin:$PATH\n' >/etc/pr
 RUN useradd -m -u 1000 -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/dev
 USER dev
 WORKDIR /work
+
+# Run TPS itself, so the dashboard's Run button previews this project: the web
+# bundle first, then the binary on $PORT. It listens on 0.0.0.0 because the
+# forwarded port arrives on the container's own address, not its loopback; TPS
+# publishes that port on the host's loopback, so this is not exposure.
+CMD npm install --silent && npm run build && go run . --host 0.0.0.0 --port $PORT --no-open

@@ -19,25 +19,30 @@ export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellips
 A.insertGlobalCss({ '@keyframes spin': { to: 'transform:rotate(360deg)' } });
 
 /**
- * What the URL selects: a project, and within it a task, its base worktree, or
- * neither. Everything on screen follows from this, so navigating is a link.
+ * What the URL selects: a project, and within it a task, its base worktree, a
+ * task being drafted, or none of those. Everything on screen follows from
+ * this, so navigating is a link.
  */
-export function selection(): { pid?: string; tid?: string; base?: boolean } {
+export function selection(): { pid?: string; tid?: string; base?: boolean; draft?: boolean } {
 	const p = route.current.p;
 	if (p[0] !== 'p' || !p[1]) return {};
-	return { pid: p[1], tid: p[2] === 't' ? p[3] : undefined, base: p[2] === 'base' };
+	return { pid: p[1], tid: p[2] === 't' ? p[3] : undefined, base: p[2] === 'base', draft: p[2] === 'draft' };
 }
 
-/** The path selecting a project, and in it a task (`'base'` for the base worktree). */
+/**
+ * The path selecting a project, and in it a task — `'base'` for the base
+ * worktree, `'draft'` for the task being written but not yet created. Task ids
+ * are numbers, so neither name can collide with one.
+ */
 export function pathTo(pid: string, tid?: string): string {
-	return `/p/${pid}` + (tid === 'base' ? '/base' : tid ? `/t/${tid}` : '');
+	return `/p/${pid}` + (tid === 'base' || tid === 'draft' ? `/${tid}` : tid ? `/t/${tid}` : '');
 }
 
 /** How many things wait for a human, as a pill. Nothing waiting draws nothing. */
-export function drawBadge(count: number, attrs = ''): void {
+export function drawBadge(count: number): void {
 	if (!count) return;
 	A('span.s-s.warning font-size:0.7em font-weight:700 line-height:1 ph:0.45em pv:0.25em r:1em flex-shrink:0',
-		attrs, 'text=', String(count));
+		'text=', String(count));
 }
 
 /** Dependencies of `$t` that still block it: existing, unmerged tasks. */
@@ -51,10 +56,22 @@ export function hostName(hid: string): string {
 	return hid === 'local' ? 'localhost' : $state.hosts?.[hid]?.name ?? hid;
 }
 
+/**
+ * What to call a task. A task gets its title when it leaves Plan (claude is
+ * asked for one), so until then its description stands in for it.
+ */
+export function taskTitle($t: any, fallback = '(untitled)'): string {
+	const title = ($t?.title ?? '').trim();
+	if (title) return title;
+	const [line] = ($t?.description ?? '').replace(/^[#\s]+/, '').split('\n');
+	if (!line.trim()) return fallback;
+	return line.length > 60 ? line.slice(0, 60) + '…' : line;
+}
+
 /** A task by name, for anywhere one task points at another. */
 export function taskName(pid: string, tid: string): string {
 	const $t = $state.projects[pid]?.tasks?.[tid];
-	return !$t ? '(deleted)' : $t.title || '(untitled)';
+	return !$t ? '(deleted)' : taskTitle($t);
 }
 
 /** What the workspace is up to (or what the task waits for), as text plus a color role. */

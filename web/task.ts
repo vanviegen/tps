@@ -5,35 +5,12 @@ import { bot, circleStop, gitMerge, sendHorizontal, trash2, user, x } from 'staf
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
-import { cmd, debounce, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, type Phase } from './util.ts';
-
-/**
- * Tasks of a project: the ones waiting for a human first, then the newest
- * first — a task keeps no activity of its own, so its id stands in for it.
- */
-export function sortedTasks(pid: string): [string, any][] {
-	const tasks = Object.entries($state.projects[pid]?.tasks ?? {}) as [string, any][];
-	return tasks.sort((a, b) =>
-		(b[1].phase === 'human' ? 1 : 0) - (a[1].phase === 'human' ? 1 : 0) ||
-		(tidOrder(a[0]) < tidOrder(b[0]) ? 1 : -1));
-}
+import { cmd, debounce, ELLIPSIS, pathTo, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, type Phase } from './util.ts';
 
 /** Tasks of a project waiting for a human, not counting `skip`. */
 export function humanTasks(pid: string, skip?: string): number {
 	const tasks = Object.entries($state.projects[pid]?.tasks ?? {}) as [string, any][];
 	return tasks.filter(([tid, $t]) => tid !== skip && $t.phase === 'human').length;
-}
-
-/** One row of the task selector. */
-export function taskItem(pid: string, tid: string, $t: any): S.MenuItem {
-	return {
-		href: pathTo(pid, tid),
-		label: () => {
-			drawTaskIcon(pid, $t);
-			A(`span flex:1 ${ELLIPSIS}`, () => A('text=', $t.title || '(untitled)'));
-			A(() => drawBadge($t.phase === 'human' ? 1 : 0));
-		},
-	};
 }
 
 /** Keep the task's workspace up and its chat streaming, for as long as the calling scope lives. */
@@ -86,27 +63,81 @@ export function mergeDialog(pid: string, tid: string, $t: any): void {
 	}});
 }
 
-/** A title and a description, and the task is in Plan. */
-export function newTaskDialog(pid: string): void {
-	const $form = A.proxy({ title: '', description: '' });
-	void S.dialog({ header: 'Add task', attrs: 'w:44rem', content: close => {
-		S.form({
-			submit: async () => {
-				const title = $form.title.trim();
-				if (!title) return;
-				const result = await cmd('createTask', { pid });
-				if (!result) return;
-				close();
-				await cmd('updateTask', { pid, tid: result.tid, title, description: $form.description });
-				route.go(pathTo(pid, result.tid));
-			},
-			content: () => {
-				S.textline({ label: 'Title', required: true, bind: A.ref($form, 'title') });
-				S.textarea({ label: 'Description', help: 'Markdown. It is fixed once the task leaves Plan.', rows: 8, autoGrow: false, bind: A.ref($form, 'description') });
-			},
-			actions: () => S.button({ content: 'Add task', type: 'submit' }),
-		});
-	}});
+/**
+ * Start a task: no dialog, and nothing created yet either — the draft below is
+ * opened, and only becomes a task once it is assigned.
+ */
+export function addTask(pid: string): void {
+	route.go(pathTo(pid, 'draft'));
+}
+
+/**
+ * The task being written for a project: it lives in the browser only until its
+ * description has something in it, at which point it is written down for real
+ * (see saveDraft). It looks enough like a task for the editor and the settings
+ * to work on it unchanged.
+ */
+const drafts = new Map<string, any>();
+
+/** The creation a draft is in the middle of, so nothing starts a second one. */
+const creating = new Map<string, Promise<string | undefined>>();
+
+export function draftFor(pid: string): any {
+	let $d = drafts.get(pid);
+	if (!$d) {
+		creating.delete(pid); // a fresh draft is nobody's task-in-waiting
+		drafts.set(pid, $d = A.proxy({ phase: 'plan', title: '', description: '', model: 'default' }));
+	}
+	return $d;
+}
+
+/** What the draft would be written down as. */
+function draftPatch($d: any): Record<string, unknown> {
+	const patch: Record<string, unknown> = {
+		description: A.peek($d, 'description') ?? '',
+		model: A.peek($d, 'model'),
+	};
+	for (const field of ['dependencies', 'budget', 'autoMerge']) {
+		const value = A.peek($d, field);
+		if (value != null) patch[field] = A.unproxy(value);
+	}
+	return patch;
+}
+
+/**
+ * Write the draft down, once there is something worth keeping — a description
+ * may be a long spec, and it should not hang on the tab staying open. The task
+ * takes over from there: the URL is replaced (the draft being gone, not worth
+ * going back to) and the editor saves to the server from then on. Everyone who
+ * asks meanwhile joins the same creation rather than starting another.
+ */
+function saveDraft(pid: string, $d: any): Promise<string | undefined> {
+	let pending = creating.get(pid);
+	if (!pending) {
+		creating.set(pid, pending = (async () => {
+			const sent = draftPatch($d);
+			const created = await cmd('createTask', { pid, ...sent });
+			if (!created) {
+				creating.delete(pid); // let the next keystroke try again
+				return undefined;
+			}
+			const tid = created.tid as string;
+			// Whatever was typed or set while that was in flight follows it.
+			const late = Object.entries(draftPatch($d)).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(sent[k]));
+			if (late.length) void cmd('updateTask', { pid, tid, ...Object.fromEntries(late) });
+			void route.go(pathTo(pid, tid), 'replace');
+			drafts.delete(pid);
+			return tid;
+		})());
+	}
+	return pending;
+}
+
+/** Rename a task, from its card's context menu — the only place a title is ever typed by hand. */
+export async function renameTask(pid: string, tid: string, $t: any): Promise<void> {
+	const name = await S.prompt('Rename task', A.peek($t, 'title') ?? '');
+	const title = name?.trim();
+	if (title) void cmd('updateTask', { pid, tid, title });
 }
 
 /**
@@ -122,92 +153,137 @@ function modelOptions(pid: string, $t: any): string[] {
 	return models;
 }
 
-/** Everything about the task that isn't its phase: title, model, dependencies, budget, merge behaviour. */
+/**
+ * Model, dependencies, budget, merge behaviour: everything about the task
+ * except its phase and title. Changes go through `save`, which either tells
+ * the server or fills in a draft that has yet to be created.
+ */
+function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
+	S.select({
+		label: 'Model', options: () => modelOptions(pid, $t),
+		bind: {
+			get value() { return $t.model ?? 'default'; },
+			set value(model: string) { if (model) save({ model }); },
+		},
+	});
+	// Laid out like a staffa field, as the list of dependencies is not a control of its own.
+	A('div.s-field', () => {
+		A('label #Dependencies');
+		A(() => {
+			const deps: string[] = $t.dependencies ?? [];
+			const $tasks = $state.projects[pid]?.tasks ?? {};
+			for (const d of deps) {
+				const $dep = $tasks[d];
+				const done = !$dep || $dep.phase === 'done';
+				A('div display:flex align-items:center gap:$1', () => {
+					A(`span flex:1 ${ELLIPSIS} ${done ? 'fg:$s-muted' : ''} text=`, taskName(pid, d) + (done ? ' ✔' : ''));
+					S.iconButton({ icon: x, ariaLabel: 'Remove dependency', attrs: '.small',
+						click: () => save({ dependencies: deps.filter(o => o !== d) }) });
+				});
+			}
+			const options = Object.keys($tasks)
+				.filter(o => o !== tid && !deps.includes(o) && $tasks[o].phase !== 'done')
+				.sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
+				.map(o => ({ value: o, label: taskName(pid, o) }));
+			if (options.length) S.select({
+				placeholder: 'Add a task this one depends on…', options,
+				bind: {
+					get value() { return ''; },
+					set value(d: string) { if (d) save({ dependencies: [...deps, d] }); },
+				},
+			});
+			else if (!deps.length) A('div.s-help #No other open tasks in this project.');
+		});
+		A('div.s-help #The agent only starts once each of these is merged or deleted; the workspace then includes their work.');
+	});
+	S.textline({
+		label: 'Budget limit (USD)', type: 'number',
+		help: 'The task is parked for you when spending reaches the limit; empty means no limit.',
+		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
+		input: debounce(600, (e: Event) => save({ budget: (e.target as HTMLInputElement).value })),
+	});
+	S.checkbox({
+		label: 'Merge when ready',
+		help: 'Merge as soon as the agent reports the task ready, without confirming the commit message. Defaults to the project setting.',
+		checked: A.peek($t, 'autoMerge') ?? !!A.peek(() => $state.projects[pid]?.autoMerge),
+		change: (e: Event) => save({ autoMerge: (e.target as HTMLInputElement).checked }),
+	});
+}
+
+function drawDeleteTask(pid: string, tid: string, $t: any, close?: () => void): void {
+	S.button({
+		content: 'Delete task', icon: trash2, attrs: '.small .danger .outlined',
+		click: async () => {
+			const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped.' : '';
+			if (!(await S.confirm(`Delete **${A.peek($t, 'title') || 'this task'}**? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
+			close?.();
+			if (await cmd('deleteTask', { pid, tid })) route.go(pathTo(pid));
+		},
+	});
+}
+
+/** Task settings behind a dialog: how every phase but Plan offers them. */
 export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: close => {
-		S.textline({
-			label: 'Title', value: A.peek($t, 'title') ?? '',
-			input: debounce(600, (e: Event) => {
-				const title = (e.target as HTMLInputElement).value.trim();
-				if (title) void cmd('updateTask', { pid, tid, title });
-			}),
-		});
-		S.select({
-			label: 'Model', options: () => modelOptions(pid, $t),
-			bind: {
-				get value() { return $t.model ?? 'default'; },
-				set value(model: string) { if (model) void cmd('updateTask', { pid, tid, model }); },
-			},
-		});
-		// Laid out like a staffa field, as the list of dependencies is not a control of its own.
-		A('div.s-field', () => {
-			A('label #Dependencies');
-			A(() => {
-				const deps: string[] = $t.dependencies ?? [];
-				const $tasks = $state.projects[pid]?.tasks ?? {};
-				for (const d of deps) {
-					const $dep = $tasks[d];
-					const done = !$dep || $dep.phase === 'done';
-					A('div display:flex align-items:center gap:$1', () => {
-						A(`span flex:1 ${ELLIPSIS} ${done ? 'fg:$s-muted' : ''} text=`, taskName(pid, d) + (done ? ' ✔' : ''));
-						S.iconButton({ icon: x, ariaLabel: 'Remove dependency', attrs: '.small',
-							click: () => void cmd('updateTask', { pid, tid, dependencies: deps.filter(o => o !== d) }) });
-					});
-				}
-				const options = Object.keys($tasks)
-					.filter(o => o !== tid && !deps.includes(o) && $tasks[o].phase !== 'done')
-					.sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
-					.map(o => ({ value: o, label: taskName(pid, o) }));
-				if (options.length) S.select({
-					placeholder: 'Add a task this one depends on…', options,
-					bind: {
-						get value() { return ''; },
-						set value(d: string) { if (d) void cmd('updateTask', { pid, tid, dependencies: [...deps, d] }); },
-					},
-				});
-				else if (!deps.length) A('div.s-help #No other open tasks in this project.');
-			});
-			A('div.s-help #The agent only starts once each of these is merged or deleted; the workspace then includes their work.');
-		});
-		S.textline({
-			label: 'Budget limit (USD)', type: 'number',
-			help: 'The task is parked for you when spending reaches the limit; empty means no limit.',
-			value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
-			input: debounce(600, (e: Event) =>
-				void cmd('updateTask', { pid, tid, budget: (e.target as HTMLInputElement).value })),
-		});
-		S.checkbox({
-			label: 'Merge when ready',
-			help: 'Merge as soon as the agent reports the task ready, without confirming the commit message. Defaults to the project setting.',
-			checked: A.peek($t, 'autoMerge') ?? !!A.peek(() => $state.projects[pid]?.autoMerge),
-			change: (e: Event) => void cmd('updateTask', { pid, tid, autoMerge: (e.target as HTMLInputElement).checked }),
-		});
-		A('div display:flex mt:$2', () => S.button({
-			content: 'Delete task', icon: trash2, attrs: '.small .danger .outlined',
-			click: async () => {
-				const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped.' : '';
-				if (!(await S.confirm(`Delete **${A.peek($t, 'title') || 'this task'}**? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
-				close();
-				if (await cmd('deleteTask', { pid, tid })) route.go(pathTo(pid));
-			},
-		}));
+		drawTaskFields(pid, tid, $t, patch => void cmd('updateTask', { pid, tid, ...patch }));
+		A('div display:flex mt:$2', () => drawDeleteTask(pid, tid, $t, close));
 	}});
 }
 
-/** A task still in Plan: the description, and the two ways out of it. */
-export function drawPlan(pid: string, tid: string, $t: any): void {
-	const $draft = A.proxy({ text: (A.peek($t, 'description') ?? '') as string });
-	const store = () => cmd('updateTask', { pid, tid, description: $draft.text });
-	S.textarea({
-		attrs: 'flex:1 min-height:0', inputAttrs: 'flex:1', autoGrow: false, resize: 'none',
-		placeholder: 'What should the agent do?', bind: A.ref($draft, 'text'), input: debounce(600, () => void store()),
+/**
+ * A task still in Plan, in the left column: its settings — laid out rather than
+ * hidden behind an icon, there being nothing else to do with the space yet —
+ * and the two ways out of Plan. A draft is created on its way out, not before.
+ */
+export function drawPlanSettings(pid: string, tid: string | undefined, $t: any): void {
+	const save = tid
+		? (patch: object) => void cmd('updateTask', { pid, tid, ...patch })
+		: (patch: object) => Object.assign($t, patch);
+	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
+		drawTaskFields(pid, tid, $t, save);
+		if (tid) A('div display:flex', () => drawDeleteTask(pid, tid, $t)); // a draft has nothing to delete
 	});
-	const assign = async (phase: Phase) => {
-		if (await store()) void cmd('moveTask', { pid, tid, phase });
-	};
+	// There is nothing to assign until something has been written. The emptiness
+	// is derived into a flag of its own, so the buttons are redrawn when it
+	// flips rather than on every keystroke.
+	const $ready = A.proxy({ value: false });
+	A(() => { $ready.value = !!($t.description ?? '').trim(); });
 	A('div display:flex gap:$2', () => {
-		S.button({ content: 'Assign to agent', icon: bot, attrs: '.small', click: () => void assign('agent') });
-		S.button({ content: 'Assign to human', icon: user, attrs: '.small .neutral', click: () => void assign('human') });
+		const off = !$ready.value;
+		S.button({ content: 'Assign to agent', icon: bot, disabled: off, click: () => void assignTask(pid, tid, $t, 'agent') });
+		S.button({ content: 'Assign to human', icon: user, attrs: '.neutral', disabled: off, click: () => void assignTask(pid, tid, $t, 'human') });
+	});
+}
+
+/** Hand the task to the agent or a human, writing a draft down first if the typing beat the debounce to it. */
+async function assignTask(pid: string, tid: string | undefined, $t: any, phase: Phase): Promise<void> {
+	if (!(A.peek($t, 'description') ?? '').trim()) return;
+	if (!tid && !(tid = await saveDraft(pid, $t))) return;
+	// The editor's debounce may still owe the server the last keystroke, and
+	// the agent is about to be handed whatever the server has.
+	if (!(await cmd('updateTask', { pid, tid, description: (A.peek($t, 'description') ?? '').trim() }))) return;
+	void cmd('moveTask', { pid, tid, phase });
+}
+
+/**
+ * A task still in Plan, in the right column: the description, with room to
+ * write it. Every keystroke lands in the task (or draft) it belongs to right
+ * away, so the crumb and the Assign buttons keep up and nothing is lost to a
+ * redraw; only the server is spared the chatter.
+ */
+export function drawPlanEditor(pid: string, tid: string | undefined, $t: any): void {
+	const store = debounce(600, (description: string) => {
+		if (tid) void cmd('updateTask', { pid, tid, description });
+		else if (description.trim()) void saveDraft(pid, $t);
+	});
+	S.textarea({
+		attrs: 'h:100%', inputAttrs: 'flex:1 min-height:0', autoGrow: false, resize: 'none',
+		placeholder: 'What should the agent do?', value: A.peek($t, 'description') ?? '',
+		input: (e: Event) => {
+			const description = (e.target as HTMLTextAreaElement).value;
+			$t.description = description;
+			store(description);
+		},
 	});
 }
 

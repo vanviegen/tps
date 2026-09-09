@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +56,7 @@ type TaskInfo struct {
 	Spent         float64  `json:"spent,omitempty"`         // USD spent on agent runs so far
 	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
 	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // overrides the project setting when set
+	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
 	Dependencies  []string `json:"dependencies,omitempty"`  // tids that must be merged or deleted first
 	Waiting       bool     `json:"waiting,omitempty"`       // assigned to the agent, parked until the dependencies resolve
 }
@@ -284,10 +286,28 @@ func (t *Task) loadChat() {
 func (t *Task) Update(partial map[string]any) error {
 	t.lock()
 	defer t.unlock()
+	t.applyL(partial)
+	t.p.touchL()
+	t.p.m.saveL()
+	t.publishL()
+	if t.info.Waiting {
+		t.p.startUnblockedL()
+	}
+	return nil
+}
+
+// applyL sets whatever the partial names, leaving the rest alone.
+func (t *Task) applyL(partial map[string]any) {
 	if title, ok := partial["title"].(string); ok && strings.TrimSpace(title) != "" {
 		t.info.Title = strings.TrimSpace(title)
 	}
 	if desc, ok := partial["description"].(string); ok && t.info.Phase == PhasePlan { // what the agent was given stays
+		// Until the task is named for real — by claude on its way out of Plan,
+		// or by hand — its title follows the description, so the board says what
+		// it is about from the first words written.
+		if t.info.Title == "" || t.info.Title == draftTitle(t.info.Description) {
+			t.info.Title = draftTitle(desc)
+		}
 		t.info.Description = desc
 	}
 	if model, ok := partial["model"].(string); ok {
@@ -322,13 +342,6 @@ func (t *Task) Update(partial map[string]any) error {
 		}
 		t.info.Dependencies = deps
 	}
-	t.p.touchL()
-	t.p.m.saveL()
-	t.publishL()
-	if t.info.Waiting {
-		t.p.startUnblockedL()
-	}
-	return nil
 }
 
 // blockedOnL lists the dependencies that still stand in the way: existing, unmerged tasks.
@@ -353,16 +366,56 @@ func (t *Task) noteBudgetL() {
 
 // --- phase transitions ---
 
+// ensureTitle names a task on its way out of Plan. It has been calling itself
+// after its description all along (see applyL), which will do; claude is asked
+// for something better in the background, so nothing waits on the naming. That
+// happens once in a task's life, and the answer is adopted only while the
+// stand-in is still there — a rename meanwhile wins.
+func (t *Task) ensureTitle() error {
+	t.lock()
+	defer t.unlock()
+	desc := t.info.Description
+	if strings.TrimSpace(desc) == "" {
+		return errors.New("Give the task a description first")
+	}
+	stand := draftTitle(desc)
+	if t.info.Title == "" {
+		t.setTitleL(stand)
+	}
+	if t.info.TitleAsked {
+		return nil
+	}
+	t.info.TitleAsked = true
+	t.p.m.saveL()
+	if t.info.Title != stand {
+		return nil // named by hand already: leave it be
+	}
+	go func() {
+		title := generateTitle(desc)
+		t.lock()
+		defer t.unlock()
+		if title != "" && t.info.Title == stand && t.p.tasks[t.tid] == t { // not renamed, not deleted meanwhile
+			t.setTitleL(title)
+		}
+	}()
+	return nil
+}
+
+func (t *Task) setTitleL(title string) {
+	t.info.Title = title
+	t.p.m.saveL()
+	t.pubL("title", title)
+}
+
 // Assign leaves the plan phase: create the workspace and hand the task over.
 // With unresolved dependencies the task just parks in the agent column; once
 // they are all merged or deleted, startUnblocked calls this again. The clone
 // is made only then, so it includes the dependencies' merged work.
 func (t *Task) Assign(to string) error {
-	t.lock()
-	if strings.TrimSpace(t.info.Title) == "" {
-		t.unlock()
-		return errors.New("Give the task a title first")
+	if err := t.ensureTitle(); err != nil {
+		return err
 	}
+	t.lock()
 	t.touchL()
 	if to == "agent" && len(t.blockedOnL()) > 0 {
 		t.info.Waiting = true
@@ -371,18 +424,17 @@ func (t *Task) Assign(to string) error {
 		return nil
 	}
 	t.info.Waiting = false
-	title, desc := t.info.Title, t.info.Description
+	desc := t.info.Description
 	t.unlock()
 	defer t.p.m.work()()
 	if err := t.ensureClone(); err != nil {
 		return err
 	}
 	if to == "agent" {
-		prompt := initialPrompt(title, desc)
 		e := newEntry("user")
-		e.Text = prompt
+		e.Text = desc
 		t.addEntry(e)
-		t.kick(prompt, false)
+		t.kick(desc, false)
 	} else {
 		t.lock()
 		t.setPhaseL(PhaseHuman)
@@ -740,6 +792,24 @@ func parseNumstat(out string) []change {
 		changes = append(changes, c)
 	}
 	return changes
+}
+
+// syncRunCmd re-reads the CMD from Containerfile.dev, so the Run button follows
+// what was just written there. The run is an exec in the container that is
+// already up, so a new CMD needs no rebuild to be usable — only the image the
+// file describes does, and that waits for the container to be recreated anyway.
+func (t *Task) syncRunCmd() {
+	if !exists(t.repoDir()) {
+		return
+	}
+	argv := containerfileCmd(t.containerfile())
+	t.lock()
+	defer t.unlock()
+	if t.status != StatusUp || slices.Equal(argv, t.runCmd) {
+		return
+	}
+	t.runCmd = argv
+	t.pubL("runCmd", nonEmpty(cmdDisplay(argv)))
 }
 
 // refreshChanges publishes the changes overview, unless one is being made already.

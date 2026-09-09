@@ -1,19 +1,19 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, chevronDown, gitBranch, play, plus, settings } from 'staffa/icons.js';
+import { bot, chevronRight, gitBranch, play, settings } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
-import { drawAddProject, drawProjectCode, projectItem, projectSettingsDialog, sortedProjects } from './projects.ts';
+import { drawNotices, drawProjectCode, drawProjectList, projectSettingsDialog, sortedProjects } from './projects.ts';
 import { runDialog } from './run.ts';
-import { drawAgent, drawPlan, drawTaskCode, humanTasks, newTaskDialog, phaseItems, sortedTasks, taskItem, taskSettingsDialog, useTask } from './task.ts';
-import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection } from './util.ts';
+import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, phaseItems, taskSettingsDialog, useTask } from './task.ts';
+import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
 
-// Two columns, edge to edge: the left one names what you are looking at and
-// holds the conversation about it, the right one is that thing.
+// Two columns, edge to edge: the left one says where you are and holds what to
+// do about it (the conversation included), the right one is the thing itself.
 A.insertGlobalCss({
 	':root': '--leftw: min(33.3vw, 600px)',
 	body: 'p:0 h:100dvh min-height:0 overflow:hidden',
@@ -27,120 +27,65 @@ A('div display:flex h:100dvh align-items:stretch', () => {
 // --- the left column ---
 
 function drawSidebar(): void {
-	A('div display:flex align-items:center gap:$2 font-size:1.25em', () => {
-		bot({ size: '1.7em', color: 'var(--s-accent)' });
-		A('b#TPS');
-	});
+	drawCrumbs();
+	// This scope deliberately doesn't read the task's phase: a task changing
+	// phase must not tear down its chat stream (see useTask below).
 	A(() => {
-		const { pid, tid, base } = selection();
+		const { pid, tid, draft } = selection();
 		const $p = pid ? $state.projects[pid] : undefined;
-		drawProjectSection(pid, $p);
-		if (pid && $p) drawTaskSection(pid, $p, tid, !!base);
-	});
-}
-
-/** A labelled block of the left column. */
-function drawSection(label: string, attrs: string, draw: () => void): void {
-	A('div display:flex flex-direction:column gap:$1 min-width:0', attrs, () => {
-		A('div font-size:0.7em font-weight:700 letter-spacing:0.12em text-transform:uppercase fg:$s-muted text=', label);
-		draw();
+		if (!pid || !$p) return; // at the root, the project list in the right column is all there is
+		if (draft) return drawPlanSettings(pid, undefined, draftFor(pid));
+		const $t = tid ? $p.tasks?.[tid] : undefined;
+		if ($t) drawTaskPanel(pid, tid!, $t);
+		else drawProjectPanel(pid, $p);
 	});
 }
 
 /**
- * A full-width dropdown naming the current thing, with a pill over its corner
- * counting the items it hides that are waiting for a human.
+ * The trail to what is on screen: TPS / project / task, each but the last a
+ * link one level up. The pills count what waits for a human *elsewhere*: in
+ * the other projects, and in the project's other tasks.
  */
-function drawSelector(o: { label: string; current: () => void; items: () => S.MenuEntry[]; badge: () => number }): void {
-	A('div position:relative flex:1 min-width:0', () => {
-		S.menuButton({
-			dropdownAttrs: 'overflow-y:auto min-width: min(var(--leftw), 90vw); max-height: min(60dvh, 30rem);',
-			button: {
-				icon: undefined, ariaLabel: o.label,
-				attrs: '.neutral w:100% justify-content:space-between overflow:hidden',
-				content: () => {
-					A(`span display:flex align-items:center gap:$2 min-width:0 ${ELLIPSIS}`, o.current);
-					chevronDown({ size: '1em', attrs: 'flex-shrink:0' });
-				},
-			},
-			get items() { return o.items(); },
-		});
-		A(() => drawBadge(o.badge(), 'position:absolute top:-0.5em right:-0.35em pointer-events:none'));
+function drawCrumbs(): void {
+	A('nav display:flex align-items:center gap:$1 min-width:0', () => {
+		const { pid, tid, base, draft } = selection();
+		const $p = pid ? $state.projects[pid] : undefined;
+		drawCrumb(pid ? '/' : undefined, () => {
+			bot({ size: '1.3em', color: 'var(--s-accent)' });
+			A('b#TPS');
+		}, () => sortedProjects().filter(([id]) => id !== pid && humanTasks(id)).length);
+		if (!$p) return;
+		drawSeparator();
+		drawCrumb(tid || base || draft ? pathTo(pid!) : undefined,
+			() => A(`span ${ELLIPSIS} text=`, A.ref($p, 'name')),
+			() => humanTasks(pid!, tid));
+		if (base) {
+			drawSeparator();
+			drawCrumb(undefined, () => drawBaseLabel($p));
+		} else if (draft) {
+			drawSeparator();
+			drawCrumb(undefined, () => A(`span ${ELLIPSIS}`, () => A('text=', taskTitle(draftFor(pid!), 'New task'))));
+		} else if (tid) {
+			const $t = $p.tasks?.[tid];
+			drawSeparator();
+			drawCrumb(undefined, () => A(`span ${ELLIPSIS}`, () => A('text=', taskTitle($t))));
+		}
 	});
 }
 
-function drawProjectSection(pid: string | undefined, $p: any): void {
-	drawSection('Project', '', () => {
-		A('div display:flex align-items:center gap:$2', () => {
-			drawSelector({
-				label: 'Project',
-				badge: () => sortedProjects().filter(([id]) => id !== pid && humanTasks(id)).length,
-				current: () => {
-					if ($p) A(`span ${ELLIPSIS} text=`, A.ref($p, 'name'));
-					else A('span fg:$s-muted #Add project…');
-				},
-				items: () => [
-					...sortedProjects().map(([id, $q]) => projectItem(id, $q)),
-					{ separator: true },
-					{ href: '/add', icon: plus, label: 'Add project', attrs: 'fg:$s-muted' },
-				],
-			});
-			if ($p) S.iconButton({ icon: settings, ariaLabel: 'Project settings', click: () => projectSettingsDialog(pid!, $p) });
-		});
-	});
+/** One crumb: a link to what it names, unless it is the page you are on. */
+function drawCrumb(href: string | undefined, content: () => void, badge?: () => number): void {
+	const attrs = `display:flex align-items:center gap:$1 min-width:0 ${ELLIPSIS}`;
+	const draw = () => {
+		content();
+		if (badge) A(() => drawBadge(badge()));
+	};
+	if (href) A('a', attrs, 'href=', href, draw);
+	else A('span', attrs, 'font-weight:700', draw);
 }
 
-function drawTaskSection(pid: string, $p: any, tid: string | undefined, base: boolean): void {
-	const $t = tid ? $p.tasks?.[tid] : undefined;
-	drawSection('Task', '', () => {
-		A('div display:flex align-items:center gap:$2', () => {
-			drawSelector({
-				label: 'Task',
-				badge: () => humanTasks(pid, tid),
-				current: () => {
-					if ($t) A(`span ${ELLIPSIS}`, () => A('text=', $t.title || '(untitled)'));
-					else if (base) drawBaseLabel($p);
-					else A('span fg:$s-muted font-style:italic #Task…');
-				},
-				items: () => [
-					{ href: pathTo(pid), label: 'Task…', attrs: 'fg:$s-muted font-style:italic' },
-					{ href: pathTo(pid, 'base'), icon: gitBranch, label: () => drawBaseLabel($p) },
-					{ separator: true },
-					...sortedTasks(pid).map(([id, $q]) => taskItem(pid, id, $q)),
-					{ separator: true },
-					{ icon: plus, label: 'Add task', attrs: 'fg:$s-muted', click: () => newTaskDialog(pid) },
-				],
-			});
-			if ($t) {
-				S.iconButton({
-					icon: () => drawTaskIcon(pid, $t), ariaLabel: 'Change phase',
-					click: e => void S.showFloatingMenu({ items: phaseItems(pid, tid!, $t), anchor: e.currentTarget as HTMLElement }),
-				});
-				S.iconButton({ icon: settings, ariaLabel: 'Task settings', click: () => taskSettingsDialog(pid, tid!, $t) });
-				A(() => { // its own scope: the CMD arriving must not redraw the section
-					if ($t.phase === 'plan') return;
-					S.iconButton({
-						icon: play, disabled: !$t.runCmd, click: () => runDialog(pid, tid!, $t),
-						ariaLabel: $t.runCmd ? 'Run the project' : 'Run: give Containerfile.dev a CMD line first',
-					});
-				});
-			}
-		});
-	});
-	// Its own scope: watching restarts the chat stream, so it must not be torn
-	// down and set up again every time the task changes phase.
-	A(() => {
-		if (!$t) return;
-		useTask(pid, tid!, $t);
-	});
-	A(() => {
-		if (!$t) return;
-		const plan = $t.phase === 'plan';
-		drawSection(plan ? 'Description' : 'Agent', 'flex:1 min-height:0', () => {
-			if (plan) drawPlan(pid, tid!, $t);
-			else drawAgent(pid, tid!, $t);
-		});
-	});
+function drawSeparator(): void {
+	A('span display:flex flex-shrink:0 fg:$s-muted', () => chevronRight({ size: '1em' }));
 }
 
 /** The base worktree, by the name of the branch it is on. */
@@ -148,32 +93,69 @@ function drawBaseLabel($p: any): void {
 	A('span', () => A('text=', `"${$p.defaultBranch ?? 'main'}" branch`));
 }
 
+/** Under the crumbs of a project: its checkout, its settings, and what stands in its way. */
+function drawProjectPanel(pid: string, $p: any): void {
+	A('div display:flex align-items:center gap:$2', () => {
+		S.button({
+			content: () => drawBaseLabel($p), icon: gitBranch, attrs: '.small .neutral',
+			click: () => void route.go(pathTo(pid, 'base')),
+		});
+		S.iconButton({ icon: settings, ariaLabel: 'Project settings', attrs: 'ml:auto', click: () => projectSettingsDialog(pid, $p) });
+	});
+	drawNotices(pid, $p);
+}
+
+/** Under the crumbs of a task: its settings while in Plan, else its controls and the chat. */
+function drawTaskPanel(pid: string, tid: string, $t: any): void {
+	// Its own scope: watching restarts the chat stream, so it must not be torn
+	// down and set up again every time the task changes phase.
+	A(() => useTask(pid, tid, $t));
+	A(() => {
+		if ($t.phase === 'plan') return drawPlanSettings(pid, tid, $t);
+		drawTaskControls(pid, tid, $t);
+		drawAgent(pid, tid, $t);
+	});
+}
+
+/** The phase, the settings and the run, as a row of icons; the description editor has no need of them. */
+function drawTaskControls(pid: string, tid: string, $t: any): void {
+	A('div display:flex align-items:center gap:$2', () => {
+		S.iconButton({
+			icon: () => drawTaskIcon(pid, $t), ariaLabel: 'Change phase',
+			click: e => void S.showFloatingMenu({ items: phaseItems(pid, tid, $t), anchor: e.currentTarget as HTMLElement }),
+		});
+		S.iconButton({ icon: settings, ariaLabel: 'Task settings', attrs: 'ml:auto', click: () => taskSettingsDialog(pid, tid, $t) });
+		A(() => { // its own scope: the CMD arriving must not redraw the row
+			S.iconButton({
+				icon: play, disabled: !$t.runCmd, click: () => runDialog(pid, tid, $t),
+				ariaLabel: $t.runCmd ? 'Run the project' : 'Run: give Containerfile.dev a CMD line first',
+			});
+		});
+	});
+}
+
 // --- the right column ---
 
 function drawRight(): void {
 	A(() => {
 		if (!$state.ready) { A('progress w:100%'); return; }
-		const { pid, tid, base } = selection();
-		if (!pid) return drawAddProject();
+		const { pid, tid, base, draft } = selection();
+		if (!pid) return drawProjectList();
 		const $p = $state.projects[pid];
 		if (!$p) {
 			S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' });
 			return;
 		}
 		if (base) return drawProjectCode(pid, $p);
+		// A task still in Plan (a draft is nothing else) has no workspace to
+		// show, so its description takes the column.
+		if (draft) return drawPlanEditor(pid, undefined, draftFor(pid));
 		const $t = tid ? $p.tasks?.[tid] : undefined;
-		// A task still in Plan has no workspace to show, so the board stays up.
-		if ($t && $t.phase !== 'plan') return drawTaskCode(pid, tid!, $t);
-		drawBoard(pid, $p);
+		if (!$t) return drawBoard(pid, $p);
+		if ($t.phase === 'plan') return drawPlanEditor(pid, tid!, $t);
+		drawTaskCode(pid, tid!, $t);
 	});
 }
-
-// '/' is the most relevant project; only with none listed does Add fill the column.
-A(() => {
-	if (!$state.ready || route.current.path !== '/') return;
-	const first = A.peek(() => sortedProjects()[0]);
-	if (first) route.current.path = pathTo(first[0]);
-});
 
 // --- the rest of the app ---
 

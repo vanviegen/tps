@@ -16,9 +16,12 @@ working; treat them as steering.
 Rules:
 - Do not commit, and never push, pull, fetch, merge, rebase or switch branches: TPS
   commits your working tree when the user merges the task. Read-only git is fine.
-- If the task involves serving something, listen on $PORT, and give Containerfile.dev a
-  CMD line that starts it: the user runs and previews the project from the dashboard
-  with that.
+- If the task involves serving something, listen on $PORT and on 0.0.0.0 (binding
+  localhost only would leave it unreachable: the container is a network namespace of
+  its own, and TPS forwards a host port into it). Give Containerfile.dev a CMD line
+  that starts it, and the user runs and previews the project from the dashboard with
+  that. Nothing is exposed beyond the machine: TPS publishes the port on the host's
+  loopback.
 - Your container is disposable: it is recreated after idle periods, and anything you
   install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
   create or edit /work/Containerfile.dev, the project's image definition, and end your
@@ -39,10 +42,6 @@ const reloadedPrompt = "The container has been recreated. Please continue."
 // fixImagePrompt is the request under fallbackPrompt when nothing else is pending.
 const fixImagePrompt = "Continue with the task where it left off."
 
-func initialPrompt(title, description string) string {
-	return "Work on this task:\n\n# " + title + "\n\n" + description
-}
-
 // fallbackPrompt wraps the request the agent is kicked with while the task
 // runs in the default image because its own Containerfile.dev is broken.
 func fallbackPrompt(err, request string) string {
@@ -55,6 +54,11 @@ what the project needs. Before anything else, fix Containerfile.dev and end your
 with 'reload', so the container is rebuilt from it. Only then take on the following.
 
 %s`, err, request)
+}
+
+func titlePrompt(description string) string {
+	return "Come up with a short, plain-text title (at most six words, no quotes or trailing " +
+		"punctuation) for a coding task with this description. Reply with only the title.\n\n" + description
 }
 
 func conflictPrompt(defaultBranch, message string) string {

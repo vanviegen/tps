@@ -205,8 +205,11 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	return nil
 }
 
-// CreateTask: tasks start empty; the task page is where they get their title.
-func (p *Project) CreateTask() (string, error) {
+// CreateTask writes a task down, description and settings and all. A task is
+// only created once there is something worth keeping: the dashboard drafts one
+// in the browser and sends it here when it is assigned, so a task the user
+// thought better of never reaches this file.
+func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	p.m.mu.Lock()
 	defer p.m.mu.Unlock()
 	tid := strconv.Itoa(p.info.NextTask)
@@ -215,6 +218,7 @@ func (p *Project) CreateTask() (string, error) {
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t
+	t.applyL(partial)
 	p.touchL()
 	p.m.saveL()
 	t.publishL()
