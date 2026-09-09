@@ -7,7 +7,7 @@ while true; do
   pid=
   npm run build
   if go build -o tps .; then
-    ./tps &
+    ./tps --no-open &
     pid=$!
   fi
   inotifywait -qq -e modify,create,delete,move --include '\.go$' $(go list -f '{{.Dir}}' ./...)
