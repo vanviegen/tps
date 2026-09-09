@@ -35,7 +35,9 @@ export function drawChat(pid: string, tid: string): void {
 	const $chat = chatLog(pid, tid);
 	// Content-sized grid rows: as flex or auto-row items, the one-liners (which
 	// clip their overflow) would be squashed to nothing once the log overflows.
-	const el = A('div flex:1 min-height:0 overflow-y:auto display:grid grid-auto-rows:max-content gap:$2', () => {
+	// The single column is capped at the space available, so nothing in the log
+	// can push the left column wider than it is.
+	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2', () => {
 		A.onEach($chat, ($e: any) => drawEntry($e));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
@@ -52,16 +54,27 @@ export function drawChat(pid: string, tid: string): void {
 /** A one-liner with more behind it: the whole row opens the detail dialog. */
 const openable = A.insertCss({ '&': 'cursor:pointer', '&:hover': 'fg:$s-text' });
 
+/**
+ * Rendered markdown, kept within the column: long words and URLs break, and
+ * what cannot break (code blocks, tables, images) scrolls or scales itself.
+ */
+const markdown = A.insertCss({
+	'&': 'min-width:0 overflow-wrap:anywhere',
+	pre: 'max-width:100% overflow-x:auto',
+	table: 'display:block max-width:100% overflow-x:auto',
+	img: 'max-width:100% height:auto',
+});
+
 function drawEntry($e: any): void {
 	const line = (draw: () => void, opens = false) =>
 		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', () => detailDialog($e), draw) : A(`small ${ELLIPSIS}`, draw);
 	const prefix = (text: string) => A('b fg:$s-accent text=', text);
 	switch ($e.k) {
 		case 'user':
-			A('div.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', 'html=', md.parse($e.text) as string);
+			A('div.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', markdown, 'html=', md.parse($e.text) as string);
 			break;
 		case 'text':
-			A('div', 'html=', md.parse($e.text) as string);
+			A('div', markdown, 'html=', md.parse($e.text) as string);
 			break;
 		case 'thinking':
 			line(() => {

@@ -75,7 +75,7 @@ function drawCrumbs(): void {
 
 /** One crumb: a link to what it names, unless it is the page you are on. */
 function drawCrumb(href: string | undefined, content: () => void, badge?: () => number): void {
-	const attrs = `display:flex align-items:center gap:$1 min-width:0 ${ELLIPSIS}`;
+	const attrs = `display:flex align-items:center gap:$1 min-width:0 text-decoration:none ${ELLIPSIS}`;
 	const draw = () => {
 		content();
 		if (badge) A(() => drawBadge(badge()));

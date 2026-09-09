@@ -248,7 +248,7 @@ export function drawPlanSettings(pid: string, tid: string | undefined, $t: any):
 	A(() => { $ready.value = !!($t.description ?? '').trim(); });
 	A('div display:flex gap:$2', () => {
 		const off = !$ready.value;
-		S.button({ content: 'Assign to agent', icon: bot, disabled: off, click: () => void assignTask(pid, tid, $t, 'agent') });
+		S.button({ content: 'Assign to agent', icon: bot, key: 'mod+enter', disabled: off, click: () => void assignTask(pid, tid, $t, 'agent') });
 		S.button({ content: 'Assign to human', icon: user, attrs: '.neutral', disabled: off, click: () => void assignTask(pid, tid, $t, 'human') });
 	});
 }
@@ -268,6 +268,9 @@ async function assignTask(pid: string, tid: string | undefined, $t: any, phase: 
 	// the agent is about to be handed whatever the server has.
 	if (!(await cmd('updateTask', { pid, tid, description: (A.peek($t, 'description') ?? '').trim() }))) return;
 	void cmd('moveTask', { pid, tid, phase });
+	// Handed off to the agent, there is nothing left to do here: the board is
+	// more use than watching the workspace come up in the right column.
+	if (phase === 'agent') route.go(pathTo(pid));
 }
 
 /**
