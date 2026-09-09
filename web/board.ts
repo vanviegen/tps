@@ -41,10 +41,16 @@ export function drawBoard(pid: string, $p: any): void {
 	});
 }
 
+// Browsers can fire a click on the card a drag started from once that drag
+// ends, which would open the task the user just dropped elsewhere. Any real
+// click starts with a pointerdown, so that is where the flag is cleared.
+let dragged = false;
+
 function drawCard(pid: string, tid: string, $t: any): void {
 	A('div draggable=true',
-		'dragstart=', (e: DragEvent) => e.dataTransfer?.setData('text/tps', tid),
-		'click=', () => void route.go(pathTo(pid, tid)),
+		'pointerdown=', () => { dragged = false; },
+		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', tid); },
+		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
 		() => {
 			S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
 				return [...phaseItems(pid, tid, $t), { separator: true },
