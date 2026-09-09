@@ -217,8 +217,13 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-p", fmt.Sprintf("127.0.0.1::%d", appPort),
 		"-w", "/work",
 	}
+	// The host's claude login is shared with every task, read-write. claude
+	// refreshes the OAuth tokens in that file in place, and a refresh revokes
+	// the old refresh token, so private copies would log each other out.
 	if creds := filepath.Join(home(), ".claude", ".credentials.json"); exists(creds) {
-		args = append(args, "-v", creds+":/tps-host-claude-credentials.json:ro")
+		// The mountpoint, made by us so it is ours; this also blanks any copy from before the file was shared.
+		_ = os.WriteFile(filepath.Join(o.claudeDir, ".credentials.json"), nil, 0o600)
+		args = append(args, "-v", creds+":/claude/.credentials.json")
 	}
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		args = append(args, "-e", "ANTHROPIC_API_KEY")
@@ -245,7 +250,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
 func containerConfig(image, toolbox string) string {
-	config, _ := json.Marshal([]any{7, image, filepath.Base(toolbox)})
+	config, _ := json.Marshal([]any{8, image, filepath.Base(toolbox)})
 	return string(config)
 }
 

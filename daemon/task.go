@@ -92,7 +92,8 @@ type Task struct {
 	sessionFlight *flight[*ChatSession]
 	sessionBudget *float64 // the budget setting the running claude was started under
 	upFlight      *flight[*Container]
-	lastTag       string
+	lastTag       string // image tag of the Containerfile the container was brought up for
+	imageErr      string // why the task runs in the default image instead; told to the agent on its next kick
 	stopping      bool
 	chatMu        sync.Mutex
 
@@ -153,6 +154,11 @@ func (t *Task) publishL() {
 		t.pubL("waiting", true)
 	} else {
 		t.pubL("waiting", nil)
+	}
+	if t.midRebase() {
+		t.pubL("rebasing", true)
+	} else {
+		t.pubL("rebasing", nil)
 	}
 	t.pubL("status", t.status)
 	t.pubL("statusDetail", t.statusDetail)
@@ -429,7 +435,9 @@ func (t *Task) kick(text string, fresh bool) {
 		t.unlock()
 		return
 	}
-	if t.info.Phase != PhaseMerge {
+	if t.midRebase() { // the agent's 'ready' then reruns the merge
+		t.setPhaseL(PhaseMerge)
+	} else if t.info.Phase != PhaseMerge {
 		t.setPhaseL(PhaseAgent)
 	}
 	// A running claude has its spending cap fixed at start; a changed budget needs a new process.
@@ -450,6 +458,12 @@ func (t *Task) kick(text string, fresh bool) {
 			t.unlock()
 			return
 		}
+		t.lock()
+		if t.imageErr != "" {
+			text = fallbackPrompt(t.imageErr, text)
+			t.imageErr = ""
+		}
+		t.unlock()
 		s.Send(text)
 		t.lock()
 		t.publishL()
@@ -501,6 +515,10 @@ func (t *Task) MoveTo(phase Phase) error {
 	case PhaseAgent:
 		if current == PhasePlan {
 			return t.Assign("agent")
+		}
+		if t.midRebase() {
+			t.kickRebase(false)
+			return nil
 		}
 		return t.SendChat("Please continue working on the task.")
 	case PhaseHuman:
@@ -575,7 +593,7 @@ func (t *Task) merge(repo, message string) error {
 				return fmt.Errorf("rebase onto %s failed", branch)
 			}
 			t.note(fmt.Sprintf("rebasing onto the latest %s hit conflicts; sending in a fresh agent to resolve them", branch))
-			t.kick(conflictPrompt(branch, message), true)
+			t.kickRebase(true)
 			return nil
 		}
 	}
@@ -594,6 +612,14 @@ func (t *Task) merge(repo, message string) error {
 	t.unlock()
 	go t.down()
 	return nil
+}
+
+// kickRebase sends the agent in to finish the rebase a merge got stuck in.
+func (t *Task) kickRebase(fresh bool) {
+	t.lock()
+	prompt := conflictPrompt(t.p.defaultBranch, t.info.CommitMessage)
+	t.unlock()
+	t.kick(prompt, fresh)
 }
 
 func (t *Task) midRebase() bool {
@@ -826,24 +852,62 @@ func (t *Task) doUp() (*Container, error) {
 	if err != nil {
 		return t.failUp(err)
 	}
-	if !imageExists(tag) {
-		t.note("building the dev container image; the first build takes a few minutes…")
+	c, err := t.start(cf, toolbox)
+	imageErr := ""
+	if err != nil && cf != defaultContainerfile {
+		// A broken Containerfile.dev (say, with conflict markers) must not lock
+		// the user and the agent out of the task: the default image lets them
+		// in to fix it. The tag stays that of the broken file, so the fallback
+		// is kept until the file changes.
+		t.note("the container from Containerfile.dev failed; using the default image until it is fixed", err.Error())
+		imageErr = err.Error()
+		cf = defaultContainerfile
+		c, err = t.start(cf, toolbox)
 	}
-	if err := buildImage(tag, cf, t.repoDir(), func(string) {}); err != nil {
-		return t.failUp(err)
-	}
-	t.lock()
-	t.setStatusL(StatusStarting, "starting container")
-	t.unlock()
-	c, err := ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir()})
 	if err != nil {
 		return t.failUp(err)
 	}
 	t.lock()
-	t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
+	t.container, t.lastTag, t.runCmd, t.imageErr = c, tag, containerfileCmd(cf), imageErr
 	t.setStatusL(StatusUp, "")
+	if imageErr != "" {
+		t.fixImageL()
+	}
 	t.unlock()
 	return c, nil
+}
+
+// fixImageL sends the agent in to repair Containerfile.dev, unless a kick is
+// underway already (it then carries the message, see kick). Mid-rebase, the
+// conflict resolution the merge was waiting for is resumed.
+func (t *Task) fixImageL() {
+	if t.sessionFlight != nil || t.info.Phase == PhaseDone {
+		return
+	}
+	rebase := t.midRebase()
+	go func() {
+		t.note("sending in the agent to fix Containerfile.dev")
+		if rebase {
+			t.kickRebase(true)
+		} else {
+			t.kick(fixImagePrompt, false)
+		}
+	}()
+}
+
+// start builds the image for this Containerfile (if needed) and starts the task's container from it.
+func (t *Task) start(cf, toolbox string) (*Container, error) {
+	tag := imageTag(cf)
+	if !imageExists(tag) {
+		t.note("building the dev container image; the first build takes a few minutes…")
+	}
+	if err := buildImage(tag, cf, t.repoDir(), func(string) {}); err != nil {
+		return nil, err
+	}
+	t.lock()
+	t.setStatusL(StatusStarting, "starting container")
+	t.unlock()
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir()})
 }
 
 func (t *Task) down() {
@@ -980,7 +1044,7 @@ func (t *Task) onTurnEnd(costDelta float64) {
 			if t.overBudgetL() {
 				t.noteBudgetL()
 			}
-			t.note("merge paused: send the agent back in to finish the rebase, or finish it in VS Code, then merge again")
+			t.note("merge paused: the rebase is unfinished")
 			t.setPhaseL(PhaseHuman)
 			t.unlock()
 			return

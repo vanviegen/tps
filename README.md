@@ -50,7 +50,10 @@ claude and an init are downloaded once per host and mounted into every
 container. Any base works, as long as it has bash and git, and a user with
 uid 1000 who owns a home directory. The agent knows about this: when it lacks
 a tool, it can write or extend `Containerfile.dev` and continue in a container
-built from it, and the file is merged along with the rest of its work.
+built from it, and the file is merged along with the rest of its work. Should
+the file ever break (a bad edit, a merge conflict), the task falls back to the
+default image so you and the agent can still get in, and the agent is told to
+fix it first.
 
 ## How a task flows
 
@@ -91,7 +94,8 @@ with.
    the default branch moved since the clone was made, the work is rebased onto
    it. Conflicts are handed to a fresh agent that resolves the rebase (guided
    by the commit messages on both sides), after which the merge completes; the
-   task stays in this column meanwhile.
+   task stays in this column meanwhile. If the agent gives up midway, the task
+   goes back to you with a warning; sending the agent back in resumes the rebase.
 5. **Done**: Merged. The workspace stays around until the task is deleted, so
    the chat can still be picked up, which reopens the task.
 

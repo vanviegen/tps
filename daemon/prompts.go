@@ -34,10 +34,27 @@ is a single word:
 - 'reload': you created or changed Containerfile.dev and need the container rebuilt
   from it; the conversation continues automatically in the new container.`
 
-const reloadedPrompt = "Now running in the updated container. Please continue."
+const reloadedPrompt = "The container has been recreated. Please continue."
+
+// fixImagePrompt is the request under fallbackPrompt when nothing else is pending.
+const fixImagePrompt = "Continue with the task where it left off."
 
 func initialPrompt(title, description string) string {
 	return "Work on this task:\n\n# " + title + "\n\n" + description
+}
+
+// fallbackPrompt wraps the request the agent is kicked with while the task
+// runs in the default image because its own Containerfile.dev is broken.
+func fallbackPrompt(err, request string) string {
+	return fmt.Sprintf(`Bringing up the container from /work/Containerfile.dev failed:
+
+%s
+
+You are running in the default image (/tps/Containerfile.dev) instead, which may lack
+what the project needs. Before anything else, fix Containerfile.dev and end your turn
+with 'reload', so the container is rebuilt from it. Only then take on the following.
+
+%s`, err, request)
 }
 
 func conflictPrompt(defaultBranch, message string) string {

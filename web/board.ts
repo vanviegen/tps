@@ -103,6 +103,7 @@ function drawCard(pid: string, tid: string, $t: any): void {
 					});
 					A(() => {
 						if ($t.waiting) A('small text=', '⏳ ' + taskActivity(pid, $t).text);
+						else if ($t.phase === 'human' && $t.rebasing) A('small fg:$s-warning #⚠ merge paused');
 						else if ($t.phase === 'human' && $t.commitMessage) A('small fg:$s-success #✔ ready to merge');
 					});
 				});

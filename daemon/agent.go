@@ -23,9 +23,6 @@ import (
 
 const startScript = `
 mkdir -p "$CLAUDE_CONFIG_DIR"
-if [ -f /tps-host-claude-credentials.json ] && [ ! -f "$CLAUDE_CONFIG_DIR/.credentials.json" ]; then
-	cp /tps-host-claude-credentials.json "$CLAUDE_CONFIG_DIR/.credentials.json" && chmod 600 "$CLAUDE_CONFIG_DIR/.credentials.json"
-fi
 echo $$ >/tmp/tps-agent.pid
 exec /tps/bin/claude -p --input-format stream-json --output-format stream-json --verbose \
 	--dangerously-skip-permissions --model "$TPS_MODEL" --append-system-prompt "$TPS_SYSTEM" \
@@ -282,7 +279,7 @@ func (s *ChatSession) onEvent(ev *event) {
 		if delta > 0 {
 			cost = fmt.Sprintf(" · $%.2f", delta)
 		}
-		if ev.IsError && ev.Subtype != "" {
+		if ev.IsError && ev.Subtype != "" && ev.Subtype != "success" { // an auth failure comes labeled 'success'
 			why = " (" + strings.ReplaceAll(strings.TrimPrefix(ev.Subtype, "error_"), "_", " ") + ")"
 		}
 		e := newEntry("result")

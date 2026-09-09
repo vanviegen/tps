@@ -202,11 +202,18 @@ export function drawPlan(pid: string, tid: string, $t: any): void {
 export function drawAgent(pid: string, tid: string, $t: any): void {
 	drawChat(pid, tid);
 	A(() => {
-		if ($t.phase !== 'human' || !$t.commitMessage) return;
-		A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
-			A('span flex:1 #✔ the agent reports this task ready to merge');
-			S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', click: () => mergeDialog(pid, tid, $t) });
-		});
+		if ($t.phase !== 'human') return;
+		if ($t.rebasing) {
+			A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
+				A('span flex:1 #⚠ merge paused: the rebase onto the latest default branch is unfinished. Send the agent back in, or finish it in VS Code and merge again.');
+				S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void cmd('moveTask', { pid, tid, phase: 'agent' }) });
+			});
+		} else if ($t.commitMessage) {
+			A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
+				A('span flex:1 #✔ the agent reports this task ready to merge');
+				S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', click: () => mergeDialog(pid, tid, $t) });
+			});
+		}
 	});
 	A(() => {
 		if (!$t.waiting && !['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
