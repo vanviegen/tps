@@ -429,7 +429,7 @@ export function drawTaskCode(pid: string, tid: string, $t: any): void {
 			}});
 		} else if ($t.status === 'up') {
 			// code-server's remote authority is the Host header, which the proxy passes on unchanged.
-			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`);
+			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, $t.codePort);
 		} else if ($t.status === 'error') {
 			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
 				A('p fg:$s-danger text=', `Workspace error: ${$t.statusDetail || 'unknown'}`);

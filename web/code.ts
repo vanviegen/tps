@@ -15,6 +15,8 @@ const TTL = 10 * 60_000;
 interface View {
 	key: string;
 	el: HTMLIFrameElement;
+	/** Which code-server the frame is talking to; a new one means reload. */
+	gen: unknown;
 	/** How many scopes are showing it, and when the last of them stopped. */
 	uses: number;
 	idle: number;
@@ -26,8 +28,16 @@ const overlay = document.createElement('div');
 overlay.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:calc(var(--leftw) + 1px);display:none';
 document.body.appendChild(overlay);
 
-/** Show VS Code at `src`, for as long as the calling reactive scope lives. */
-export function drawCode(key: string, src: string): void {
+/**
+ * Show VS Code at `src`, for as long as the calling reactive scope lives.
+ *
+ * `gen` identifies the code-server behind `src` — its port, which a restart
+ * changes. VS Code cannot reconnect across one (it puts up a modal asking to
+ * reload the window), so a frame left over from an older one is reloaded: while
+ * the workspace is still down that lands on the proxy's "not running" page,
+ * which retries by itself.
+ */
+export function drawCode(key: string, src: string, gen?: unknown): void {
 	let view = views.find(v => v.key === key);
 	if (!view) {
 		// Room first: the view unused for the longest goes.
@@ -42,7 +52,10 @@ export function drawCode(key: string, src: string): void {
 		el.src = src;
 		el.addEventListener('load', () => { el.focus(); shareKeys(el); });
 		overlay.appendChild(el);
-		views.push(view = { key, el, uses: 0, idle: 0 });
+		views.push(view = { key, el, gen, uses: 0, idle: 0 });
+	} else if (view.gen !== gen) {
+		view.gen = gen;
+		view.el.src = src;
 	}
 	const shown = view;
 	shown.uses++;

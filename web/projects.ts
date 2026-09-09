@@ -389,7 +389,7 @@ export function drawProjectCode(pid: string, $p: any): void {
 	A(() => {
 		if ($p.codePort) {
 			// code-server's remote authority is the Host header, which the proxy passes on unchanged.
-			drawCode(`${pid}/-`, `/code/${pid}/-/?folder=${encodeURIComponent($p.dir)}`);
+			drawCode(`${pid}/-`, `/code/${pid}/-/?folder=${encodeURIComponent($p.dir)}`, $p.codePort);
 			return;
 		}
 		S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
