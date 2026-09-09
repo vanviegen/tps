@@ -1,11 +1,11 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, chevronRight, settings } from 'staffa/icons.js';
+import { bot, chevronRight, code, settings } from 'staffa/icons.js';
 import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
 import { bindPalette } from './palette.ts';
-import { drawNotices, drawProjectChips, drawProjectCode, drawProjectList, projectDefaultsDialog, sortedProjects } from './projects.ts';
+import { drawNotices, drawProjectCode, drawProjectFacts, drawProjectList, projectDefaultsDialog, sortedProjects } from './projects.ts';
 import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, taskMenuItems, useTask } from './task.ts';
 import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } from './util.ts';
 
@@ -106,14 +106,20 @@ function drawBaseLabel($p: any): void {
 	A('span', () => A('text=', `"${$p.defaultBranch ?? 'main'}" branch`));
 }
 
-/** Under the crumbs of a project: where it stands, what stands in its way, and its defaults. */
+/** Under the crumbs of a project: where it stands, what stands in its way, and what to do with it. */
 function drawProjectPanel(pid: string, $p: any): void {
-	drawProjectChips(pid, $p);
+	drawProjectFacts($p);
 	drawNotices(pid, $p);
-	A('div display:flex', () => S.button({
-		content: 'Default task settings…', icon: settings, attrs: '.small .neutral',
-		click: () => projectDefaultsDialog(pid, $p),
-	}));
+	A('div display:flex flex-wrap:wrap gap:$2', () => {
+		S.button({
+			content: 'View code', icon: code, attrs: '.small .neutral',
+			click: () => void route.go(pathTo(pid, 'base')),
+		});
+		S.button({
+			content: 'Default task settings', icon: settings, attrs: '.small .neutral',
+			click: () => projectDefaultsDialog(pid, $p),
+		});
+	});
 }
 
 /** Under the crumbs of a task: its settings while in Plan, else the chat. */

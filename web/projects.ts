@@ -23,17 +23,6 @@ const linkButton = A.insertCss({
 	'&:hover': 'filter: brightness(1.15)',
 });
 
-// One fact about a project, in a shape that sits in a row of them.
-const chip = A.insertCss({
-	'&': 'display:inline-flex align-items:center gap:$1 font-size:0.85em line-height:1.7 ph:0.6em r:$s-radius border: 1px solid $s-faint; background: color-mix(in oklab, $s-bg, $s-text 6%); color:inherit text-decoration:none;',
-});
-
-// The chips that go somewhere, rather than only saying something.
-const chipLink = A.insertCss({
-	'&': 'cursor:pointer',
-	'&:hover': 'background: color-mix(in oklab, $s-bg, $s-text 14%);',
-});
-
 /** The projects on one host, by name. */
 function projectsOn(hid: string): [string, any][] {
 	return (Object.entries($state.projects ?? {}) as [string, any][])
@@ -106,10 +95,15 @@ function drawHostBox(hid: string, $h: any): void {
 /** The host's state at a glance: a dot in its header, colored by what it is doing. */
 function drawHostDot($h: any): void {
 	const status = $h.status ?? 'connecting';
-	const color = status === 'connected' ? (($h.warning || $h.updatable) ? 'warning' : 'success')
+	A(`span flex-shrink:0 w:0.6em h:0.6em r:50% bg:$s-${hostColor($h)}`, () => S.addTooltip({ tip: status + ($h.error ? ' · ' + $h.error : '') }));
+}
+
+/** What a host's state amounts to, as a colour role: connected and quiet is `success`. */
+function hostColor($h: any): string {
+	const status = $h?.status ?? 'connecting';
+	return status === 'connected' ? (($h.warning || $h.updatable) ? 'warning' : 'success')
 		: status === 'connecting' || status === 'updating' ? 'warning'
 			: status === 'stopped' ? 'muted' : 'danger';
-	A(`span flex-shrink:0 w:0.6em h:0.6em r:50% bg:$s-${color}`, () => S.addTooltip({ tip: status + ($h.error ? ' · ' + $h.error : '') }));
 }
 
 /** Anything about the host that asks for a look, or a click. */
@@ -329,38 +323,47 @@ export function drawNotices(pid: string, $p: any): void {
 }
 
 /**
- * Where the project stands, as chips that wrap rather than widen the column:
- * the branch its checkout is on and what is in it (both a click away from
- * that checkout), then the machine and directory it lives on. Renaming and
- * removing it belong to its box on the front page.
+ * Where the project stands, as one wrapping line of plain facts: the branch of
+ * its checkout and what is uncommitted in it, then the machine and directory
+ * it lives on. Nothing here is a button — reading is all it is for, and colour
+ * is left to say what wants a second look. Renaming and removing the project
+ * belong to its box on the front page.
  */
-export function drawProjectChips(pid: string, $p: any): void {
-	A('div display:flex flex-wrap:wrap align-items:center gap:$1 min-width:0', () => {
-		A('a', chip, chipLink, 'href=', pathTo(pid, 'base'), () => {
-			S.addTooltip({ tip: 'Open this checkout in VS Code' });
+export function drawProjectFacts($p: any): void {
+	const facts: Array<() => void> = [
+		() => {
+			S.addTooltip({ tip: 'The branch task workspaces start from, and merge back into' });
 			gitBranch({ size: '1em' });
 			A('span', () => A('text=', $p.defaultBranch ?? 'main'));
-		});
-		// Its own scope: work appearing in the checkout must not redraw the row.
-		A(() => {
-			A('a', chip, chipLink, $p.dirty ? 'fg:$s-warning' : 'fg:$s-muted', 'href=', pathTo(pid, 'base'), () => {
+		},
+		// Its own scope: work appearing in the checkout must not redraw the line.
+		() => A(() => {
+			A(`span ${$p.dirty ? 'fg:$s-warning' : ''}`, () => {
 				S.addTooltip({ tip: $p.dirty ? 'Uncommitted work in the checkout' : 'Nothing uncommitted in the checkout' });
-				A('span text=', $p.git ?? '');
+				A('text=', $p.git ?? '');
 			});
-		});
-		A(() => {
+		}),
+		() => A(() => {
 			const $h = $state.hosts?.[$p.host];
-			A('span', chip, () => {
+			// A host that is simply up says so by not standing out.
+			const color = hostColor($h);
+			A(`span display:inline-flex align-items:center gap:0.35em ${color === 'success' ? '' : `fg:$s-${color}`}`, () => {
 				S.addTooltip({ tip: `${$p.host === 'local' ? 'This machine' : $h?.dest ?? $p.host} · ${$h?.status ?? 'unknown'}` });
 				($p.host === 'local' ? monitor : server)({ size: '1em' });
 				A('span text=', hostName($p.host));
 			});
-		});
-		// The directory is the one that may not fit, so it is the one to be cut off.
-		A(`span min-width:0 ${ELLIPSIS}`, chip, () => {
+		}),
+		// The directory is the one that may not fit, so it is the one cut off.
+		() => {
 			S.addTooltip({ tip: () => A('text=', $p.dir) });
 			folder({ size: '1em' });
 			A(`span ${ELLIPSIS}`, () => A('text=', shortDir($p.host, $p.dir)));
+		},
+	];
+	A('div display:flex flex-wrap:wrap align-items:center gap:$1 min-width:0 font-size:0.9em fg:$s-muted', () => {
+		facts.forEach((fact, i) => {
+			if (i) A('span flex-shrink:0 fg:$s-faint aria-hidden=true #·');
+			A('span display:inline-flex align-items:center gap:0.35em min-width:0', fact);
 		});
 	});
 }
