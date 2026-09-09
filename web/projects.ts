@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { download, ellipsisVertical, keyRound, monitor, pencil, plug, plus, power, server, trash2 } from 'staffa/icons.js';
+import { download, ellipsisVertical, folder, gitBranch, keyRound, monitor, pencil, plug, plus, power, server, trash2 } from 'staffa/icons.js';
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
 import { drawTaskFields, humanTasks } from './task.ts';
@@ -21,6 +21,17 @@ export function sortedProjects(): [string, any][] {
 const linkButton = A.insertCss({
 	'&': 'display:inline-flex align-items:center gap:$1 cursor:pointer bg:transparent border:none p:0 font:inherit color: $s-link-fg; text-decoration:underline text-underline-offset:2px;',
 	'&:hover': 'filter: brightness(1.15)',
+});
+
+// One fact about a project, in a shape that sits in a row of them.
+const chip = A.insertCss({
+	'&': 'display:inline-flex align-items:center gap:$1 font-size:0.85em line-height:1.7 ph:0.6em r:$s-radius border: 1px solid $s-faint; background: color-mix(in oklab, $s-bg, $s-text 6%); color:inherit text-decoration:none;',
+});
+
+// The chips that go somewhere, rather than only saying something.
+const chipLink = A.insertCss({
+	'&': 'cursor:pointer',
+	'&:hover': 'background: color-mix(in oklab, $s-bg, $s-text 14%);',
 });
 
 /** The projects on one host, by name. */
@@ -318,21 +329,49 @@ export function drawNotices(pid: string, $p: any): void {
 }
 
 /**
- * The project in the left column: its name, what its tasks start out with,
- * the host it lives on, and the way to remove it. A project has no chat to
- * hold the space, so its settings are simply laid out there.
+ * Where the project stands, as chips that wrap rather than widen the column:
+ * the branch its checkout is on and what is in it (both a click away from
+ * that checkout), then the machine and directory it lives on. Renaming and
+ * removing it belong to its box on the front page.
  */
-export function drawProjectSettings(pid: string, $p: any): void {
-	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
-		S.textline({
-			label: 'Name', value: A.peek($p, 'name') ?? '',
-			change: (e: Event) => {
-				const name = (e.target as HTMLInputElement).value.trim();
-				if (name) void cmd('setProject', { pid, name });
-			},
+export function drawProjectChips(pid: string, $p: any): void {
+	A('div display:flex flex-wrap:wrap align-items:center gap:$1 min-width:0', () => {
+		A('a', chip, chipLink, 'href=', pathTo(pid, 'base'), () => {
+			S.addTooltip({ tip: 'Open this checkout in VS Code' });
+			gitBranch({ size: '1em' });
+			A('span', () => A('text=', $p.defaultBranch ?? 'main'));
 		});
-		A('h3 mt:$2 mb:0 font-size:1em #Default task settings');
-		A('div.s-help #Copied into every new task of this project; the tasks that exist keep what they have.');
+		// Its own scope: work appearing in the checkout must not redraw the row.
+		A(() => {
+			A('a', chip, chipLink, $p.dirty ? 'fg:$s-warning' : 'fg:$s-muted', 'href=', pathTo(pid, 'base'), () => {
+				S.addTooltip({ tip: $p.dirty ? 'Uncommitted work in the checkout' : 'Nothing uncommitted in the checkout' });
+				A('span text=', $p.git ?? '');
+			});
+		});
+		A(() => {
+			const $h = $state.hosts?.[$p.host];
+			A('span', chip, () => {
+				S.addTooltip({ tip: `${$p.host === 'local' ? 'This machine' : $h?.dest ?? $p.host} · ${$h?.status ?? 'unknown'}` });
+				($p.host === 'local' ? monitor : server)({ size: '1em' });
+				A('span text=', hostName($p.host));
+			});
+		});
+		// The directory is the one that may not fit, so it is the one to be cut off.
+		A(`span min-width:0 ${ELLIPSIS}`, chip, () => {
+			S.addTooltip({ tip: () => A('text=', $p.dir) });
+			folder({ size: '1em' });
+			A(`span ${ELLIPSIS}`, () => A('text=', shortDir($p.host, $p.dir)));
+		});
+	});
+}
+
+/**
+ * What the project's new tasks start out with. Rarely changed, so it waits
+ * behind a button instead of taking the column.
+ */
+export function projectDefaultsDialog(pid: string, $p: any): void {
+	void S.dialog({ header: 'Default task settings', attrs: 'w:36rem', content: () => {
+		A('p.s-help #Copied into every new task of this project; the tasks that exist keep what they have.');
 		A(() => {
 			// The defaults land with the project itself; each is patched on its
 			// own, so typing in one is not interrupted by another being saved.
@@ -340,21 +379,7 @@ export function drawProjectSettings(pid: string, $p: any): void {
 			if (!$d) return;
 			drawTaskFields(pid, undefined, $d, patch => void cmd('setProject', { pid, defaults: patch }));
 		});
-		// Where it lives, for reference: the host itself is managed from its
-		// column on the front page.
-		A('div.s-field mt:$2', () => {
-			A('label #Host');
-			A(() => {
-				const $h = $state.hosts?.[$p.host];
-				A('div text=', `${$p.host === 'local' ? 'This machine' : $h?.dest ?? $p.host} · ${$h?.status ?? 'unknown'}`);
-				A('div.s-help text=', shortDir($p.host, $p.dir));
-			});
-		});
-		A('div display:flex mt:$2', () => S.button({
-			content: 'Remove project', icon: trash2, attrs: '.small .danger .outlined',
-			click: () => void removeProject(pid, $p),
-		}));
-	});
+	}});
 }
 
 /** The right column for the base worktree: VS Code on the project's own checkout. */
