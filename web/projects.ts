@@ -1,37 +1,48 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { download, ellipsisVertical, folder, gitBranch, keyRound, monitor, pencil, plug, plus, power, server, trash2 } from 'staffa/icons.js';
+import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
+import { folder, gitBranch, keyRound, pencil, plus, trash2 } from 'staffa/icons.js';
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
+import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
 import { drawTaskFields, humanTasks } from './task.ts';
-import { cmd, ELLIPSIS, hostName, pathTo, PHASE_ICONS, PHASE_LABELS, PHASES, shortDir } from './util.ts';
+import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PHASE_ICONS, PHASE_LABELS, PHASES, shortDir } from './util.ts';
 
-/** Projects: the ones with a task waiting for a human first, then most recently active. */
-export function sortedProjects(): [string, any][] {
-	const projects = Object.entries($state.projects ?? {}) as [string, any][];
-	return projects.sort((a, b) =>
-		(humanTasks(b[0]) ? 1 : 0) - (humanTasks(a[0]) ? 1 : 0) ||
-		(b[1].activity ?? 0) - (a[1].activity ?? 0) ||
-		(a[1].name < b[1].name ? -1 : 1));
+/**
+ * Projects: the right column of the front page, one line per project. A task
+ * waiting for a human puts a project on top; after that, the one that moved
+ * last leads.
+ */
+
+/** Where a project sits in the list, as a sort key. */
+export function projectOrder(pid: string, $p: any): (number | string)[] {
+	return [humanTasks(pid) ? 0 : 1, -($p.activity ?? 0), ($p.name ?? '').toLowerCase()];
 }
 
-// A link that does something instead of going somewhere: a button, styled as
-// the link it reads as, so the keyboard reaches it like any other button.
-const linkButton = A.insertCss({
-	'&': 'display:inline-flex align-items:center gap:$1 cursor:pointer bg:transparent border:none p:0 font:inherit color: $s-link-fg; text-decoration:underline text-underline-offset:2px;',
-	'&:hover': 'filter: brightness(1.15)',
-});
+/** The projects in the order they are listed. */
+export function sortedProjects(): [string, any][] {
+	return (Object.entries($state.projects ?? {}) as [string, any][])
+		.sort((a, b) => compareKeys(projectOrder(a[0], a[1]), projectOrder(b[0], b[1])));
+}
+
+function compareKeys(a: (number | string)[], b: (number | string)[]): number {
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] < b[i]) return -1;
+		if (a[i] > b[i]) return 1;
+	}
+	return 0;
+}
 
 /** The projects on one host, by name. */
-function projectsOn(hid: string): [string, any][] {
+export function projectsOn(hid: string): [string, any][] {
 	return (Object.entries($state.projects ?? {}) as [string, any][])
 		.filter(([, $p]) => $p.host === hid)
 		.sort((a, b) => a[1].name.localeCompare(b[1].name));
 }
 
 /**
- * Remove a project from its host, once confirmed; used from its box and from
+ * Remove a project from its host, once confirmed; used from its row and from
  * its settings. The list belongs to the host, so this is not just a matter of
  * this dashboard: the tasks go with it, on every dashboard.
  */
@@ -50,109 +61,59 @@ async function renameProject(pid: string, $p: any): Promise<void> {
 	if (name?.trim()) void cmd('setProject', { pid, name: name.trim() });
 }
 
-/** The right column at "/": a column per host, holding the projects listed there. */
-export function drawProjectList(): void {
-	A('div display:grid gap:$3 align-items:start grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));', () => {
-		// This machine leads; the rest follow by name, and the way to add one closes the row.
-		A.onEach($state.hosts, ($h: any, hid: string) => drawHostBox(hid, $h), (_$h: any, hid: string) => hid === 'local' ? '' : '1' + hostName(hid).toLowerCase());
-		drawAddHost();
-	});
-}
+// Quiet lines on the page's own surface: hairlines between them, a muted
+// heading row, and the row under the pointer lit just enough to follow.
+const projectTable = A.insertCss({
+	'&': 'w:100% min-width:34rem table-layout:fixed border-collapse:collapse;',
+	'th': 'text-align:left font-weight:600 font-size:0.85em fg:$s-muted padding: $1 $2; border-bottom: 1px solid $s-faint;',
+	'td': `padding: $1 $2; border-bottom: 1px solid $s-faint; ${ELLIPSIS}`,
+	'tbody tr': 'cursor:pointer',
+	'tbody tr:hover': 'background: color-mix(in oklab, $s-text, transparent 92%);',
+});
 
-/** One host: what it is up to, its projects, and the way to add one there. */
-function drawHostBox(hid: string, $h: any): void {
-	A('div min-width:0', () => {
-		S.addContextMenu({ get items(): S.MenuEntry[] { return hostItems(hid, $h); } });
-		S.box({
-			attrs: 'min-width:0',
-			headerAttrs: 'display:flex align-items:center gap:$2 min-width:0',
-			contentAttrs: 'display:flex flex-direction:column gap:$2 p:$2',
-			header: () => {
-				A('span display:flex flex-shrink:0', () => (hid === 'local' ? monitor : server)({ size: '1.1em' }));
-				A(`span flex:1 ${ELLIPSIS} text=`, hostName(hid));
-				A(() => drawHostDot($h));
-				S.iconButton({
-					icon: ellipsisVertical, ariaLabel: 'Host menu', attrs: '.small',
-					click: e => void S.showFloatingMenu({ items: hostItems(hid, $h), anchor: e.currentTarget as HTMLElement }),
+/** The right column at "/": every project as a line, and the way to add one. */
+export function drawProjectTable(): void {
+	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
+		A('div display:flex align-items:center gap:$2 min-width:0', () => {
+			A('h2 flex:1 m:0 font-size:1em fg:$s-muted #Projects');
+			S.button({ content: 'Add project', icon: plus, attrs: '.small .neutral', click: () => addProjectDialog() });
+		});
+		A('div flex:1 min-height:0 overflow:auto', () => {
+			A(() => {
+				if (A.isEmpty($state.projects)) {
+					A('p fg:$s-muted rich=', 'No projects yet. *Add project* takes a directory holding a git repository, on any of the hosts beside this.');
+					return;
+				}
+				A('table', projectTable, () => {
+					A('thead tr', () => {
+						A('th #Project');
+						for (const phase of PHASES) {
+							// The icon is the column's name; the label it stands for is
+							// in the tooltip, and in what a screen reader announces.
+							A('th text-align:center w:2.6rem aria-label=', PHASE_LABELS[phase], () => {
+								S.addTooltip({ tip: `Tasks in ${PHASE_LABELS[phase]}` });
+								A('span display:inline-flex', () => PHASE_ICONS[phase]({ size: '1em' }));
+							});
+						}
+						A('th w:9rem #Host');
+						A('th #Path');
+					});
+					A('tbody', () => {
+						A.onEach($state.projects, ($p: any, pid: string) => drawProjectRow(pid, $p), projectOrderOf);
+					});
 				});
-			},
-			content: () => {
-				A(() => drawHostState(hid, $h));
-				A(() => {
-					const projects = projectsOn(hid);
-					if (!projects.length) A('small fg:$s-muted #No projects here yet.');
-					for (const [pid, $p] of projects) drawProjectBox(pid, $p);
-				});
-				A('button', linkButton, 'click=', () => addProjectDialog(hid), () => {
-					plus({ size: '1em' });
-					A('span#Add project');
-				});
-			},
+			});
 		});
 	});
 }
 
-/** The host's state at a glance: a dot in its header, colored by what it is doing. */
-function drawHostDot($h: any): void {
-	const status = $h.status ?? 'connecting';
-	A(`span flex-shrink:0 w:0.6em h:0.6em r:50% bg:$s-${hostColor($h)}`, () => S.addTooltip({ tip: status + ($h.error ? ' · ' + $h.error : '') }));
+function projectOrderOf($p: any, pid: string): (number | string)[] {
+	return projectOrder(pid, $p);
 }
 
-/** What a host's state amounts to, as a colour role: connected and quiet is `success`. */
-function hostColor($h: any): string {
-	const status = $h?.status ?? 'connecting';
-	return status === 'connected' ? (($h.warning || $h.updatable) ? 'warning' : 'success')
-		: status === 'connecting' || status === 'updating' ? 'warning'
-			: status === 'stopped' ? 'muted' : 'danger';
-}
-
-/** Anything about the host that asks for a look, or a click. */
-function drawHostState(hid: string, $h: any): void {
-	if ($h.status !== 'connected') {
-		const waiting = $h.status === 'connecting' || $h.status === 'updating';
-		drawStrip(waiting ? 'neutral' : $h.status === 'stopped' ? 'neutral' : 'danger',
-			`${$h.status}${$h.error ? ' · ' + $h.error : ''}`,
-			waiting ? undefined : () => S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid }) }));
-	} else if ($h.warning) {
-		drawStrip('warning', $h.warning);
-	} else if ($h.restarting) {
-		drawStrip('neutral', 'The daemon restarts into this build as soon as nothing is running.');
-	} else if ($h.updatable) {
-		drawStrip('neutral', 'The daemon runs another build of TPS.',
-			() => S.button({ content: 'Update', attrs: '.small', click: () => void cmd('updateDaemon', { hid }) }));
-	}
-}
-
-/** What the host's menu offers, from its header button and its context menu. */
-function hostItems(hid: string, $h: any): S.MenuEntry[] {
-	const items: S.MenuEntry[] = [{ label: 'Add project…', icon: plus, click: () => addProjectDialog(hid) }, { separator: true }];
-	if ($h.status !== 'connected') items.push({ label: 'Connect', icon: plug, click: () => void cmd('connectHost', { hid }) });
-	if ($h.updatable) items.push({ label: 'Update daemon', icon: download, click: () => void cmd('updateDaemon', { hid }) });
-	if (hid !== 'local') {
-		items.push({ label: 'Copy claude login to host', icon: keyRound, click: async () => {
-			if (await cmd('copyCredentials', { hid })) S.toast({ message: `Your claude login is now on ${hostName(hid)}`, type: 'success' });
-		}});
-	}
-	items.push({ label: 'Stop daemon', icon: power, click: async () => {
-		if (await S.confirm(`Stop the TPS daemon on ${hostName(hid)}? Its running workspaces are shut down; Connect starts it again.`)) void cmd('stopDaemon', { hid });
-	}});
-	if (hid !== 'local') {
-		items.push({ separator: true }, { label: 'Remove host', icon: trash2, click: () => void removeHost(hid) });
-	}
-	return items;
-}
-
-async function removeHost(hid: string): Promise<void> {
-	const projects = A.peek(() => projectsOn(hid).length);
-	const also = projects ? ` Its ${projects} project${projects > 1 ? 's' : ''} leave${projects > 1 ? '' : 's'} the list with it.` : '';
-	if (!(await S.confirm(`Remove "${A.peek(() => hostName(hid))}" from the list?${also} Nothing changes on the host itself: its daemon and tasks keep running, and come back when you add it again.`))) return;
-	void cmd('removeHost', { hid });
-}
-
-/** One project in its host's column: its name and where it lives, over its tasks. */
-function drawProjectBox(pid: string, $p: any): void {
-	// Its own context menu, which must not also open the host's.
-	A('div', 'contextmenu=', (e: Event) => e.stopPropagation(), () => {
+/** One project: its name, what its tasks are up to, and where it lives. */
+function drawProjectRow(pid: string, $p: any): void {
+	A('tr', () => {
 		S.addContextMenu({ link: pathTo(pid), get items(): S.MenuEntry[] {
 			return [
 				{ label: 'Rename…', icon: pencil, click: () => void renameProject(pid, $p) },
@@ -160,65 +121,89 @@ function drawProjectBox(pid: string, $p: any): void {
 				{ label: 'Remove project…', icon: trash2, click: () => void removeProject(pid, $p) },
 			];
 		}});
-		A('a display:block fg:$s-text text-decoration:none', 'href=', pathTo(pid), () => {
-			S.box({ attrs: 'cursor:pointer', contentAttrs: 'display:flex flex-direction:column gap:$1 min-width:0 p:$2', content: () => {
-				A('div display:flex align-items:baseline gap:$2 min-width:0', () => {
-					// The directory takes what the name leaves, and is cut off before it.
-					A(`span min-width:0 ${ELLIPSIS} font-weight:600 text=`, A.ref($p, 'name'));
-					// flex:1 gives it a zero base size, so it takes the space the
-					// name leaves and is the one to be cut off when there is none.
-					A(`small flex:1 min-width:0 ${ELLIPSIS} fg:$s-muted`, () => A('text=', shortDir($p.host, $p.dir)));
-					A(() => {
-						if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
-					});
+		// The whole line opens the project; the name is a real link, so it is
+		// also what the keyboard, the middle button and a copied address get.
+		A('click=', (e: MouseEvent) => {
+			if (!(e.target as HTMLElement).closest('a')) route.go(pathTo(pid));
+		});
+		A('td', () => {
+			A('div display:flex align-items:center gap:$2 min-width:0', () => {
+				A(`a ${ELLIPSIS} font-weight:600 fg:$s-text text-decoration:none`, 'href=', pathTo(pid), 'text=', A.ref($p, 'name'));
+				A(() => {
+					if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
 				});
-				A(() => drawPhaseCounts(pid));
-			}});
+			});
+		});
+		A(() => drawPhaseCounts(pid));
+		A('td', () => A(() => drawHostCell($p.host)));
+		A('td', () => {
+			S.addTooltip({ tip: () => A('text=', $p.dir) });
+			A('text=', shortDir($p.host, $p.dir));
 		});
 	});
 }
 
-/** What the project's tasks are up to: a phase icon per phase that has any, and how many. */
+/** A cell per phase, holding how many of the project's tasks are in it. */
 function drawPhaseCounts(pid: string): void {
 	const counts = {} as Record<string, number>;
 	for (const $t of Object.values($state.projects[pid]?.tasks ?? {}) as any[]) counts[$t.phase] = (counts[$t.phase] ?? 0) + 1;
-	A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
-		let any = false;
-		for (const phase of PHASES) {
-			const n = counts[phase];
-			if (!n) continue;
-			any = true;
-			const icon = PHASE_ICONS[phase];
-			// Waiting for a human is the one thing here worth looking at twice.
-			A(`span display:inline-flex align-items:center gap:0.25em fg:$s-${phase === 'human' ? 'warning' : 'muted'}`, () => {
-				S.addTooltip({ tip: `${n} task${n > 1 ? 's' : ''} in ${PHASE_LABELS[phase]}` });
-				icon({ size: '0.95em' });
-				A('small text=', String(n));
-			});
-		}
-		if (!any) A('small fg:$s-muted #No tasks yet');
+	for (const phase of PHASES) {
+		const n = counts[phase] ?? 0;
+		// Waiting for a human is the one thing here worth looking at twice.
+		A(`td text-align:center ${n && phase === 'human' ? 'fg:$s-warning font-weight:700' : n ? '' : 'fg:$s-faint'}`, () => {
+			if (n) S.addTooltip({ tip: `${n} task${n > 1 ? 's' : ''} in ${PHASE_LABELS[phase]}` });
+			A('text=', n ? String(n) : '·');
+		});
+	}
+}
+
+/** The machine a project lives on, saying by its colour whether it is up. */
+function drawHostCell(hid: string): void {
+	const $h = $state.hosts?.[hid];
+	const color = hostColor(hid, $h);
+	A(`div display:flex align-items:center gap:$1 min-width:0 ${color === 'success' ? '' : `fg:$s-${color}`}`, () => {
+		S.addTooltip({ tip: `${hid === 'local' ? 'This machine' : $h?.dest ?? hid} · ${$h?.status ?? 'unknown'}` });
+		A('span display:flex flex-shrink:0', () => hostIcon(hid)({ size: '1em' }));
+		A(`span ${ELLIPSIS} text=`, hostName(hid));
 	});
 }
 
 /**
- * Adding a project: a directory on the host whose column it was started from.
- * The name follows the directory as it is typed, until the name is typed in
- * itself — from then on it is the user's.
+ * Adding a project: a directory on the host picked here — the one whose menu
+ * this was started from, when it was. The name follows the directory as it is
+ * typed, until the name is typed in itself: from then on it is the user's.
  */
-function addProjectDialog(hid: string): void {
-	const $form = A.proxy({ dir: '', name: '' });
+export function addProjectDialog(hid?: string): void {
+	const $form = A.proxy({ host: hid ?? 'local', dir: '', name: '' });
+	const $busy = A.proxy({ adding: false });
 	let named = false; // the name is the user's own now
-	void S.dialog({ header: `Add project on ${hostName(hid)}`, attrs: 'w:32rem', content: close => {
+	let host = $form.host; // the last host that was really picked
+	void S.dialog({ header: 'Add project', attrs: 'w:32rem', content: close => {
 		S.form({
 			submit: async () => {
-				if (!$form.dir.trim()) return;
-				const result = await cmd('addProject', { hid, dir: $form.dir.trim(), name: $form.name.trim() });
+				if (!$form.dir.trim() || $form.host === ADD_HOST || $busy.adding) return;
+				$busy.adding = true;
+				const result = await cmd('addProject', { hid: $form.host, dir: $form.dir.trim(), name: $form.name.trim() });
+				$busy.adding = false;
 				if (!result) return;
 				close();
 				route.go(pathTo(result.pid));
 			},
 			content: () => {
-				A('p rich=', `A directory on ${hostName(hid)} holding a git repository. Work there goes on while this dashboard is closed.`);
+				A('p rich=', 'A directory holding a git repository, on one of your hosts. Work there goes on while this dashboard is closed.');
+				S.select({
+					label: 'Host', bind: A.ref($form, 'host'),
+					options: () => [
+						...sortedHosts().map(([id]) => ({ value: id, label: hostName(id) })),
+						{ value: ADD_HOST, label: 'Add host…' },
+					],
+				});
+				// "Add host…" is not a host but a detour: it opens that dialog at
+				// once, and whatever it adds takes its place in the list.
+				A(() => {
+					if ($form.host !== ADD_HOST) { host = $form.host; return; }
+					void addHostDialog().then(added => { $form.host = added ?? host; });
+				});
 				S.textline({
 					label: 'Directory', placeholder: '~/projects/app', required: true, bind: A.ref($form, 'dir'),
 					input: (e: Event) => {
@@ -229,11 +214,23 @@ function addProjectDialog(hid: string): void {
 					label: 'Name', help: 'What to call it in the list; the directory name by default.', bind: A.ref($form, 'name'),
 					input: () => { named = true; },
 				});
+				// Adding waits for the host to answer, and one being reached for the
+				// first time may want a login. That question waits in the host's box,
+				// which this dialog covers — so while we wait, it comes here instead.
+				A(() => {
+					if (!$busy.adding) return;
+					A('p.s-help #Waiting for the host…');
+					const ask = hostAsk($form.host);
+					if (ask) showAsk(ask[0]);
+				});
 			},
 			actions: () => S.button({ content: 'Add', icon: plus, type: 'submit' }),
 		});
 	}});
 }
+
+/** The value the host selector uses for its last entry; no host id can be it. */
+const ADD_HOST = '\x00add-host';
 
 /** The name a directory suggests: its last part, if that says anything. */
 function dirName(dir: string): string {
@@ -241,67 +238,20 @@ function dirName(dir: string): string {
 	return last === '~' || last === '.' || last === '..' ? '' : last;
 }
 
-// A column that is not a host yet: it keeps a host's shape, quietly, until
-// pointed at.
-const addHostColumn = A.insertCss({
-	'&': 'cursor:pointer opacity:0.6 transition: opacity 0.12s;',
-	'&:hover, &:focus-visible': 'opacity:1',
-});
-
-/** The last column: the way to add a host, shaped like the ones it stands next to. */
-function drawAddHost(): void {
-	A('div min-width:0 role=button tabindex=0', addHostColumn,
-		'click=', addHostDialog,
-		'keydown=', (e: KeyboardEvent) => {
-			if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addHostDialog(); }
-		},
-		() => {
-			S.box({
-				attrs: '.no-shadow',
-				headerAttrs: 'display:flex align-items:center gap:$2 min-width:0',
-				contentAttrs: 'p:$2',
-				header: () => {
-					A('span display:flex flex-shrink:0', () => plus({ size: '1.1em' }));
-					A(`span flex:1 ${ELLIPSIS} #Add host`);
-				},
-				content: () => A('small fg:$s-muted #Another machine to run projects on, over SSH.'),
-			});
-		});
-}
-
-/** Adding a host: an ssh destination. Connecting to it happens in its column. */
-function addHostDialog(): void {
-	const $form = A.proxy({ dest: '' });
-	void S.dialog({ header: 'Add host', attrs: 'w:32rem', content: close => {
-		S.form({
-			submit: async () => {
-				if (!$form.dest.trim()) return;
-				if (!(await cmd('addHost', { dest: $form.dest.trim() }))) return;
-				close();
-			},
-			content: () => {
-				A('p rich=', 'A host you reach over SSH: `user@host`, or an alias from `~/.ssh/config` (options like `-p 2222` go in front). TPS installs its daemon there and adopts the projects it already has.');
-				S.textline({ label: 'Host', placeholder: 'user@host', required: true, bind: A.ref($form, 'dest') });
-			},
-			actions: () => S.button({ content: 'Add', icon: plus, type: 'submit' }),
-		});
-	}});
-}
-
-/** A line about something that wants attention, with what to do about it beside it. */
-function drawStrip(color: string, text: string, action?: () => void): void {
-	A(`div.s-s.${color}.tonal p:$2 r:$s-radius-sm display:flex flex-wrap:wrap align-items:center gap:$2`, () => {
-		A('span flex:1 rich=', text);
-		action?.();
-	});
-}
-
 /** A strip per thing worth knowing: the host's state, the project, its checkout. */
 export function drawNotices(pid: string, $p: any): void {
 	A(() => {
 		const $h = $state.hosts?.[$p.host];
 		if (!$h) return;
-		if ($h.status !== 'connected') {
+		// A login the host is waiting for is shown wherever the host is: the
+		// front page has its box, and here it is the reason nothing happens.
+		const ask = hostAsk($p.host);
+		if (ask) {
+			drawStrip('warning', `${$h.name}: ${askSummary(ask[1])}`, () => {
+				keyRound({ size: '1em' });
+				A('span font-weight:600 text=', askLabel(ask[1]));
+			}, () => showAsk(ask[0]));
+		} else if ($h.status !== 'connected') {
 			drawStrip('danger', `${$h.name}: ${$h.status}${$h.error ? ' · ' + $h.error : ''}`,
 				() => S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid: $p.host }) }));
 		} else if ($p.error) {
@@ -327,7 +277,7 @@ export function drawNotices(pid: string, $p: any): void {
  * its checkout and what is uncommitted in it, then the machine and directory
  * it lives on. Nothing here is a button — reading is all it is for, and colour
  * is left to say what wants a second look. Renaming and removing the project
- * belong to its box on the front page.
+ * belong to its line on the front page.
  */
 export function drawProjectFacts($p: any): void {
 	const facts: Array<() => void> = [
@@ -343,16 +293,7 @@ export function drawProjectFacts($p: any): void {
 				A('text=', $p.git ?? '');
 			});
 		}),
-		() => A(() => {
-			const $h = $state.hosts?.[$p.host];
-			// A host that is simply up says so by not standing out.
-			const color = hostColor($h);
-			A(`span display:inline-flex align-items:center gap:0.35em ${color === 'success' ? '' : `fg:$s-${color}`}`, () => {
-				S.addTooltip({ tip: `${$p.host === 'local' ? 'This machine' : $h?.dest ?? $p.host} · ${$h?.status ?? 'unknown'}` });
-				($p.host === 'local' ? monitor : server)({ size: '1em' });
-				A('span text=', hostName($p.host));
-			});
-		}),
+		() => A(() => drawHostCell($p.host)),
 		// The directory is the one that may not fit, so it is the one cut off.
 		() => {
 			S.addTooltip({ tip: () => A('text=', $p.dir) });

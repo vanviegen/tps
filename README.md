@@ -37,16 +37,25 @@ CGO_ENABLED=0 go build -o tps .    # embeds it; one static binary is all you nee
 ./tps                              # http://localhost:4820/, opens your browser
 ```
 
-The front page is a column per host — this machine first — holding the
-projects listed there, each with its directory and a count of its tasks per
-phase. *Add project* in a host's column takes a directory holding a git
-repository on it, like `~/projects/app`, and names the project after the
-directory unless you say otherwise. The last column, *Add host*, takes
-whatever you would type after `ssh`: `user@host`, a `~/.ssh/config` alias, or
-`-p 2222 -J jump host`. TPS uses your ssh, so keys, agents, an open
-multiplexed session and passwords all work; prompts appear in the browser. A
-new host gets the daemon installed and started, and the projects it already
-has are listed along with it.
+The front page holds the hosts on the left and the projects on the right. Each
+host is a box outlined in what it is doing — up, busy, stopped, in trouble —
+saying where it is, how much of the board lives there, and anything it wants
+from you. The projects are one line each: name, how many tasks sit in every
+phase (the ones waiting for you in warning colour), host and directory. A
+project with a task waiting for you comes first, then the one that moved most
+recently.
+
+*Add project* takes a directory holding a git repository, like
+`~/projects/app`, on the host you pick there, and names the project after the
+directory unless you say otherwise. *Add host* takes whatever you would type
+after `ssh`: `user@host`, a `~/.ssh/config` alias, or `-p 2222 -J jump host`
+— it is also the last entry of the project dialog's host list, for a project
+on a machine that is not on the board yet. TPS uses your ssh, so keys, agents,
+an open multiplexed session and passwords all work. A login it wants (a
+password, an unknown host key) waits in that host's box rather than taking
+over the screen: click it when you are ready. A new host gets the daemon
+installed and started, and the projects it already has are listed along with
+it.
 
 Right-click a project or a host (or use the ⋮ in a host's header) for what can
 be done with it: renaming, connecting, copying your claude login to a host,

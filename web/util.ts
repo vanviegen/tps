@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, check, circle, gitMerge, globe, hourglass, listTodo, loaderCircle, user } from 'staffa/icons.js';
+import { bot, check, circle, gitMerge, globe, hourglass, listTodo, loaderCircle, monitor, server, user } from 'staffa/icons.js';
 import { $state, send } from './conn.ts';
 
 export const PHASES = ['plan', 'agent', 'human', 'merge', 'done'] as const;
@@ -15,6 +15,32 @@ export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: b
 
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
+
+// A strip that is a button all over: it lights up like one under the pointer.
+const clickableStrip = A.insertCss({
+	'&': 'cursor:pointer transition: filter 0.12s;',
+	'&:hover, &:focus-visible': 'filter: brightness(1.25)',
+});
+
+/**
+ * A line about something that wants attention, with what to do about it beside
+ * it. Give `click` and the strip is the button itself, for the cases where the
+ * whole line means one thing — a login waiting to be given.
+ */
+export function drawStrip(color: string, text: string, action?: () => void, click?: () => void): void {
+	A(`div.s-s.${color}.tonal p:$2 r:$s-radius-sm display:flex flex-wrap:wrap align-items:center gap:$2`,
+		click ? clickableStrip : null, () => {
+			if (click) {
+				A('role=button tabindex=0 click=', click, 'keydown=', (e: KeyboardEvent) => {
+					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); click(); }
+				});
+			}
+			// Whatever the server says may hold something unbreakable (an ssh
+			// fingerprint): let it break rather than push what follows off the box.
+			A('span flex:1 min-width:0 overflow-wrap:anywhere rich=', text);
+			action?.();
+		});
+}
 
 A.insertGlobalCss({ '@keyframes spin': { to: 'transform:rotate(360deg)' } });
 
@@ -54,6 +80,11 @@ export function autoStarts($t: any): boolean {
 export function waitingFor(pid: string, $t: any): string[] {
 	const $tasks = $state.projects[pid]?.tasks ?? {};
 	return ($t.startAfter ?? []).filter((d: string) => $tasks[d] && $tasks[d].phase !== 'done');
+}
+
+/** The icon a host goes by: this machine, or another one. */
+export function hostIcon(hid: string): typeof monitor {
+	return hid === 'local' ? monitor : server;
 }
 
 /** A host's name as shown to the user. */

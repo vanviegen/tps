@@ -82,7 +82,7 @@ func (s *askpassServer) answer(u *UI, req AskpassRequest) AskpassReply {
 	}
 	prompt := strings.TrimSpace(req.Prompt)
 	if strings.Contains(prompt, "(yes/no") { // host key confirmation
-		if _, err := u.Ask("Unknown host "+dest, prompt, "confirm"); err != nil {
+		if _, err := u.Ask(req.Host, "Unknown host "+dest, prompt, "confirm"); err != nil {
 			return AskpassReply{Cancel: true}
 		}
 		return AskpassReply{Answer: "yes"}
@@ -101,7 +101,7 @@ func (s *askpassServer) answer(u *UI, req AskpassRequest) AskpassReply {
 	if !first {
 		text = "That did not work. " + prompt
 	}
-	answer, err := u.Ask("SSH login to "+dest, text, "password")
+	answer, err := u.Ask(req.Host, "SSH login to "+dest, text, "password")
 	if err != nil {
 		return AskpassReply{Cancel: true}
 	}

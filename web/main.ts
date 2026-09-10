@@ -2,12 +2,14 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { bot, chevronRight, code, settings } from 'staffa/icons.js';
+import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
+import { drawHostList } from './hosts.ts';
 import { bindPalette } from './palette.ts';
-import { drawNotices, drawProjectCode, drawProjectFacts, drawProjectList, projectDefaultsDialog, sortedProjects } from './projects.ts';
+import { drawNotices, drawProjectCode, drawProjectFacts, drawProjectTable, projectDefaultsDialog, sortedProjects } from './projects.ts';
 import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, taskMenuItems, useTask } from './task.ts';
-import { cmd, drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } from './util.ts';
+import { drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -34,7 +36,8 @@ function drawSidebar(): void {
 	A(() => {
 		const { pid, tid, draft } = selection();
 		const $p = pid ? $state.projects[pid] : undefined;
-		if (!pid || !$p) return; // at the root, the project list in the right column is all there is
+		// At the root the hosts take this column, with the projects beside them.
+		if (!pid || !$p) return drawHostList();
 		if (draft) return drawPlanSettings(pid, undefined, draftFor(pid));
 		const $t = tid ? $p.tasks?.[tid] : undefined;
 		if ($t) drawTaskPanel(pid, tid!, $t);
@@ -139,7 +142,7 @@ function drawRight(): void {
 	A(() => {
 		if (!$state.ready) { A('progress w:100%'); return; }
 		const { pid, tid, base, draft } = selection();
-		if (!pid) return drawProjectList();
+		if (!pid) return drawProjectTable();
 		const $p = $state.projects[pid];
 		if (!$p) {
 			S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' });
@@ -162,30 +165,13 @@ A(() => {
 	if (!$state.connected) A.clean(S.toast({ message: 'Reconnecting to the TPS server…', type: 'danger', duration: 0, dismissible: false }));
 });
 
-// Questions from the server (SSH logins, host keys) show up as a dialog; the
-// answer goes back as a command, and the question disappears once handled.
+// Questions from the server (SSH logins, host keys) wait in the box of the
+// host they are about, so they don't interrupt. One about a host that is not
+// on the board has nowhere to wait, and opens by itself after all.
 A(() => {
-	const ids = Object.keys($state.ask ?? {});
-	if (!ids.length) return;
-	const id = ids[0];
-	const ask = A.peek(() => ({ ...$state.ask[id] }));
-	const $form = A.proxy({ value: '' });
-	let answered = false;
-	const answer = (args: object) => {
-		if (answered) return;
-		answered = true;
-		void cmd('answer', { id: Number(id), ...args });
-	};
-	void S.dialog({ header: ask.title, content: () => {
-		S.form({
-			submit: () => answer({ value: $form.value }),
-			content: () => {
-				A('p white-space:pre-wrap text=', ask.text);
-				if (ask.kind !== 'confirm') S.textline({ type: ask.kind === 'password' ? 'password' : 'text', bind: A.ref($form, 'value') });
-			},
-			actions: () => S.button({ content: ask.kind === 'confirm' ? 'Connect' : 'OK', type: 'submit' }),
-		});
-	}}).then(() => answer({ cancel: true })); // closed without answering
+	for (const [id, $a] of Object.entries($state.ask ?? {}) as [string, any][]) {
+		if (!$a.host || !$state.hosts?.[$a.host]) showAsk(id);
+	}
 });
 
 // Keep the computer awake while any agent is working.
