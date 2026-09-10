@@ -23,6 +23,7 @@ import (
 
 const startScript = `
 mkdir -p "$CLAUDE_CONFIG_DIR"
+export PATH=/tps/bin:$PATH
 echo $$ >/tmp/tps-agent.pid
 exec /tps/bin/claude -p --input-format stream-json --output-format stream-json --verbose \
 	--dangerously-skip-permissions ${TPS_MODEL:+--model "$TPS_MODEL"} --append-system-prompt "$TPS_SYSTEM" \

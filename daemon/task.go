@@ -788,6 +788,9 @@ func (t *Task) adoptL() {
 	cf := t.containerfile()
 	tag := imageTag(cf)
 	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir())); c != nil {
+		if _, err := nestFor(t.containerName(), nestDir(t.dir())); err != nil {
+			logf("%s: docker socket: %v", t.key(), err)
+		}
 		t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
 		t.status = StatusUp
 	}
@@ -799,6 +802,7 @@ func (t *Task) Discard() error {
 	_ = t.StopAgent()
 	t.down()
 	rmContainer(t.containerName()) // also one the daemon never knew about
+	nestPurge(t.containerName(), nestDir(t.dir()))
 	if err := os.RemoveAll(t.dir()); err != nil {
 		return err
 	}
@@ -818,6 +822,7 @@ func (t *Task) Delete() error {
 	_ = t.StopAgent()
 	t.down()
 	rmContainer(t.containerName())
+	nestPurge(t.containerName(), nestDir(t.dir()))
 	if err := os.RemoveAll(t.dir()); err != nil {
 		return err
 	}
@@ -1079,7 +1084,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	t.lock()
 	t.setStatusL(StatusStarting, "starting container")
 	t.unlock()
-	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir()})
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), nestDir: nestDir(t.dir())})
 }
 
 func (t *Task) down() {

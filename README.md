@@ -22,6 +22,8 @@ a desktop) can use the same daemon at once, and all show the same projects.
 - On every host that runs projects: Linux with rootless podman and git, and
   the `claude` CLI logged in there (or `ANTHROPIC_API_KEY` in the daemon's
   environment). The dashboard can copy your local claude login to a host.
+  Podman 4 or later: its API service is used for the docker socket tasks get
+  (your `podman.socket` if systemd runs one, else one the daemon starts).
 - For hosts you reach over SSH: lingering enabled for your user
   (`loginctl enable-linger`), so containers and the daemon outlive your login.
   TPS warns when it is off.
@@ -63,6 +65,14 @@ built from it, and the file is merged along with the rest of its work. Should
 the file ever break (a bad edit, a merge conflict), the task falls back to the
 default image so you and the agent can still get in, and the agent is told to
 fix it first.
+
+A task can run containers of its own: `docker` and `docker compose` in the
+container talk to a socket TPS serves, backed by the host's podman and held
+to what the task may have (see `podnester/`, a library of its own). What it
+starts are siblings of its container on a private network, named and labeled
+after it, gone when its container is recreated; named volumes stay until the
+task is deleted. Bind mounts and published ports mean what they would inside
+the task's container.
 
 ## How a task flows
 

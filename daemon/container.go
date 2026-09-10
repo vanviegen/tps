@@ -188,12 +188,18 @@ type Container struct {
 
 type containerOpts struct {
 	name, image, toolbox, repoDir, claudeDir string
+	nestDir                                  string // the task's control directory for its docker socket, see nest.go
 }
 
 // ensureContainer makes sure a container by this name, based on this image
 // and toolbox, is running with the task's repo clone mounted at /work and its
 // claude state dir at /claude. Reuses a running match; otherwise replaces.
 func ensureContainer(o containerOpts) (*Container, error) {
+	// The socket for sub-containers is served before the container starts, and a container found running gets it too.
+	nest, err := nestFor(o.name, o.nestDir)
+	if err != nil {
+		return nil, err
+	}
 	config := containerConfig(o.image, o.toolbox)
 	if c := runningContainer(o.name, config); c != nil {
 		return c, nil
@@ -203,12 +209,22 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := nest.EnsureNetwork(context.Background()); err != nil {
+		return nil, fmt.Errorf("creating the task's network: %w", err)
+	}
 	args := []string{
 		"run", "-d", "--name", o.name, "--label", "tps.config=" + config,
 		"--userns=keep-id:uid=1000,gid=1000", "--user", "1000:1000",
 		// SELinux separation is off so the mounts stay usable without
 		// relabeling the user's real files.
 		"--security-opt", "label=disable",
+		// The task's own network, which its sub-containers join (see nest.go), and the socket they are made through.
+		"--network", nest.Network(),
+		"-v", o.nestDir + ":" + nestMount,
+		"-e", "DOCKER_HOST=unix://" + nest.SocketMount(),
+		"-e", "CONTAINER_HOST=unix://" + nest.SocketMount(),
+		"-e", "DOCKER_BUILDKIT=0", // podman builds without buildkit
+		"-e", "DOCKER_CONFIG=/tps/docker", // where compose is, as a cli plugin
 		"-v", o.toolbox + ":/tps:ro",
 		"-v", o.repoDir + ":/work",
 		"-v", o.claudeDir + ":/claude",
@@ -253,7 +269,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
 func containerConfig(image, toolbox string) string {
-	config, _ := json.Marshal([]any{8, image, filepath.Base(toolbox)})
+	config, _ := json.Marshal([]any{9, image, filepath.Base(toolbox)})
 	return string(config)
 }
 
@@ -306,4 +322,7 @@ func (c *Container) Exec(script string) error {
 	return exec.CommandContext(context.Background(), "podman", "exec", c.Name, "bash", "-lc", script).Run()
 }
 
-func (c *Container) Rm() { rmContainer(c.Name) }
+func (c *Container) Rm() {
+	nestDown(c.Name)
+	rmContainer(c.Name)
+}

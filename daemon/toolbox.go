@@ -13,18 +13,22 @@ import (
 	"sync"
 )
 
-// The toolbox: code-server, claude and a tiny init, downloaded once per host
-// and mounted read-only into every task container at /tps. Images stay free
-// of anything TPS-specific, and updating the tools (bump the versions here)
-// never needs an image rebuild. Layout: bin/{code-server,claude,tini} and the
-// code-server release under code-server/.
+// The toolbox: code-server, claude, docker (with compose) and a tiny init,
+// downloaded once per host and mounted read-only into every task container
+// at /tps. Images stay free of anything TPS-specific, and updating the tools
+// (bump the versions here) never needs an image rebuild. Layout:
+// bin/{code-server,claude,docker,tini}, the code-server release under
+// code-server/, and docker/cli-plugins/docker-compose (docker/ is the
+// container's DOCKER_CONFIG, which is where the cli looks for plugins).
 const (
 	codeServerVersion = "4.135.0"
 	claudeVersion     = "2.1.263"
 	tiniVersion       = "0.19.0"
+	dockerVersion     = "27.5.1"
+	composeVersion    = "2.32.4"
 )
 
-var toolboxKey = "code-server-" + codeServerVersion + "_claude-" + claudeVersion + "_tini-" + tiniVersion
+var toolboxKey = "code-server-" + codeServerVersion + "_claude-" + claudeVersion + "_tini-" + tiniVersion + "_docker-" + dockerVersion + "_compose-" + composeVersion
 
 func toolboxRoot() string    { return filepath.Join(home(), ".local", "share", "tps", "toolbox") }
 func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey) }
@@ -93,7 +97,43 @@ func downloadToolbox(dir string) error {
 			return err
 		}
 	}
+	dockerArch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[arch]
+	if err := fetch("https://download.docker.com/linux/static/stable/"+dockerArch+"/docker-"+dockerVersion+".tgz", func(r io.Reader) error {
+		return untarMember(r, "docker/docker", filepath.Join(bin, "docker"))
+	}); err != nil {
+		return err
+	}
+	if err := fetch("https://github.com/docker/compose/releases/download/v"+composeVersion+"/docker-compose-linux-"+dockerArch, func(r io.Reader) error {
+		plugins := filepath.Join(dir, "docker", "cli-plugins")
+		if err := os.MkdirAll(plugins, 0o755); err != nil {
+			return err
+		}
+		return writeFile(filepath.Join(plugins, "docker-compose"), r, 0o755)
+	}); err != nil {
+		return err
+	}
 	return os.Symlink("../code-server/bin/code-server", filepath.Join(bin, "code-server"))
+}
+
+// untarMember extracts one file of a .tar.gz stream to path.
+func untarMember(r io.Reader, member, path string) error {
+	gz, err := gzip.NewReader(r)
+	if err != nil {
+		return err
+	}
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return fmt.Errorf("%s not in the archive", member)
+		}
+		if err != nil {
+			return err
+		}
+		if strings.TrimPrefix(h.Name, "./") == member {
+			return writeFile(path, tr, 0o755)
+		}
+	}
 }
 
 func fetch(url string, read func(io.Reader) error) error {

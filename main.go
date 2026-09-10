@@ -17,6 +17,7 @@ import (
 	"github.com/vanviegen/agent-manager/daemon"
 	"github.com/vanviegen/agent-manager/sshx"
 	"github.com/vanviegen/agent-manager/ui"
+	"github.com/vanviegen/podnester"
 )
 
 //go:embed web/index.html web/dist
@@ -24,6 +25,13 @@ var webFS embed.FS
 
 func main() {
 	log.SetFlags(log.Ltime)
+	// The podnester helpers: run inside task containers (port forwarding) and under podman unshare (path resolving).
+	if handled, err := podnester.Subcommand(os.Args); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	// Invoked by ssh as its askpass program: `tps "<prompt>"`, with our socket in the environment.
 	if sock := os.Getenv("TPS_ASKPASS_SOCK"); sock != "" && len(os.Args) == 2 && !strings.HasPrefix(os.Args[1], "-") {
 		os.Exit(ui.Askpass(sock, os.Getenv("TPS_ASKPASS_HOST"), os.Getenv("TPS_ASKPASS_RUN"), os.Args[1]))

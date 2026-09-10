@@ -27,6 +27,14 @@ Rules:
   create or edit /work/Containerfile.dev, the project's image definition, and end your
   turn with 'reload'. A repository without one runs the default image; its definition
   is at /tps/Containerfile.dev, so copy that as your starting point.
+- docker and docker compose work here, against a socket TPS serves, backed by the host's
+  podman and limited to what you can already see. Containers you start are siblings of
+  yours on a private network: reach them by name, or publish ports (-p 5432:5432 makes
+  localhost:5432 work in here, like on a host). Bind mounts take paths as you see them
+  (/work/...). Privileged options, host namespaces, devices, port ranges and image
+  removal are refused. These containers go away when yours is recreated (named volumes
+  stay), so keep what starts them in a script or a compose file. podman itself is not
+  served: use docker.
 
 End every turn by writing the file /work/` + DoneFile + ` (TPS consumes it). Its first line
 is a single word:
