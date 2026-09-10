@@ -63,8 +63,8 @@ type SessionOpts struct {
 	Resume    bool     // --continue the task's most recent session
 	Budget    *float64 // USD this session may spend (--max-budget-usd)
 	OnEntry   func(e *ChatEntry)
-	OnUpdate  func(e *ChatEntry)      // an earlier entry (matched by id) changed
-	OnTurnEnd func(costDelta float64) // a result event arrived; costDelta = USD spent since the previous one
+	OnUpdate  func(e *ChatEntry) // an earlier entry (matched by id) changed
+	OnTurnEnd func(end TurnEnd)  // a result event arrived: cost, and the verdict the agent ended on
 	OnExit    func(code int, errTail string)
 }
 
@@ -77,6 +77,8 @@ type ChatSession struct {
 	errTail      string
 	costReported float64               // cumulative session cost of the last result event
 	pending      map[string]*ChatEntry // tool calls awaiting their result
+	done         *Done                 // the verdict of the turn under way, from its latest message
+	badDone      string                // why that message's TPS-DONE line was unusable
 	opts         SessionOpts
 	exited       chan struct{}
 }
@@ -226,7 +228,11 @@ func (s *ChatSession) onEvent(ev *event) {
 		for _, b := range ev.Message.Content {
 			switch b.Type {
 			case "text":
-				if text := strings.TrimSpace(b.Text); text != "" {
+				// The verdict lives in the agent's last message, so a later one
+				// (without a line of its own) drops what an earlier one said.
+				text, done, bad := parseDone(strings.TrimSpace(b.Text))
+				s.done, s.badDone = done, bad
+				if text = strings.TrimSpace(text); text != "" {
 					e := newEntry("text")
 					e.Text = text
 					s.opts.OnEntry(e)
@@ -297,7 +303,9 @@ func (s *ChatSession) onEvent(ev *event) {
 		}
 		e.Text += " · " + secs + cost
 		s.opts.OnEntry(e)
-		s.opts.OnTurnEnd(delta)
+		end := TurnEnd{Cost: delta, Failed: ev.IsError, Done: s.done, Bad: s.badDone}
+		s.done, s.badDone = nil, ""
+		s.opts.OnTurnEnd(end)
 	}
 }
 
@@ -422,4 +430,70 @@ func sortedKeys(m map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// --- the TPS-DONE line ---
+
+// doneMarker opens the line an agent ends every turn with: where the task
+// goes next, as JSON. See systemPrompt.
+const doneMarker = "TPS-DONE:"
+
+// Done is an agent's verdict on its turn.
+type Done struct {
+	Next    string `json:"next"`              // user | merge | reload
+	Message string `json:"message,omitempty"` // the commit message, with next=merge
+}
+
+// TurnEnd is what a finished claude turn amounts to for the task.
+type TurnEnd struct {
+	Cost   float64 // USD spent since the previous turn
+	Failed bool    // claude reported the turn itself as failed
+	Done   *Done   // the verdict, if the last message carried a usable one
+	Bad    string  // why a TPS-DONE line that was there could not be used
+}
+
+// parseDone splits a TPS-DONE line off the end of an agent message: the text
+// without it, the verdict, and (if a line was there but unusable) what is
+// wrong with it. The last marker in the message wins, and the JSON runs from
+// it to the end of the message, so a verdict spread over several lines still
+// reads while an example line quoted mid-message does not count as one.
+func parseDone(text string) (rest string, done *Done, bad string) {
+	lines := strings.Split(text, "\n")
+	at := -1
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), doneMarker) {
+			at = i
+		}
+	}
+	if at < 0 {
+		return text, nil, ""
+	}
+	before := strings.Join(lines[:at], "\n")
+	tail := lines[at:]
+	// A fence the agent wrapped the line in is none of the JSON.
+	for len(tail) > 0 && isFence(tail[len(tail)-1]) {
+		tail = tail[:len(tail)-1]
+	}
+	if b := strings.Split(before, "\n"); len(b) > 0 && isFence(b[len(b)-1]) {
+		before = strings.Join(b[:len(b)-1], "\n")
+	}
+	rest = strings.TrimSpace(before)
+	raw := strings.TrimSpace(strings.Join(tail, "\n"))
+	raw = strings.TrimSpace(strings.TrimPrefix(raw, doneMarker))
+	var d Done
+	if json.Unmarshal([]byte(raw), &d) != nil {
+		return rest, nil, "the JSON after it could not be read"
+	}
+	switch d.Next {
+	case "user", "merge", "reload":
+		return rest, &d, ""
+	case "":
+		return rest, nil, "it has no 'next'"
+	}
+	return rest, nil, "'" + oneLine(d.Next, 30) + "' is not one of user, merge, reload"
+}
+
+func isFence(line string) bool {
+	line = strings.TrimSpace(line)
+	return line == "" || strings.HasPrefix(line, "```")
 }

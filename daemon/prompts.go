@@ -2,9 +2,6 @@ package daemon
 
 import "fmt"
 
-// DoneFile is written by the agent at the end of every turn; TPS consumes it.
-const DoneFile = ".tps-agent-done"
-
 // systemPrompt is appended to every agent turn.
 const systemPrompt = `You are the coding agent of one task in TPS, a kanban manager for AI coding work.
 
@@ -25,8 +22,8 @@ Rules:
 - Your container is disposable: it is recreated after idle periods, and anything you
   install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
   create or edit /work/Containerfile.dev, the project's image definition, and end your
-  turn with 'reload'. A repository without one runs the default image; its definition
-  is at /tps/Containerfile.dev, so copy that as your starting point.
+  turn with next 'reload' (see below). A repository without one runs the default image;
+  its definition is at /tps/Containerfile.dev, so copy that as your starting point.
 - docker and docker compose work here, against a socket TPS serves, backed by the host's
   podman and limited to what you can already see. Containers you start are siblings of
   yours on a private network: reach them by name, or publish ports (-p 5432:5432 makes
@@ -36,24 +33,49 @@ Rules:
   stay), so keep what starts them in a script or a compose file. podman itself is not
   served: use docker.
 
-End every turn by writing the file /work/` + DoneFile + ` (TPS consumes it). Its first line
-is a single word:
-- 'ready': the task is implemented and verified. The rest of the file is the proposed
-  commit message: a summary line, a blank line, then a few concise lines of detail.
+End every turn with a TPS-DONE line: the last line of your last message, saying where
+the task goes next and nothing after it.
+
+    TPS-DONE: {"next": "user"}
+
+- 'user': the task goes back to the user, because you need them to decide, test or
+  provide something (say what, in the message above the line), or because what you
+  were asked for is done as far as you can take it.
+- 'merge': the task is implemented and verified, and its work should be committed.
+  The commit message comes along with it:
+
+    TPS-DONE: {"next": "merge", "message": "Summary line\n\nA few concise lines of detail."}
+
   Merging squashes the entire task into that single commit, so write the message for
   everything the task changed, not just this turn's work: reconsider it from scratch
-  each time you go 'ready'. Match the tone and style of the project's existing messages
+  each time you go 'merge'. Match the tone and style of the project's existing messages
   (git log). Keep to the highlights, in general: what changed and why, not an inventory
   of every file touched or step taken.
-- 'human': the user needs to decide, test or provide something first (say what, in your
-  chat output).
 - 'reload': you created or changed Containerfile.dev and need the container rebuilt
-  from it; the conversation continues automatically in the new container.`
+  from it; the conversation continues automatically in the new container.
+
+TPS reads that line, the user does not, so keep strictly to the format above: one line,
+plain JSON, no code fence around it. A turn that ends without it is sent straight back
+in to supply it, so make it the last thing you write.`
 
 const reloadedPrompt = "The container has been recreated. Please continue."
 
 // fixImagePrompt is the request under fallbackPrompt when nothing else is pending.
 const fixImagePrompt = "Continue with the task where it left off."
+
+// donePrompt is what a turn that ended without a usable TPS-DONE line is
+// kicked with, so the task doesn't stall on a missing verdict.
+func donePrompt(bad string) string {
+	if bad != "" {
+		return fmt.Sprintf(`Your TPS-DONE line could not be read (%s). Reply with nothing but a
+correct one, as the last line of your message: {"next": "user"}, {"next": "reload"},
+or {"next": "merge", "message": "..."} — see the rules for what each means.`, bad)
+	}
+	return `Your turn ended without a TPS-DONE line, so TPS does not know where the task goes
+next. Reply with nothing but that line: TPS-DONE: {"next": "user"} to hand the task to
+the user, {"next": "merge", "message": "..."} if the work is ready to be committed, or
+{"next": "reload"} if the container must be rebuilt. Pick 'user' if you are unsure.`
+}
 
 // continuePrompt wraps the request that reopens a task which was merged
 // already: its work is a commit now, /work is a new clone of the branch, and
@@ -68,7 +90,7 @@ The old workspace is gone with everything that was only in it: files you never c
 and tools you installed by hand rather than through Containerfile.dev. Everything you know
 about the task itself still holds — carry on from where you left off. What you change from
 here becomes a separate commit when the user merges the task again, under the usual rules:
-do not commit or rebase yourself, and end your turn with the done file.
+do not commit or rebase yourself, and end your turn with a TPS-DONE line.
 
 %[2]s`, branch, request)
 }
@@ -82,7 +104,8 @@ func fallbackPrompt(err, request string) string {
 
 You are running in the default image (/tps/Containerfile.dev) instead, which may lack
 what the project needs. Before anything else, fix Containerfile.dev and end your turn
-with 'reload', so the container is rebuilt from it. Only then take on the following.
+with TPS-DONE: {"next": "reload"}, so the container is rebuilt from it. Only then take
+on the following.
 
 %s`, err, request)
 }
@@ -102,8 +125,8 @@ Resolve every conflict so the result honors BOTH sides. Just for this job, the n
 rule is lifted: stage the resolved files and run GIT_EDITOR=true git rebase --continue,
 repeating if more conflicts appear. Do not abort or skip, do not push, do not create
 commits yourself. When the rebase has completed, verify the result still works, then end
-your turn as usual: 'ready' with the commit message below (amend it only if the
-resolution changed what the task does).
+your turn as usual: TPS-DONE with next 'merge' and the commit message below (amend it
+only if the resolution changed what the task does).
 
 %s`, defaultBranch, message)
 }

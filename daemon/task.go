@@ -99,6 +99,7 @@ type Task struct {
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	imageErr      string // why the task runs in the default image instead; told to the agent on its next kick
 	stopping      bool
+	doneNudges    int // turns in a row the agent was sent back in for a missing TPS-DONE line
 	chatMu        sync.Mutex
 	cloneMu       sync.Mutex // one workspace at a time: two messages can want one at once
 
@@ -462,6 +463,7 @@ func (t *Task) SendChat(text string) error {
 	}
 	t.touchL()
 	t.p.touchL()
+	t.doneNudges = 0
 	t.unlock()
 	e := newEntry("user")
 	e.Text = text
@@ -492,7 +494,7 @@ func (t *Task) kick(text string, fresh bool) {
 	}
 	reopened := t.info.Merged
 	wasDone := t.info.Phase == PhaseDone
-	if t.midRebase() { // the agent's 'ready' then reruns the merge
+	if t.midRebase() { // the agent's 'merge' verdict then reruns it
 		t.setPhaseL(PhaseMerge)
 	} else if t.info.Phase != PhaseMerge {
 		t.setPhaseL(PhaseAgent)
@@ -624,7 +626,7 @@ func (t *Task) MoveTo(phase Phase) error {
 // Merge commits the working tree as one commit, rebases it onto the latest
 // default branch if that moved, and fast-forwards the project repo. The task
 // sits in the merge phase meanwhile: rebase conflicts are handed to a fresh
-// agent there, whose 'ready' runs the merge again. A failure puts the task
+// agent there, whose 'merge' verdict runs it again. A failure puts the task
 // back with the human.
 func (t *Task) Merge(message string) error {
 	defer t.p.m.work()()
@@ -1147,7 +1149,7 @@ func (t *Task) startSession(fresh bool) (*ChatSession, error) {
 		Container: c, Model: t.info.Model, System: systemPrompt, Resume: t.info.Started && !fresh,
 		OnEntry:   t.addEntry,
 		OnUpdate:  t.updateEntry,
-		OnTurnEnd: func(delta float64) { go t.onTurnEnd(delta) },
+		OnTurnEnd: func(end TurnEnd) { go t.onTurnEnd(end) },
 	}
 	if t.info.Budget != nil {
 		left := max(0.01, *t.info.Budget-t.info.Spent)
@@ -1175,13 +1177,18 @@ func (t *Task) startSession(fresh bool) (*ChatSession, error) {
 	return s, nil
 }
 
-// onTurnEnd: a claude turn finished. Account the cost, consume the done file, move the task along.
-func (t *Task) onTurnEnd(costDelta float64) {
+// maxDoneNudges: how often in a row an agent is sent back in for the TPS-DONE
+// line it forgot before the task is handed to the human anyway.
+const maxDoneNudges = 2
+
+// onTurnEnd: a claude turn finished. Account the cost, read the verdict the
+// agent ended on, move the task along.
+func (t *Task) onTurnEnd(end TurnEnd) {
 	t.lock()
 	t.touchL()
 	t.p.touchL()
-	if costDelta > 0 {
-		t.info.Spent = math.Round((t.info.Spent+costDelta)*10000) / 10000
+	if end.Cost > 0 {
+		t.info.Spent = math.Round((t.info.Spent+end.Cost)*10000) / 10000
 		t.p.m.saveL()
 	}
 	t.publishL()
@@ -1191,20 +1198,17 @@ func (t *Task) onTurnEnd(costDelta float64) {
 	}
 	t.unlock()
 	go t.refreshChanges()
-	doneFile := filepath.Join(t.repoDir(), DoneFile)
-	content, readErr := os.ReadFile(doneFile)
-	_ = os.Remove(doneFile)
 	t.lock()
 	if !t.agentPhaseL() { // stopped or dragged elsewhere meanwhile
 		t.unlock()
 		return
 	}
-	word, rest := "", ""
-	if readErr == nil {
-		word, rest, _ = strings.Cut(string(content), "\n")
-		word = strings.TrimSpace(word)
+	next := ""
+	if end.Done != nil {
+		next = end.Done.Next
+		t.doneNudges = 0
 	}
-	if word == "reload" && !t.overBudgetL() {
+	if next == "reload" && !t.overBudgetL() {
 		t.note("the agent asked for a container rebuild; recreating the workspace")
 		s := t.session
 		t.unlock()
@@ -1215,9 +1219,19 @@ func (t *Task) onTurnEnd(costDelta float64) {
 		t.kick(reloadedPrompt, false)
 		return
 	}
+	// No verdict: send the agent back in for one, unless the turn failed on its
+	// own (asking again would only fail again) or it keeps forgetting.
+	if next == "" && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
+		t.doneNudges++
+		t.unlock()
+		t.note("the agent's turn ended without a TPS-DONE line; asking it where the task goes next")
+		t.kick(donePrompt(end.Bad), false)
+		return
+	}
+	t.doneNudges = 0
 	if t.info.Phase == PhaseMerge { // the agent was resolving rebase conflicts
 		msg := t.info.CommitMessage
-		if word != "ready" {
+		if next != "merge" {
 			if t.overBudgetL() {
 				t.noteBudgetL()
 			}
@@ -1226,13 +1240,16 @@ func (t *Task) onTurnEnd(costDelta float64) {
 			t.unlock()
 			return
 		}
+		if m := strings.TrimSpace(end.Done.Message); m != "" {
+			msg = m
+		}
 		t.unlock()
 		t.note("conflicts resolved; merging")
 		_ = t.Merge(msg)
 		return
 	}
-	if word == "ready" {
-		t.info.CommitMessage = strings.TrimSpace(rest)
+	if next == "merge" {
+		t.info.CommitMessage = strings.TrimSpace(end.Done.Message)
 		if t.info.CommitMessage == "" {
 			t.info.CommitMessage = t.info.Title
 		}
