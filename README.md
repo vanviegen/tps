@@ -77,7 +77,8 @@ default image so you and the agent can still get in, and the agent is told to
 fix it first.
 
 A task can run containers of its own: `docker` and `docker compose` in the
-container talk to a socket TPS serves, backed by the host's podman and held
+container (the image installs the CLI; the socket is at `DOCKER_HOST`) talk to
+a socket TPS serves, backed by the host's podman and held
 to what the task may have (see `podnester/`, a library of its own). What it
 starts are siblings of its container on a private network, named and labeled
 after it, gone when its container is recreated; named volumes stay until the

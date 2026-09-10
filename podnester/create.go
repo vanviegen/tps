@@ -163,6 +163,9 @@ func (cc *createCtx) container(body map[string]json.RawMessage) (map[string]json
 			return nil, denied("%s is not a field this socket accepts in a container spec", key)
 		}
 	}
+	if err := cc.defaultUser(out); err != nil {
+		return nil, err
+	}
 	out["Labels"] = cc.labels(labels)
 	return out, nil
 }
@@ -409,6 +412,8 @@ func (cc *createCtx) bind(spec string) (string, error) {
 func checkMountOpt(o string) error {
 	switch o {
 	case "", "ro", "rw", "nocopy", "private", "rprivate", "exec", "noexec", "suid", "nosuid", "dev", "nodev":
+		return nil
+	case "O": // podman's overlay mount: a private copy-on-write view of the source, which its writes never reach
 		return nil
 	case "z", "Z":
 		return denied("mount option %q is not allowed: it would relabel the host's files (SELinux labels are off for siblings, so it is not needed)", o)
@@ -746,4 +751,28 @@ func randomName() string {
 	var b [4]byte
 	_, _ = rand.Read(b[:])
 	return fmt.Sprintf("c%x", b)
+}
+
+// defaultUser keeps docker's meaning of an unset User: the image's user, or
+// root. Under a keep-id mapping podman would fill in the owner's uid instead,
+// and then a plain debian cannot even apt-get. Root here is the same as in
+// the owner itself: a subordinate uid of the host's, nothing more.
+func (cc *createCtx) defaultUser(spec map[string]json.RawMessage) error {
+	if str(spec["User"]) != "" || !strings.HasPrefix(cc.c.p.cfg.UsernsMode, "keep-id") {
+		return nil
+	}
+	var img struct {
+		Config struct{ User string }
+	}
+	err := cc.c.p.up.call(cc.c.ctx, "GET", "/images/"+str(spec["Image"])+"/json", nil, nil, &img)
+	if isNotFound(err) {
+		return nil // podman answers the create with that, and the client pulls and comes back
+	}
+	if err != nil {
+		return err
+	}
+	if img.Config.User == "" {
+		spec["User"] = marshal("0:0")
+	}
+	return nil
 }

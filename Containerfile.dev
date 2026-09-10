@@ -15,6 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git sudo bash procps psmisc ripgrep less nano \
       openssh-client unzip zip xz-utils build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
+# The docker CLI, with compose: TPS serves the task a docker socket (backed by
+# podman) for containers of its own, and the client is the image's to provide.
+ARG DOCKER_VERSION=27.5.1 COMPOSE_VERSION=2.32.4
+RUN arch="$(uname -m)" \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${arch}/docker-${DOCKER_VERSION}.tgz" \
+       | tar -C /usr/local/bin --strip-components=1 -xz docker/docker \
+    && curl -fsSL --create-dirs -o /usr/local/lib/docker/cli-plugins/docker-compose \
+       "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${arch}" \
+    && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 ARG GO_VERSION=1.24.7
 ARG NODE_VERSION=22.19.0

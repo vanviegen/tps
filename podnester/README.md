@@ -28,7 +28,9 @@ only after holding it to what that container may have:
   it is on as well, so they reach each other and it reaches them by name;
   `docker network create` makes further networks it joins too (what compose
   does). The user namespace mapping and SELinux settings of the top-level
-  container are forced on them, so shared files show the same owners.
+  container are forced on them, so shared files show the same owners. A
+  sub-container still runs as its image's user, or root (podman's keep-id
+  would put the top-level container's uid there), as it would under docker.
 - Everything that would reach past the container is refused: privileges,
   capabilities, devices, sysctls, the host's namespaces, registry logins,
   image removal (images are the host's, shared by all), host paths in volume

@@ -224,7 +224,6 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-e", "DOCKER_HOST=unix://" + nest.SocketMount(),
 		"-e", "CONTAINER_HOST=unix://" + nest.SocketMount(),
 		"-e", "DOCKER_BUILDKIT=0", // podman builds without buildkit
-		"-e", "DOCKER_CONFIG=/tps/docker", // where compose is, as a cli plugin
 		"-v", o.toolbox + ":/tps:ro",
 		"-v", o.repoDir + ":/work",
 		"-v", o.claudeDir + ":/claude",
@@ -269,7 +268,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
 func containerConfig(image, toolbox string) string {
-	config, _ := json.Marshal([]any{9, image, filepath.Base(toolbox)})
+	config, _ := json.Marshal([]any{10, image, filepath.Base(toolbox)})
 	return string(config)
 }
 

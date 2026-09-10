@@ -40,7 +40,7 @@ var routes = []route{
 	{"POST", "/containers/{id}/stop", ownContainerRoute(false, syncPorts)},
 	{"POST", "/containers/{id}/kill", ownContainerRoute(false, syncPorts)},
 	{"POST", "/containers/{id}/pause", ownContainerRoute(false)},
-	{"POST", "/containers/{id}/wait", ownContainerRoute(false, syncPorts)},
+	{"POST", "/containers/{id}/wait", ownContainerRoute(true, syncPorts)}, // a long poll: the answer must not be held back for rewriting
 	{"POST", "/containers/{id}/resize", ownContainerRoute(false)},
 	{"POST", "/containers/{id}/attach", ownContainerRoute(true)},
 	{"POST", "/containers/{id}/rename", renameRoute},
@@ -230,6 +230,13 @@ func buildRoute(c *call) error {
 					return denied("build networkmode %q is not allowed", v)
 				}
 			}
+		case "cgroupparent": // sent empty by the docker CLI on every build; a value would put the build in a cgroup of the client's choosing
+			for _, v := range vals {
+				if v != "" {
+					return denied("build cgroupparent %q is not allowed", v)
+				}
+			}
+			delete(c.query, key)
 		default:
 			return denied("build parameter %q is not allowed through this socket", key)
 		}

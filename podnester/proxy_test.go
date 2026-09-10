@@ -21,7 +21,8 @@ type fakePodman struct {
 	work     string
 	requests []*http.Request
 	bodies   []map[string]any
-	readlink string // what the last readlink in the owner answers
+	readlink string        // what the last readlink in the owner answers
+	release  chan struct{} // a wait answers its headers at once and its body when this closes
 }
 
 func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +41,13 @@ func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/networks/create":
 		w.WriteHeader(201)
 		reply(map[string]any{"Id": "n3", "Warning": ""})
+	case p == "/containers/1111111111111111/wait":
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		if f.release != nil {
+			<-f.release
+		}
+		reply(map[string]any{"Error": nil, "StatusCode": 0})
 	case p == "/containers/top/exec": // readlink -f in the owner: the fake's links
 		var body struct{ Cmd []string }
 		_ = json.Unmarshal(data, &body)
@@ -79,6 +87,10 @@ func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/volumes/create":
 		w.WriteHeader(201)
 		reply(map[string]any{"Name": body["Name"]})
+	case p == "/images/plain/json":
+		reply(map[string]any{"Config": map[string]any{"User": ""}})
+	case p == "/images/withuser/json":
+		reply(map[string]any{"Config": map[string]any{"User": "app"}})
 	case p == "/containers/create":
 		w.WriteHeader(201)
 		reply(map[string]any{"Id": "3333333333333333", "Warnings": []any{}})
@@ -290,5 +302,85 @@ func TestOwnership(t *testing.T) {
 	}
 	if last := f.requests[len(f.requests)-1]; last.URL.Path != "/networks/top-app_default/connect" {
 		t.Errorf("the owner was not joined to the new network: %s", last.URL.Path)
+	}
+}
+
+// A wait is a long poll: podman answers 200 at once and the body when the
+// container exits, and the docker CLI's run blocks on the headers before it
+// even starts the container. So they must go through as they come.
+func TestWaitStreams(t *testing.T) {
+	p, f := newTestProxy(t)
+	f.release = make(chan struct{})
+	srv := httptest.NewServer(p)
+	t.Cleanup(srv.Close)
+	resp, err := http.Post(srv.URL+"/v1.41/containers/db/wait?condition=next-exit", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("wait: %d", resp.StatusCode)
+	}
+	close(f.release) // the headers arrived while podman still holds the body: now let the container "exit"
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"StatusCode":0`) {
+		t.Errorf("wait body: %s", body)
+	}
+}
+
+func TestBuildQuery(t *testing.T) {
+	p, f := newTestProxy(t)
+	if rec := do(p, "POST", "/v1.41/build?t=x&cgroupparent=&memory=0&networkmode=default", nil); rec.Code == 403 {
+		t.Errorf("the docker CLI's own build query was refused: %s", rec.Body)
+	}
+	if q := f.requests[len(f.requests)-1].URL.Query(); q.Has("cgroupparent") || q.Get("t") != "x" {
+		t.Errorf("sent on with %v", q)
+	}
+	if rec := do(p, "POST", "/build?t=x&cgroupparent=/elsewhere", nil); rec.Code != 403 {
+		t.Errorf("a cgroup parent got through: %d", rec.Code)
+	}
+	if rec := do(p, "POST", "/build?t=x&securityopt=seccomp=unconfined", nil); rec.Code != 403 {
+		t.Errorf("an unknown build parameter got through: %d", rec.Code)
+	}
+}
+
+func TestOverlayBind(t *testing.T) {
+	p, f := newTestProxy(t)
+	os.MkdirAll(filepath.Join(f.work, "data"), 0o755)
+	rec := do(p, "POST", "/containers/create", map[string]any{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/work/data:/app:O"}}})
+	if rec.Code != 201 {
+		t.Fatalf("overlay bind: %d %s", rec.Code, rec.Body)
+	}
+	if b := f.bodies[len(f.bodies)-1]["HostConfig"].(map[string]any)["Binds"].([]any)[0]; b != filepath.Join(f.work, "data")+":/app:O" {
+		t.Errorf("overlay bind sent as %v", b)
+	}
+	// Its upper and work directories are podman's to place; naming host paths for them is not on.
+	rec = do(p, "POST", "/containers/create", map[string]any{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/work/data:/app:O,upperdir=/tmp/up,workdir=/tmp/wk"}}})
+	if rec.Code != 403 {
+		t.Errorf("overlay with host dirs: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// An unset User means the image's user or root, as with docker; podman's
+// keep-id would make it the owner's uid.
+func TestDefaultUser(t *testing.T) {
+	p, f := newTestProxy(t)
+	for _, tc := range []struct{ image, user, want string }{
+		{"plain", "", "0:0"},
+		{"withuser", "", ""},
+		{"plain", "5", "5"},
+		{"notpulled", "", ""}, // podman's 404 has the client pull and come back
+	} {
+		body := map[string]any{"Image": tc.image}
+		if tc.user != "" {
+			body["User"] = tc.user
+		}
+		if rec := do(p, "POST", "/containers/create", body); rec.Code != 201 {
+			t.Fatalf("%v: %d %s", tc, rec.Code, rec.Body)
+		}
+		got, _ := f.bodies[len(f.bodies)-1]["User"].(string)
+		if got != tc.want {
+			t.Errorf("%s with user %q: sent User %q, want %q", tc.image, tc.user, got, tc.want)
+		}
 	}
 }
