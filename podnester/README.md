@@ -15,11 +15,11 @@ only after holding it to what that container may have:
 - Containers, volumes and networks it makes are labeled as its own and get its
   name as a prefix on the host. It sees and touches only those; the prefix is
   stripped from every answer, so it sees the names it chose.
-- A bind mount source is a path *in that container*: under one of its own bind
-  mounts, or in its root filesystem (which podman keeps mounted on the host).
-  It is translated to the host path naming the same file, with symlinks
-  followed inside the container's view, so a link to `/home/user/.ssh` means
-  the container's own `/home`, not the host's.
+- A bind mount source is a path *in that container*. The container itself
+  resolves it (`readlink -f`, so a link to `/home/user/.ssh` means its own
+  `/home`, not the host's), and the result is mapped to the host path naming
+  the same file: under one of the container's own bind mounts, or in its root
+  filesystem, which podman keeps mounted on the host while it runs.
 - Published ports are published *in that container*, the way a mount source is
   found there: the proxy runs a small forwarder inside it for each, so
   `-p 5432:5432` makes `localhost:5432` work exactly as it would on a host.
@@ -34,31 +34,39 @@ only after holding it to what that container may have:
   image removal (images are the host's, shared by all), host paths in volume
   and log drivers, mount propagation into the host, and every endpoint and
   every field of a container spec the proxy does not know. Podman's own
-  (libpod) API is not served; the docker CLI is the client, and `podman`
-  with `CONTAINER_HOST` set gets a clear refusal.
+  (libpod) API is not served: the docker CLI is the client. A `podman` that
+  is a symlink to it works for the usual commands, as the CLIs mirror each
+  other; a real podman with `CONTAINER_HOST` set gets a clear pointer to docker.
 - Sub-containers are removed when the top-level container stops, like the
   processes in it. Its volumes and networks stay for its next run; `purge`
   removes those too.
 
 ## Running
 
+podnester is podman, except that its `run` gives the container docker:
+
 ```sh
-podnester run --name mytask --userns keep-id:uid=1000,gid=1000 --security-opt label=disable \
-    -- --rm -it -v "$PWD:/work" -w /work myimage bash
+podnester run --rm -it --name mytask --userns keep-id:uid=1000,gid=1000 \
+    --security-opt label=disable -v "$PWD:/work" -w /work myimage bash
 ```
 
-`podnester run` starts a `podman run` with the arguments after `--`, adding
-`--name`, `--network mytask-bridge`, the mount of the shared directory that
-holds the socket and `DOCKER_HOST`/`CONTAINER_HOST` pointing at it. Give
-`--userns` and `--security-opt` here what the container itself runs with, in
-the same way (pass them again after `--`). Put a static `docker` in the image
-or on a mount; `DOCKER_BUILDKIT=0` is set, as podman builds without buildkit.
+That is a `podman run` with `--network mytask-bridge`, the mount of the
+directory holding the socket and `DOCKER_HOST`/`CONTAINER_HOST` pointing at
+it added. `--name`, `--userns` and `--security-opt` are read off the options
+(the container's sub-containers get the same user mapping and security
+options, so shared files show the same owners); without a name one is made
+up. With `-d`, podnester keeps serving the socket in the background for as
+long as the container exists; otherwise it serves while the container runs
+and removes what it started when it exits. Every other command (`podnester
+ps`, ...) is podman's, so `alias podman=podnester` is an option. Put a
+static `docker` in the image or on a mount; `DOCKER_BUILDKIT=0` is set, as
+podman builds without buildkit.
 
-`podnester serve --name X` serves the socket for a container run by something
-else, which must be started with `--network X-bridge`, the control directory
-(default `$XDG_RUNTIME_DIR/podnester/X`) mounted at `/run/podnester`, and
-`DOCKER_HOST=unix:///run/podnester/podman.sock`. `podnester purge --name X
-[--volumes]` removes what X made.
+`podnester serve X [--userns ...] [--security-opt ...]` serves the socket for
+a container run by something else, which must be started with `--network
+X-bridge`, the control directory (`$XDG_RUNTIME_DIR/podnester/X`) mounted at
+`/run/podnester`, and `DOCKER_HOST=unix:///run/podnester/podman.sock`.
+`podnester purge [--volumes] X` removes what X made.
 
 Podman's API is expected on `$XDG_RUNTIME_DIR/podman/podman.sock`; when
 nothing answers there, a `podman system service` is started on it.
@@ -78,17 +86,15 @@ p.Purge(ctx, true)                // when the owner is gone for good
 The binary embedding the proxy must call `podnester.Subcommand(os.Args)`
 first thing in `main` and be built static (`CGO_ENABLED=0`): a copy of it is
 placed in the control directory to run as the port forwarder inside the
-container, and it is run under `podman unshare` to resolve paths in the
-container's root filesystem, which rootless podman keeps in a mount namespace
-of its own.
+container.
 
 ## Caveats
 
 - Resolving a bind source and podman mounting it are two steps; a container
   replacing a directory with a symlink in between could point podman at a
   host path. The host is the same user's, so what is at stake is that user's
-  files; do not serve the socket to code you would not run as yourself
-  without a sandbox... which is the reason podnester exists, so be aware.
+  files. A mount source must exist in the container (readlink -f resolves
+  what is there), and the container needs `readlink` (coreutils or busybox).
 - Images are shared by every container on the host, and pulling or building
   one is visible to all: an image name is not prefixed. Registry logins are
   refused for that reason (they would go into the host's auth file).

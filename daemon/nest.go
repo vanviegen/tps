@@ -119,7 +119,7 @@ func nestPurge(name, dir string) {
 	if err != nil {
 		return
 	}
-	p, err := podnester.New(podnester.Config{Upstream: sock, Owner: name, Control: dir, ControlMount: nestMount, Forwarder: []string{"-"}, Resolver: []string{"-"}, Logf: logf})
+	p, err := podnester.New(podnester.Config{Upstream: sock, Owner: name, Control: dir, ControlMount: nestMount, Forwarder: []string{"-"}, Logf: logf})
 	if err != nil {
 		return
 	}

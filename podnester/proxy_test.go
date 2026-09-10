@@ -21,6 +21,7 @@ type fakePodman struct {
 	work     string
 	requests []*http.Request
 	bodies   []map[string]any
+	readlink string // what the last readlink in the owner answers
 }
 
 func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -34,9 +35,31 @@ func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	label := map[string]any{"podnester.owner": "top"}
 	_, p := splitVersion(r.URL.Path)
 	switch {
+	case p == "/_ping" || p == "/libpod/_ping":
+		w.Write([]byte("OK"))
 	case p == "/networks/create":
 		w.WriteHeader(201)
 		reply(map[string]any{"Id": "n3", "Warning": ""})
+	case p == "/containers/top/exec": // readlink -f in the owner: the fake's links
+		var body struct{ Cmd []string }
+		_ = json.Unmarshal(data, &body)
+		f.readlink = map[string]string{"/work/data": "/work/data", "/work/escape": "/home/nobody", "/": "/"}[body.Cmd[len(body.Cmd)-1]]
+		w.WriteHeader(201)
+		reply(map[string]any{"Id": "e1"})
+	case p == "/exec/e1/start":
+		w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+		if f.readlink == "" {
+			return // nothing on stdout: no such path
+		}
+		out := []byte(f.readlink + "\n")
+		head := []byte{1, 0, 0, 0, 0, 0, 0, byte(len(out))}
+		w.Write(append(head, out...))
+	case p == "/exec/e1/json":
+		code := 0
+		if f.readlink == "" {
+			code = 1
+		}
+		reply(map[string]any{"ContainerID": "aaaa", "ExitCode": code})
 	case p == "/containers/top/json":
 		reply(map[string]any{"Id": "aaaa", "Name": "/top", "State": map[string]any{"Running": true},
 			"Config":      map[string]any{"Labels": map[string]any{}},
@@ -82,7 +105,7 @@ func newTestProxy(t *testing.T) (*Proxy, *fakePodman) {
 	t.Cleanup(srv.Close)
 	p, err := New(Config{Upstream: sock, Owner: "top", Control: t.TempDir(), ControlMount: "/run/podnester",
 		UsernsMode: "keep-id:uid=1000,gid=1000", SecurityOpt: []string{"label=disable"},
-		Forwarder: []string{"/nonexistent"}, Resolver: []string{"/nonexistent"}, Logf: t.Logf})
+		Forwarder: []string{"/nonexistent"}, Logf: t.Logf})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +199,7 @@ func TestCreatePolicy(t *testing.T) {
 		{"Image": "x", "HostConfig": map[string]any{"NetworkMode": "host"}},
 		{"Image": "x", "HostConfig": map[string]any{"PidMode": "host"}},
 		{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/work/data:/d:z"}}},
+		{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/work/missing:/d"}}}, // a mount source must exist in the owner
 		{"Image": "x", "HostConfig": map[string]any{"Mounts": []any{map[string]any{"Type": "bind", "Source": "/work", "Target": "/d", "BindOptions": map[string]any{"Propagation": "rshared"}}}}},
 		{"Image": "x", "HostConfig": map[string]any{"SecurityOpt": []string{"seccomp=unconfined"}}},
 		{"Image": "x", "HostConfig": map[string]any{"Sysctls": map[string]string{"net.ipv4.ip_forward": "1"}}},
@@ -232,6 +256,12 @@ func TestOwnership(t *testing.T) {
 	}
 	if rec := do(p, "GET", "/v4.0.0/libpod/containers/json", nil); rec.Code != 404 {
 		t.Errorf("libpod API: %d", rec.Code)
+	}
+	if rec := do(p, "GET", "/v4.0.0/libpod/_ping", nil); rec.Code == 404 {
+		t.Errorf("libpod ping: %d", rec.Code)
+	}
+	if rec := do(p, "GET", "/v4.0.0/libpod/info", nil); !strings.Contains(rec.Body.String(), "use the docker command") {
+		t.Errorf("libpod refusal: %s", rec.Body)
 	}
 	rec := do(p, "GET", "/containers/json?filters=%7B%22name%22%3A%5B%22db%22%5D%7D", nil)
 	if rec.Code != 200 {

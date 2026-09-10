@@ -60,10 +60,6 @@ type Config struct {
 	// appended. Default: a copy of this binary placed in Control/bin, so the
 	// binary embedding the proxy must dispatch Subcommand and be static.
 	Forwarder []string
-	// Resolver is the command that resolves paths the proxy cannot see from
-	// its own mount namespace (see ResolveMain). Default: `podman unshare
-	// <this binary> podnester-resolve`.
-	Resolver []string
 	// Logf gets the proxy's notes; nil for log.Printf.
 	Logf func(format string, args ...any)
 }
@@ -108,9 +104,6 @@ func New(cfg Config) (*Proxy, error) {
 			return nil, err
 		}
 		cfg.Forwarder = []string{cfg.ControlMount + "/bin/podnester", "podnester-forward"}
-	}
-	if cfg.Resolver == nil && exeErr == nil {
-		cfg.Resolver = []string{"podman", "unshare", exe, "podnester-resolve"}
 	}
 	p := &Proxy{cfg: cfg, up: newUpstream(cfg.Upstream), fwds: map[string]map[string]*forwarder{}}
 	p.rp = &httputil.ReverseProxy{
@@ -342,7 +335,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c := &call{p: p, w: w, r: r, ctx: r.Context(), version: version, path: path, query: r.URL.Query()}
 	route, params := matchRoute(r.Method, path)
 	if route == nil {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("podnester: %s %s is not supported through this socket", r.Method, path))
+		msg := fmt.Sprintf("podnester: %s %s is not supported through this socket", r.Method, path)
+		if strings.HasPrefix(path, "/libpod/") {
+			// The podman CLI in remote mode. Its ping is answered (see routes), so
+			// that it gets this far and shows this rather than connection advice.
+			msg = "podnester: podman's own API is not served through this socket, only docker's: use the docker command (podman's mirrors it) or docker compose"
+		}
+		writeError(w, http.StatusNotFound, msg)
 		return
 	}
 	c.params = params
@@ -543,16 +542,14 @@ func isVersion(s string) bool {
 
 func unmarshal(s string, v any) error { return json.Unmarshal([]byte(s), v) }
 
-// Subcommand runs the helper roles of a binary embedding the proxy — the
-// path resolver and the port forwarder — when args (os.Args) ask for one.
+// Subcommand runs the helper role of a binary embedding the proxy — the
+// port forwarder — when args (os.Args) ask for it.
 // Call it first thing in main; handled says whether it did the job.
 func Subcommand(args []string) (handled bool, err error) {
 	if len(args) < 2 {
 		return false, nil
 	}
 	switch args[1] {
-	case "podnester-resolve":
-		return true, ResolveMain(os.Stdin, os.Stdout)
 	case "podnester-forward":
 		rest := args[2:]
 		control := ""
@@ -565,4 +562,13 @@ func Subcommand(args []string) (handled bool, err error) {
 		return true, Forward(control, rest[0], rest[1])
 	}
 	return false, nil
+}
+
+// OwnerExists says whether the owner container exists at all.
+func (p *Proxy) OwnerExists(ctx context.Context) (bool, error) {
+	_, err := p.up.inspectContainer(ctx, p.cfg.Owner)
+	if isNotFound(err) {
+		return false, nil
+	}
+	return err == nil, err
 }

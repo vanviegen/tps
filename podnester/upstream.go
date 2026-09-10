@@ -3,6 +3,7 @@ package podnester
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -228,4 +229,54 @@ func dir(path string) string {
 		return path[:i]
 	}
 	return "."
+}
+
+// execOutput runs a command in a container and returns what it printed,
+// through the API's exec: created, started attached, and read back. The
+// answer is docker's multiplexed stream (8-byte frame headers), demuxed.
+func (u *upstream) execOutput(ctx context.Context, container string, cmd []string) (string, error) {
+	var created struct {
+		ID string `json:"Id"`
+	}
+	if err := u.call(ctx, "POST", "/containers/"+url.PathEscape(container)+"/exec", nil, map[string]any{
+		"Cmd": cmd, "AttachStdout": true, "AttachStderr": true,
+	}, &created); err != nil {
+		return "", err
+	}
+	body, _ := json.Marshal(map[string]any{"Detach": false, "Tty": false})
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://podman/exec/"+created.ID+"/start", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := u.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode/100 != 2 {
+		return "", &apiError{resp.StatusCode, strings.TrimSpace(string(raw))}
+	}
+	var out strings.Builder
+	for len(raw) >= 8 {
+		n := int(binary.BigEndian.Uint32(raw[4:8]))
+		if 8+n > len(raw) {
+			break
+		}
+		if raw[0] == 1 { // stdout
+			out.Write(raw[8 : 8+n])
+		}
+		raw = raw[8+n:]
+	}
+	var insp struct {
+		ExitCode int `json:"ExitCode"`
+	}
+	if err := u.call(ctx, "GET", "/exec/"+created.ID+"/json", nil, nil, &insp); err == nil && insp.ExitCode != 0 {
+		return "", fmt.Errorf("%s exited with %d", strings.Join(cmd, " "), insp.ExitCode)
+	}
+	return out.String(), nil
 }

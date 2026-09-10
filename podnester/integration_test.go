@@ -87,11 +87,16 @@ func TestAgainstPodman(t *testing.T) {
 		return resp.StatusCode, obj, list
 	}
 
-	// A sibling with a bind from the owner's mount, a named volume and a published port.
+	// A sibling with a bind from the owner's mount (resolved by the owner, so
+	// only with it running), a named volume and a published port.
+	binds := []string{"data:/d"}
+	if running {
+		binds = append([]string{"/work:/w"}, binds...)
+	}
 	code, obj, _ := do("POST", "/v1.41/containers/create?name=db", map[string]any{
 		"Image": "docker.io/library/alpine:latest", "Cmd": []string{"nc", "-l", "-p", "5432", "-e", "cat"},
 		"HostConfig": map[string]any{
-			"Binds":        []string{"/work:/w", "data:/d"},
+			"Binds":        binds,
 			"PortBindings": map[string]any{"5432/tcp": []any{map[string]any{"HostPort": "15432"}}},
 		},
 	})
@@ -103,8 +108,8 @@ func TestAgainstPodman(t *testing.T) {
 		t.Fatalf("inspect: %d %v", code, obj["Name"])
 	}
 	hc := obj["HostConfig"].(map[string]any)
-	if binds := hc["Binds"].([]any); !strings.HasPrefix(binds[0].(string), work+":/w") || !strings.HasPrefix(binds[1].(string), "data:/d") {
-		t.Errorf("binds: %v", binds)
+	if got := hc["Binds"].([]any); running && !strings.HasPrefix(got[0].(string), work+":/w") || !strings.HasPrefix(got[len(got)-1].(string), "data:/d") {
+		t.Errorf("binds: %v", got)
 	}
 	if hc["NetworkMode"] != "bridge" {
 		t.Errorf("network mode: %v", hc["NetworkMode"])

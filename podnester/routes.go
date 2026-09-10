@@ -18,6 +18,7 @@ type route struct {
 
 var routes = []route{
 	{"GET,HEAD", "/_ping", passThrough},
+	{"GET,HEAD", "/libpod/_ping", passThrough}, // the podman CLI's first request; the rest of libpod gets a pointer to docker
 	{"GET", "/version", passThrough},
 	{"GET", "/info", passThrough},
 	{"GET", "/system/df", passThrough},
@@ -348,4 +349,14 @@ func containerListRoute(c *call) error {
 		return list
 	}
 	return c.pass()
+}
+
+func split(p string) []string {
+	var parts []string
+	for _, s := range strings.Split(p, "/") {
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return parts
 }

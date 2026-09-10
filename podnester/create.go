@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 )
@@ -39,17 +40,47 @@ func (cc *createCtx) mounts() (*mountTable, error) {
 	return cc.table, nil
 }
 
-// hostPath is the host path a bind source (a path in the owner) means.
+// hostPath is the host path a bind source (a path in the owner) means. The
+// owner itself resolves the path (readlink -f: links mean what they mean in
+// there, and podman meets none on the host), and the result lies under one
+// of its bind mounts, or in its root filesystem, which podman keeps mounted
+// on the host while it runs.
 func (cc *createCtx) hostPath(src string) (string, error) {
+	if !strings.HasPrefix(src, "/") {
+		return "", badRequest("bind mount %s: not an absolute path", src)
+	}
 	t, err := cc.mounts()
 	if err != nil {
 		return "", err
 	}
-	hpath, err := t.resolveVia(cc.c.p.cfg.Resolver, src)
-	if err != nil {
-		return "", denied("bind mount %s: %v", src, err)
+	out, err := cc.c.p.up.execOutput(cc.c.ctx, cc.c.p.cfg.Owner, []string{"readlink", "-f", "--", src})
+	real := strings.TrimSpace(out)
+	if err != nil || !strings.HasPrefix(real, "/") {
+		return "", denied("bind mount %s: no such path in %s (a mount source must exist there)", src, cc.c.p.cfg.Owner)
 	}
-	return hpath, nil
+	return t.host(real), nil
+}
+
+// mountTable is the owner's filesystem view: its root filesystem on the
+// host, and its bind mounts.
+type mountTable struct {
+	Root   string            // host path of the container's root filesystem
+	Mounts map[string]string // container path → host path
+}
+
+// host is the host path a (resolved) container path maps to: under the
+// longest bind mount that contains it, or else under the root.
+func (t *mountTable) host(cpath string) string {
+	best := ""
+	for c := range t.Mounts {
+		if (cpath == c || strings.HasPrefix(cpath, strings.TrimSuffix(c, "/")+"/")) && len(c) > len(best) {
+			best = c
+		}
+	}
+	if best == "" {
+		return path.Join(t.Root, cpath)
+	}
+	return path.Join(t.Mounts[best], strings.TrimPrefix(cpath, strings.TrimSuffix(best, "/")))
 }
 
 // handleCreate is POST /containers/create.
@@ -87,9 +118,20 @@ func handleCreate(c *call) error {
 	return c.pass()
 }
 
-// container checks and rewrites a create body.
+// container checks and rewrites a create body. HostConfig goes first and
+// Labels last: the ports HostConfig asks for are recorded in a label.
 func (cc *createCtx) container(body map[string]json.RawMessage) (map[string]json.RawMessage, error) {
 	out := map[string]json.RawMessage{}
+	hc := map[string]json.RawMessage{}
+	if err := unmarshalNonNull(body["HostConfig"], &hc); err != nil {
+		return nil, badRequest("HostConfig: %v", err)
+	}
+	rewritten, err := cc.hostConfig(hc)
+	if err != nil {
+		return nil, err
+	}
+	out["HostConfig"] = marshal(rewritten)
+	labels := map[string]string{}
 	for key, v := range body {
 		switch key {
 		case "Hostname", "Domainname", "User", "AttachStdin", "AttachStdout", "AttachStderr", "ExposedPorts",
@@ -97,21 +139,10 @@ func (cc *createCtx) container(body map[string]json.RawMessage) (map[string]json
 			"WorkingDir", "Entrypoint", "NetworkDisabled", "MacAddress", "OnBuild", "StopSignal", "StopTimeout", "Shell":
 			out[key] = v
 		case "Labels":
-			labels := map[string]string{}
 			if err := unmarshalNonNull(v, &labels); err != nil {
 				return nil, badRequest("Labels: %v", err)
 			}
-			out[key] = cc.labels(labels)
-		case "HostConfig":
-			hc := map[string]json.RawMessage{}
-			if err := unmarshalNonNull(v, &hc); err != nil {
-				return nil, badRequest("HostConfig: %v", err)
-			}
-			rewritten, err := cc.hostConfig(hc)
-			if err != nil {
-				return nil, err
-			}
-			out[key] = marshal(rewritten)
+		case "HostConfig": // done above
 		case "NetworkingConfig":
 			nc := struct {
 				EndpointsConfig map[string]json.RawMessage
@@ -132,16 +163,7 @@ func (cc *createCtx) container(body map[string]json.RawMessage) (map[string]json
 			return nil, denied("%s is not a field this socket accepts in a container spec", key)
 		}
 	}
-	if _, ok := out["Labels"]; !ok {
-		out["Labels"] = cc.labels(map[string]string{})
-	}
-	if _, ok := out["HostConfig"]; !ok {
-		hc, err := cc.hostConfig(map[string]json.RawMessage{})
-		if err != nil {
-			return nil, err
-		}
-		out["HostConfig"] = marshal(hc)
-	}
+	out["Labels"] = cc.labels(labels)
 	return out, nil
 }
 
