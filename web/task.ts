@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, circleStop, gitMerge, pencil, play, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { bot, circleStop, gitMerge, pencil, play, refreshCw, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
@@ -359,7 +359,7 @@ export function drawPlanEditor(pid: string, tid: string | undefined, $t: any): v
 
 /** The chat, what is worth acting on right now, and the input. */
 export function drawAgent(pid: string, tid: string, $t: any): void {
-	// The log fills the column, with the two icons floating over its top right
+	// The log fills the column, with the icons floating over its top right
 	// corner: chrome that would otherwise cost the conversation a row.
 	A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
 		drawChat(pid, tid);
@@ -369,6 +369,9 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			A(() => { // its own scope: the CMD arriving must not redraw the row
 				if ($t.runCmd) S.iconButton({ icon: play, ariaLabel: 'Run the project', click: () => runDialog(pid, tid, $t) });
 			});
+			S.iconButton({ icon: refreshCw, ariaLabel: 'Rebuild the container',
+				tooltip: 'Rebuild the container from Containerfile.dev',
+				click: () => void cmd('reloadTask', { pid, tid }) });
 			S.iconButton({ icon: settings, ariaLabel: 'Task settings', click: () => taskSettingsDialog(pid, tid, $t) });
 		});
 	});

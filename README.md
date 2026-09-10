@@ -70,7 +70,8 @@ claude and an init are downloaded once per host and mounted into every
 container. Any base works, as long as it has bash and git, and a user with
 uid 1000 who owns a home directory. The agent knows about this: when it lacks
 a tool, it can write or extend `Containerfile.dev` and continue in a container
-built from it, and the file is merged along with the rest of its work. Should
+built from it, and the file is merged along with the rest of its work. Edit it
+yourself and the rebuild button above the log does the same for you. Should
 the file ever break (a bad edit, a merge conflict), the task falls back to the
 default image so you and the agent can still get in, and the agent is told to
 fix it first.

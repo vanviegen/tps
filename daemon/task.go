@@ -1113,6 +1113,30 @@ func (t *Task) down() {
 	t.unlock()
 }
 
+// Reload recreates the workspace, rebuilding the image when Containerfile.dev
+// changed: what the agent gets by ending its turn with 'reload', for a human
+// who edited the file themselves. A live agent turn is left alone.
+func (t *Task) Reload() error {
+	t.lock()
+	noWorkspace := t.info.Phase == PhasePlan || !exists(t.repoDir())
+	working := t.workingL()
+	t.unlock()
+	if noWorkspace {
+		return errors.New("The task has no workspace: it is still in Plan, or merged already")
+	}
+	if working {
+		return errors.New("The agent is working; stop it before rebuilding the container")
+	}
+	go func() {
+		t.note("recreating the workspace container")
+		t.down()
+		if _, err := t.up(); err != nil {
+			t.noteErr("workspace failed", err)
+		}
+	}()
+	return nil
+}
+
 // --- the claude session ---
 
 func (t *Task) ensureSession(fresh bool) (*ChatSession, error) {
