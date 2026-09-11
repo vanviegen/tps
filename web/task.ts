@@ -1,23 +1,32 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, circleStop, gitMerge, pencil, play, refreshCw, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { bot, circleStop, gitMerge, pencil, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
+import { hold, release } from './holds.ts';
 import { runDialog } from './run.ts';
 import { autoStarts, chatDraft, cmd, debounce, hostName, pathTo, selection, setChatDraft, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, type Phase } from './util.ts';
 
-/** Tasks of a project waiting for a human, not counting `skip`. */
-export function humanTasks(pid: string, skip?: string): number {
-	const tasks = Object.entries($state.projects[pid]?.tasks ?? {}) as [string, any][];
-	return tasks.filter(([tid, $t]) => tid !== skip && $t.phase === 'human').length;
-}
-
-/** Keep the task's workspace up and its chat streaming, for as long as the calling scope lives. */
+/**
+ * Keep the task's chat streaming for as long as the calling scope lives, and
+ * hold the task (see holds.ts) once it has a workspace: arriving at it opens
+ * VS Code on it, and that stays open — listed in the sidebar — until closed.
+ */
 export function useTask(pid: string, tid: string, $t: any): void {
 	watchTask(pid, tid);
-	A(() => { if ($t.phase !== 'plan') void cmd('openTask', { pid, tid }); });
+	A(() => { if ($t.phase !== 'plan' && $t.phase !== 'done') hold(pid, tid); });
+}
+
+/**
+ * Close the task: VS Code on it is stopped and it leaves the sidebar — unless
+ * it waits for a human, which keeps it listed. Whoever was looking at it
+ * lands on the project's board.
+ */
+export function closeTask(pid: string, tid: string): void {
+	release(pid, tid);
+	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
 }
 
 /** The phases the task can be moved to; the one it is in is the disabled one. */
@@ -373,6 +382,8 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				tooltip: 'Rebuild the container from Containerfile.dev',
 				click: () => void cmd('reloadTask', { pid, tid }) });
 			S.iconButton({ icon: settings, ariaLabel: 'Task settings', click: () => taskSettingsDialog(pid, tid, $t) });
+			S.iconButton({ icon: x, ariaLabel: 'Close', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
+				click: () => closeTask(pid, tid) });
 		});
 	});
 	A(() => {
@@ -438,33 +449,46 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 	}) as HTMLElement;
 }
 
-/** The right column for a task: VS Code in its container, once that is up. */
-export function drawTaskCode(pid: string, tid: string, $t: any): void {
+/**
+ * The right column for a task with a workspace: VS Code in its container,
+ * once that is up and code-server runs in it — which the hold placed on
+ * arrival (see useTask) asks the daemon for.
+ */
+export function drawTaskCode(pid: string, tid: string, $t: any, left: string): void {
 	A(() => {
-		// A merged task keeps its conversation, not its workspace: there is
-		// nothing to open until it is picked up, which clones the branch again.
-		if ($t.phase === 'done' && $t.status !== 'up') {
-			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
-				A('p text=', `This task is merged, so its workspace is gone; its work is on ${branch}. `
-					+ 'Message the agent to pick it up, or take it on yourself:');
-				S.button({ content: 'Pick up as human', icon: user, attrs: '.small',
-					click: () => void cmd('moveTask', { pid, tid, phase: 'human' }) });
-			}});
-		} else if ($t.status === 'up') {
-			// code-server's remote authority is the Host header, which the proxy passes on unchanged.
-			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, $t.codePort);
-		} else if ($t.status === 'error') {
+		if ($t.codePort) {
+			// code-server's remote authority is the Host header, which the proxy
+			// passes on unchanged. A restarted code-server has a new start time,
+			// and the frame is reloaded for it.
+			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left);
+		} else if ($t.status === 'error' || $t.codeError) {
 			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
-				A('p fg:$s-danger text=', `Workspace error: ${$t.statusDetail || 'unknown'}`);
+				A('p fg:$s-danger text=', $t.status === 'error' ? `Workspace error: ${$t.statusDetail || 'unknown'}` : `VS Code failed to start: ${$t.codeError}`);
 				S.button({ content: 'Retry', click: () => void cmd('openTask', { pid, tid }) });
 			}});
 		} else {
 			S.box({ contentAttrs: 'display:flex flex-direction:column', content: () => {
-				A('p text=', `${$t.statusDetail || $t.status}…`);
+				A('p text=', `${$t.status === 'up' ? 'starting VS Code' : taskActivity(pid, $t).text}…`);
 				A('progress w:100%');
 			}});
 		}
 	});
+}
+
+/**
+ * The right column for a merged task. It keeps its conversation, not its
+ * workspace: there is nothing to open until it is picked up, which clones the
+ * branch again — by a message to the agent, or by hand here.
+ */
+export function drawDonePanel(pid: string, tid: string, $t: any): void {
+	const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+	S.box({ header: `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+		A('p m:0 text=', `This task's work is on ${branch}, and its workspace is gone. The conversation is kept: message the agent `
+			+ `to pick the task back up in a fresh clone of ${branch}, or take it on yourself.`);
+		A('div display:flex gap:$2 flex-wrap:wrap', () => {
+			S.button({ content: 'Pick up as human', icon: user, attrs: '.small', click: () => void cmd('moveTask', { pid, tid, phase: 'human' }) });
+			S.button({ content: 'Delete task…', icon: trash2, attrs: '.small .neutral', click: () => void deleteTask(pid, tid, $t) });
+		});
+	}});
 }
 

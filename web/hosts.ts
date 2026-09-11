@@ -1,6 +1,6 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { download, ellipsisVertical, keyRound, plug, plus, power, trash2 } from 'staffa/icons.js';
+import { download, ellipsisVertical, keyRound, plug, plus, power, refreshCw, serverCrash, serverOff, trash2, triangleAlert } from 'staffa/icons.js';
 import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
 import { $state } from './conn.ts';
 import { addProjectDialog, projectsOn } from './projects.ts';
@@ -8,8 +8,9 @@ import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName } from './util.ts';
 
 /**
  * The hosts: the machines projects run on, this one and the ones reached over
- * SSH. They are the left column of the front page — one box each, outlined in
- * what it is doing, holding whatever it wants from you.
+ * SSH. They live behind the sidebar's *Manage hosts* button — one box each,
+ * outlined in what it is doing, holding whatever it wants from you — and the
+ * ones that want something also show in the sidebar itself (see hostIssue).
  */
 
 /** The hosts in the order they are shown: this machine first, the rest by name. */
@@ -22,15 +23,41 @@ function hostOrder(hid: string): string {
 	return hid === 'local' ? '' : '1' + hostName(hid).toLowerCase();
 }
 
-/** The left column at "/": a box per host, and the way to add one. */
+/** The hosts, as a dialog: a box per host, and the way to add one. */
+export function manageHostsDialog(): void {
+	void S.dialog({ header: 'Hosts', attrs: 'w:36rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => drawHostList() });
+}
+
+/** A box per host, and the way to add one. */
 export function drawHostList(): void {
-	A('div display:flex align-items:center gap:$2 min-width:0', () => {
-		A('h2 flex:1 m:0 font-size:1em fg:$s-muted #Hosts');
-		S.button({ content: 'Add host', icon: plus, attrs: '.small .neutral', click: () => void addHostDialog() });
-	});
-	A('div flex:1 min-height:0 overflow-y:auto display:flex flex-direction:column gap:$2', () => {
+	A('p.s-help m:0 rich=', 'The machines projects run on. *Add host* takes whatever you would type after `ssh`; TPS installs its daemon there and adopts the projects it already has.');
+	A('div display:flex flex-direction:column gap:$2', () => {
 		A.onEach($state.hosts, ($h: any, hid: string) => drawHostBox(hid, $h), (_$h: any, hid: string) => hostOrder(hid));
 	});
+	A('div display:flex justify-content:flex-end', () => {
+		S.button({ content: 'Add host', icon: plus, attrs: '.small', click: () => void addHostDialog() });
+	});
+}
+
+/**
+ * What a host wants, for the sidebar: a login to give, a connection that
+ * failed, a daemon to update. A host that works has nothing to say and gets
+ * nothing here. The click leads to the thing itself: the question, or the
+ * host's box.
+ */
+export function hostIssue(hid: string, $h: any): { color: string; text: string; icon: typeof serverCrash; click: () => void } | undefined {
+	const ask = hostAsk(hid);
+	if (ask) return { color: 'warning', text: `${askLabel(ask[1])}: ${askSummary(ask[1])}`, icon: keyRound, click: () => showAsk(ask[0]) };
+	const status = $h?.status ?? 'connecting';
+	const open = () => manageHostsDialog();
+	if (status !== 'connected') {
+		const quiet = status === 'connecting' || status === 'updating' || status === 'stopped';
+		return { color: quiet ? 'neutral' : 'danger', text: `${status}${$h?.error ? ' · ' + $h.error : ''}`, icon: status === 'stopped' ? serverOff : serverCrash, click: open };
+	}
+	if ($h.warning) return { color: 'warning', text: $h.warning, icon: triangleAlert, click: open };
+	if ($h.restarting) return { color: 'neutral', text: 'the daemon restarts into this build once nothing is running', icon: refreshCw, click: open };
+	if ($h.updatable) return { color: 'neutral', text: 'the daemon runs another build of TPS', icon: download, click: () => void cmd('updateDaemon', { hid }) };
+	return undefined;
 }
 
 /**

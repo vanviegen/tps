@@ -1,12 +1,14 @@
 import A from 'aberdeen';
 
 /**
- * VS Code, running in a container, filling the right column.
+ * VS Code, running in a container, over the right part of the window.
  *
- * The iframes live in a fixed overlay of their own rather than in the column:
- * moving an iframe in the DOM reloads it, and a code-server reload costs
- * seconds. Switching away only hides one, and it is kept around (at most
- * `MAX`, for at most `TTL`), so switching back is instant.
+ * The iframes are fixed-positioned children of the body rather than part of
+ * the column they stand in: moving an iframe in the DOM reloads it, and a
+ * code-server reload costs seconds. Switching away only hides one, and it is
+ * kept around (at most `MAX`, for at most `TTL`), so switching back is
+ * instant. Where its left edge is — after the sidebar and the chat column,
+ * or after the sidebar alone — is the caller's to say.
  */
 
 const MAX = 3;
@@ -24,20 +26,17 @@ interface View {
 
 const views: View[] = [];
 
-const overlay = document.createElement('div');
-overlay.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:calc(var(--leftw) + 1px);display:none';
-document.body.appendChild(overlay);
-
 /**
- * Show VS Code at `src`, for as long as the calling reactive scope lives.
+ * Show VS Code at `src`, for as long as the calling reactive scope lives,
+ * with its left edge at `left` (a CSS length).
  *
- * `gen` identifies the code-server behind `src` — its port, which a restart
- * changes. VS Code cannot reconnect across one (it puts up a modal asking to
- * reload the window), so a frame left over from an older one is reloaded: while
- * the workspace is still down that lands on the proxy's "not running" page,
- * which retries by itself.
+ * `gen` identifies the code-server behind `src`: its port and start time, as
+ * a restart changes the latter. VS Code cannot reconnect across one (it puts
+ * up a modal asking to reload the window), so a frame left over from an older
+ * one is reloaded: while the workspace is still down that lands on the proxy's
+ * "not running" page, which retries by itself.
  */
-export function drawCode(key: string, src: string, gen?: unknown): void {
+export function drawCode(key: string, src: string, gen: unknown, left: string): void {
 	let view = views.find(v => v.key === key);
 	if (!view) {
 		// Room first: the view unused for the longest goes.
@@ -48,16 +47,17 @@ export function drawCode(key: string, src: string, gen?: unknown): void {
 		}
 		const el = document.createElement('iframe');
 		el.setAttribute('allow', 'clipboard-read; clipboard-write');
-		el.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0';
+		el.style.cssText = 'position:fixed;top:0;right:0;bottom:0;width:auto;height:auto;border:0;display:none;transition:left 0.15s';
 		el.src = src;
 		el.addEventListener('load', () => { el.focus(); shareKeys(el); });
-		overlay.appendChild(el);
+		document.body.appendChild(el);
 		views.push(view = { key, el, gen, uses: 0, idle: 0 });
 	} else if (view.gen !== gen) {
 		view.gen = gen;
 		view.el.src = src;
 	}
 	const shown = view;
+	shown.el.style.left = left;
 	shown.uses++;
 	sync();
 	setTimeout(() => shown.el.focus(), 100);
@@ -104,14 +104,9 @@ function drop(view: View): void {
 	views.splice(views.indexOf(view), 1);
 }
 
-/** Only the views in use are visible, and the overlay is out of the way when none is. */
+/** Only the views in use are visible. */
 function sync(): void {
-	let any = false;
-	for (const v of views) {
-		v.el.style.display = v.uses ? 'block' : 'none';
-		any ||= !!v.uses;
-	}
-	overlay.style.display = any ? 'block' : 'none';
+	for (const v of views) v.el.style.display = v.uses ? 'block' : 'none';
 }
 
 // A cached view doesn't outstay its welcome.

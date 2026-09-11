@@ -246,13 +246,12 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		args = append(args, "-e", "ANTHROPIC_API_KEY")
 	}
-	// code-server under the toolbox's init, with the toolbox on PATH so
-	// terminals in VS Code can run claude too. The explicit --port keeps
-	// code-server from picking up $PORT, which is meant for whatever the task
-	// itself serves.
-	args = append(args, o.image, "/tps/bin/tini", "--", "sh", "-c", fmt.Sprintf(
-		"export PATH=/tps/bin:$PATH; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d --auth none --disable-workspace-trust"+
-			" --user-data-dir /vscode --extensions-dir /vscode/extensions /work", codePort))
+	// The container idles under the toolbox's init: claude, the project's
+	// CMD and code-server are all exec'd into it, so each comes and goes on
+	// its own — VS Code in particular is started when a dashboard holds the
+	// task open and stopped when none does (see StartCode), which must not
+	// take the agent down with it.
+	args = append(args, o.image, "/tps/bin/tini", "--", "sh", "-c", "while :; do sleep 3600; done")
 	if _, err := runCmd(append([]string{"podman"}, args...), RunOpts{}); err != nil {
 		return nil, err
 	}
@@ -305,15 +304,87 @@ func containerPorts(name string) (code, app int) {
 }
 
 func (c *Container) waitReady() error {
-	client := &http.Client{Timeout: time.Second}
+	for i := 0; i < 40; i++ {
+		if r, err := runCmd([]string{"podman", "exec", c.Name, "true"}, RunOpts{NoCheck: true}); err == nil && r.Code == 0 {
+			return nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("container %s did not come up", c.Name)
+}
+
+// codeScript runs code-server in the container, with the toolbox on PATH so
+// terminals in VS Code can run claude too. The explicit --port keeps it from
+// picking up $PORT, which is meant for whatever the task itself serves. Its
+// pid is written down first (exec keeps it), for killCodeScript.
+var codeScript = fmt.Sprintf("export PATH=/tps/bin:$PATH; echo $$ >%[2]s; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d"+
+	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions /work", codePort, codePidFile)
+
+const codePidFile = "/tmp/.tps-code.pid"
+
+// killCodeScript sends a signal to code-server and everything it forked
+// (extension hosts, file watchers, language servers): the process tree under
+// the pid codeScript wrote down, found through the parent ids in /proc. Only
+// that tree — the agent's claude, and the shells it and the user run, are
+// left alone whatever their command lines say. Nothing beyond /proc and the
+// shell is needed of the image.
+const killCodeScript = `pid=$(cat %[1]s 2>/dev/null) || exit 0
+[ -d "/proc/$pid" ] || exit 0
+tree=$pid; todo=$pid
+while [ -n "$todo" ]; do
+	next=
+	for parent in $todo; do
+		for p in /proc/[0-9]*; do
+			s=$(cat "$p/stat" 2>/dev/null) || continue
+			s=${s##*) }; set -- $s
+			[ "$2" = "$parent" ] && { tree="$tree ${p#/proc/}"; next="$next ${p#/proc/}"; }
+		done
+	done
+	todo=$next
+done
+kill -%[2]s $tree 2>/dev/null`
+
+// StartCode brings code-server up in the container and waits for it to
+// answer; one that is running already is left as it is.
+func (c *Container) StartCode() error {
+	if codeAlive(c.CodePort) {
+		return nil
+	}
+	if _, err := runCmd([]string{"podman", "exec", "-d", c.Name, "sh", "-c", codeScript}, RunOpts{}); err != nil {
+		return err
+	}
 	for i := 0; i < 120; i++ {
-		if resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", c.CodePort)); err == nil {
-			resp.Body.Close()
+		if codeAlive(c.CodePort) {
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("code-server in %s did not come up", c.Name)
+}
+
+// StopCode ends code-server in the container: a TERM, and a KILL for what is
+// still there a few seconds later. The container itself stays up.
+func (c *Container) StopCode() {
+	for _, sig := range []string{"TERM", "KILL"} {
+		_, _ = runCmd([]string{"podman", "exec", c.Name, "sh", "-c", fmt.Sprintf(killCodeScript, codePidFile, sig)}, RunOpts{NoCheck: true, Timeout: 10 * time.Second})
+		for i := 0; i < 12; i++ {
+			if !codeAlive(c.CodePort) {
+				return
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+}
+
+// codeAlive: does a code-server answer on this (host) port?
+func codeAlive(port int) bool {
+	client := &http.Client{Timeout: time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
 }
 
 // Exec runs a bash script in the container and waits for it.

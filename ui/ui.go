@@ -39,6 +39,7 @@ type UI struct {
 	mu    sync.Mutex
 	links map[string]*Link // by host id
 	hosts []string         // the ssh destinations listed in dashboard.json; this machine is always shown
+	order []string         // project ids as the user arranged them in the sidebar; see dashboard.go
 
 	daemonBinary string
 	askpass      *askpassServer
@@ -53,7 +54,7 @@ var daemonCmds = []string{"setProject", "removeProject", "openProjectCode", "cre
 
 func Run(o Options) error {
 	u := &UI{
-		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.FallbackModels}),
+		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.FallbackModels, "projectOrder": []string{}}),
 		webFS: o.WebFS, links: map[string]*Link{},
 		daemonBinary: o.DaemonBinary, asks: map[int]*question{},
 	}
@@ -63,7 +64,8 @@ func Run(o Options) error {
 	}
 	u.registerCmds()
 	u.hub.OnWatch = u.onWatch
-	hosts, legacy := loadHosts()
+	hosts, order, legacy := loadHosts()
+	u.order = order
 	// This machine is always shown, and shown first; the rest are those listed
 	// (and those a project of an older dashboard lived on).
 	seen := map[string]bool{"": true}
@@ -79,6 +81,7 @@ func Run(o Options) error {
 	u.mu.Lock()
 	u.saveL()
 	u.mu.Unlock()
+	u.publishOrder()
 	u.linkTo("", legacy)
 	for _, dest := range u.hosts {
 		u.linkTo(dest, legacy)
@@ -176,6 +179,7 @@ func (u *UI) registerCmds() {
 	u.hub.Cmds["stopDaemon"] = u.stopDaemon
 	u.hub.Cmds["updateDaemon"] = u.updateDaemon
 	u.hub.Cmds["answer"] = u.answer
+	u.hub.Cmds["setProjectOrder"] = u.setProjectOrder
 }
 
 // --- http ---

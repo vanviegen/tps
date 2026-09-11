@@ -73,22 +73,37 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 		saveCh:     make(chan []byte, 1),
 		exit:       exit,
 	}
+	// A watch is a dashboard holding something open: a task (its chat
+	// streams, its workspace stays up, and VS Code runs in it), or, under the
+	// key "<pid>/-", the project's own checkout in VS Code. The last watcher
+	// going — a Close, or a dashboard's connection dropping — takes VS Code
+	// down with it; nothing else does.
 	h.OnWatch = func(key string, count int) {
 		pid, tid, _ := strings.Cut(key, "/")
 		m.mu.Lock()
-		defer m.mu.Unlock()
-		if p := m.projects[pid]; p != nil {
-			if t := p.tasks[tid]; t != nil {
-				if count > 0 && t.viewers == 0 {
-					go t.refreshChanges()
-				}
-				t.viewers = count
-				t.touchL()
-				if count == 0 {
-					p.autoStartL() // closing a plan lets a task that was waiting for it go
-				}
+		p := m.projects[pid]
+		if p == nil {
+			m.mu.Unlock()
+			return
+		}
+		if tid == "-" {
+			p.codeWanted = count > 0
+			m.mu.Unlock()
+			p.syncCode()
+			return
+		}
+		if t := p.tasks[tid]; t != nil {
+			if count > 0 && t.viewers == 0 {
+				go t.refreshChanges()
+			}
+			t.viewers = count
+			t.touchL()
+			t.setCodeWantedL(count > 0)
+			if count == 0 {
+				p.autoStartL() // closing a plan lets a task that was waiting for it go
 			}
 		}
+		m.mu.Unlock()
 	}
 	go m.saver()
 	return m
@@ -283,16 +298,22 @@ func (m *Manager) sweep() {
 	for _, p := range m.projects {
 		p.autoStartL()
 	}
-	var idle []*Task
+	var idle, unheld []*Task
 	for _, t := range m.allTasksL() {
 		if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown {
 			idle = append(idle, t)
+		} else if t.codeUp && t.viewers == 0 && !t.codeWanted {
+			// A code-server adopted from before a restart that no dashboard came back for.
+			unheld = append(unheld, t)
 		}
 	}
 	m.mu.Unlock()
 	for _, t := range idle {
 		t.note("workspace idle, shutting down (your work is untouched)")
 		t.down()
+	}
+	for _, t := range unheld {
+		go t.syncCode()
 	}
 }
 

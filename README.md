@@ -37,29 +37,38 @@ CGO_ENABLED=0 go build -o tps .    # embeds it; one static binary is all you nee
 ./tps                              # http://localhost:4820/, opens your browser
 ```
 
-The front page holds the hosts on the left and the projects on the right. Each
-host is a box outlined in what it is doing — up, busy, stopped, in trouble —
-saying where it is, how much of the board lives there, and anything it wants
-from you. The projects are one line each: name, how many tasks sit in every
-phase (the ones waiting for you in warning colour), host and directory. A
-project with a task waiting for you comes first, then the one that moved most
-recently.
+The sidebar on the left is the way around. It lists every project, in the
+order you put them in (drag one, or use *Move up* and *Move down* in its
+menu), each wearing a colour of its own and a chip with its code: one or two
+initials made from its name — Aberdeen becomes A, ShoTest ST, wild-mail WM —
+until you give it one. Under each project sit its *open* tasks: the ones
+waiting for you, in warning colour, and the ones you have VS Code open on
+(see below), each with its phase icon. The sidebar folds up into a narrow
+strip whenever VS Code comes on screen, and by the icon beside the logo:
+just the chips and the first letters of each task then, which is what the
+colours and the `subject: change` form of task titles are for. Under the
+projects are *Add project* and *Manage hosts*, and under those only the hosts
+that want something from you — a login, a connection that failed, a daemon
+to update — since a host that works has nothing to say.
 
 *Add project* takes a directory holding a git repository, like
 `~/projects/app`, on the host you pick there, and names the project after the
-directory unless you say otherwise. *Add host* takes whatever you would type
-after `ssh`: `user@host`, a `~/.ssh/config` alias, or `-p 2222 -J jump host`
-— it is also the last entry of the project dialog's host list, for a project
-on a machine that is not on the board yet. TPS uses your ssh, so keys, agents,
-an open multiplexed session and passwords all work. A login it wants (a
-password, an unknown host key) waits in that host's box rather than taking
-over the screen: click it when you are ready. A new host gets the daemon
-installed and started, and the projects it already has are listed along with
-it.
+directory unless you say otherwise. *Manage hosts* shows each host as a box
+outlined in what it is doing — up, busy, stopped, in trouble — and holds *Add
+host*, which takes whatever you would type after `ssh`: `user@host`, a
+`~/.ssh/config` alias, or `-p 2222 -J jump host` — it is also the last entry
+of the project dialog's host list, for a project on a machine that is not on
+the board yet. TPS uses your ssh, so keys, agents, an open multiplexed session
+and passwords all work. A login it wants (a password, an unknown host key)
+waits in the sidebar rather than taking over the screen: click it when you
+are ready. A new host gets the daemon installed and started, and the projects
+it already has are listed along with it.
 
-Right-click a project or a host (or use the ⋮ in a host's header) for what can
-be done with it: renaming, connecting, copying your claude login to a host,
-updating or stopping its daemon, and removing it. Removing a host
+Right-click a project in the sidebar for what can be done with it: adding a
+task, opening its checkout, its default task settings, renaming it, changing
+its code or colour, moving it, and removing it. A host's menu (right-click
+its box, or the ⋮ in its header) holds connecting, copying your claude login
+there, updating or stopping its daemon, and removing it. Removing a host
 takes it off this dashboard only; removing a project takes it off its host,
 with the tasks it holds, for every dashboard.
 
@@ -87,18 +96,26 @@ the task's container.
 
 ## How a task flows
 
-The window is two columns. The left one opens with the trail of where you are —
-TPS / project / task, each crumb a link back up, wearing a badge that counts
-what waits for a human elsewhere — and holds what there is to do here: the
-project's settings while no task is picked, and otherwise the task's phase
-icon (which opens the list of phases to move it to), the gear with its
-settings, and its chat with the agent.
+A project's page is its board of five columns, under a line with its name,
+where it stands, and the buttons that add a task, open its checkout in VS
+Code, and set its default task settings. A task's page beside the sidebar is
+two columns: on the left its settings while it is in Plan and its chat with
+the agent afterwards, the whole height; on the right the description while in
+Plan, VS Code (running in the container) on its workspace once it has one,
+and a note of the merge once it is Done. The chat's top right corner holds
+the icons for running the project, rebuilding the container, the task's
+settings, and *Close*.
 
-The right column is whatever the left one names: the project's board of five
-columns while no task is picked, the description of a task still in Plan, VS
-Code (running in the container) on the task's workspace once it is not, and VS
-Code on the project's own checkout behind the *"main" branch* button. A view
-you switch away from is kept warm for a few minutes, so switching back is
+Opening a task with a workspace opens VS Code on it, and that stays open —
+listed in the sidebar, the container up and code-server running in it — until
+you close it, however much you look elsewhere meanwhile. *Close* stops VS Code
+and takes the task out of the sidebar (a task waiting for you stays listed,
+without VS Code). Closing the tab does the same for everything it had open:
+the daemon keeps a code-server running for exactly as long as some dashboard
+holds the task, and stops it the moment none does, whether by Close or by a
+connection that went away. A reload finds the sessions where it left them. The
+same goes for VS Code on a project's own checkout, behind *View code*. Views
+you switch between are kept warm for a few minutes, so switching back is
 instant.
 
 A project's settings are its name, where it lives, and its *default task
@@ -140,7 +157,7 @@ says what the next tasks start out with and leaves the ones that exist alone.
    container with it — but the conversation stays until the task is deleted,
    so the task can be picked up again for follow-up work: a chat message sends
    the agent back in with everything it knew, and moving the card to Human
-   takes it on yourself. Either way it gets a new clone of the default branch
+   (or the *Pick up as human* button beside the chat) takes it on yourself. Either way it gets a new clone of the default branch
    as it stands then, exactly like a task leaving Plan, so the follow-up builds
    on its own merged work and on whatever other tasks landed meanwhile. The
    agent is told what happened: that its work became a commit, that the old
@@ -155,8 +172,9 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   state in `~/.config/tps/projects.json`, the workspaces (repo clone, claude
   session state, chat log) and the downloaded tools under
   `~/.local/share/tps/`, and the daemon's socket, log and, on SSH hosts, its
-  binary next to them. Projects, with the names you gave them, are part of
-  that: the dashboard only keeps the list of hosts, in
+  binary next to them. Projects, with the names, colours and codes you gave
+  them, are part of that: the dashboard only keeps the list of hosts and the
+  order of the projects (which spans hosts), in
   `~/.config/tps/dashboard.json`. There is no database and your repository
   only ever receives the final merge commit.
 - Removing a project is a change on its host, so every dashboard using it
@@ -184,9 +202,11 @@ Moving a task back to Plan discards all of its work, after a confirmation.
 - Each task tracks what its agent runs cost; an optional budget limit parks
   the task for you when spending reaches it.
 - Container builds use the task's clone as their only build context, and code
-  runs as an unprivileged user in a rootless container. Idle containers are
-  torn down after 15 minutes; a workspace lasts until the task merges (which
-  is what makes it disposable) or is deleted.
+  runs as an unprivileged user in a rootless container. A container nobody
+  holds open and no agent works in is torn down after 15 minutes; a workspace
+  lasts until the task merges (which is what makes it disposable) or is
+  deleted. code-server runs in the container only while a dashboard has the
+  task open, so closing it never takes an agent down with it.
 - Ctrl-L (⌘L) opens *Go to*: type a few letters of a project or a task, Enter
   takes you there. It works from inside VS Code too, which is where the keyboard
   usually is; the only thing it costs you there is "select current line", and

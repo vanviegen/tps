@@ -1,23 +1,32 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
+import { arrowDown, arrowUp, check, code, folder, gitBranch, keyRound, palette, pencil, plus, settings, tag, trash2, x } from 'staffa/icons.js';
 import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
-import { folder, gitBranch, keyRound, pencil, plus, trash2 } from 'staffa/icons.js';
+import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
+import { hold, release } from './holds.ts';
 import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
-import { drawTaskFields, humanTasks } from './task.ts';
-import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PHASE_ICONS, PHASE_LABELS, PHASES, shortDir } from './util.ts';
+import { addTask, drawTaskFields } from './task.ts';
+import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectCode, projectColor, selection, shortDir } from './util.ts';
 
 /**
- * Projects: the right column of the front page, one line per project. A task
- * waiting for a human puts a project on top; after that, the one that moved
- * last leads.
+ * Projects: what the sidebar lists, in the order the user put them in (kept
+ * by the dashboard, as it spans hosts), each in its colour and with its code
+ * (kept by the project's daemon, like its name).
  */
 
-/** Where a project sits in the list, as a sort key. */
+/** Where a project sits in the list, as a sort key: its place in the user's order, the unplaced ones after that by name. */
 export function projectOrder(pid: string, $p: any): (number | string)[] {
-	return [humanTasks(pid) ? 0 : 1, -($p.activity ?? 0), ($p.name ?? '').toLowerCase()];
+	const order: string[] = $state.projectOrder ?? [];
+	const i = order.indexOf(pid);
+	return [i < 0 ? order.length : i, ($p.name ?? '').toLowerCase()];
+}
+
+/** The same, in the argument order onEach hands out. */
+export function projectSortKey($p: any, pid: string): (number | string)[] {
+	return projectOrder(pid, $p);
 }
 
 /** The projects in the order they are listed. */
@@ -41,10 +50,29 @@ export function projectsOn(hid: string): [string, any][] {
 		.sort((a, b) => a[1].name.localeCompare(b[1].name));
 }
 
+/** Put `pid` right before `beforePid` in the list (or at the end, without one), and tell the server the whole order. */
+export function reorderProjects(pid: string, beforePid?: string): void {
+	const ids = A.peek(sortedProjects).map(([id]) => id).filter(id => id !== pid);
+	const at = beforePid ? ids.indexOf(beforePid) : -1;
+	if (at < 0) ids.push(pid);
+	else ids.splice(at, 0, pid);
+	void cmd('setProjectOrder', { order: ids });
+}
+
+/** Move a project one place up or down. */
+function moveProject(pid: string, by: -1 | 1): void {
+	const ids = A.peek(sortedProjects).map(([id]) => id);
+	const i = ids.indexOf(pid);
+	const j = i + by;
+	if (i < 0 || j < 0 || j >= ids.length) return;
+	[ids[i], ids[j]] = [ids[j], ids[i]];
+	void cmd('setProjectOrder', { order: ids });
+}
+
 /**
- * Remove a project from its host, once confirmed; used from its row and from
- * its settings. The list belongs to the host, so this is not just a matter of
- * this dashboard: the tasks go with it, on every dashboard.
+ * Remove a project from its host, once confirmed. The list belongs to the
+ * host, so this is not just a matter of this dashboard: the tasks go with it,
+ * on every dashboard.
  */
 async function removeProject(pid: string, $p: any): Promise<boolean> {
 	const host = A.peek(() => hostName($p.host));
@@ -52,7 +80,7 @@ async function removeProject(pid: string, $p: any): Promise<boolean> {
 	const also = tasks ? ` Its ${tasks} task${tasks > 1 ? 's are' : ' is'} deleted, workspaces and all.` : '';
 	if (!(await S.confirm(`Remove "${A.peek($p, 'name')}" from ${host}?${also} The repository itself is left alone, and every dashboard using ${host} stops showing the project.`))) return false;
 	if (!(await cmd('removeProject', { pid }))) return false;
-	route.go('/');
+	if (A.peek(selection).pid === pid) route.go('/');
 	return true;
 }
 
@@ -61,100 +89,75 @@ async function renameProject(pid: string, $p: any): Promise<void> {
 	if (name?.trim()) void cmd('setProject', { pid, name: name.trim() });
 }
 
-// Quiet lines on the page's own surface: hairlines between them, a muted
-// heading row, and the row under the pointer lit just enough to follow.
-const projectTable = A.insertCss({
-	'&': 'w:100% min-width:34rem table-layout:fixed border-collapse:collapse;',
-	'th': 'text-align:left font-weight:600 font-size:0.85em fg:$s-muted padding: $1 $2; border-bottom: 1px solid $s-faint;',
-	'td': `padding: $1 $2; border-bottom: 1px solid $s-faint; ${ELLIPSIS}`,
-	'tbody tr': 'cursor:pointer',
-	'tbody tr:hover': 'background: color-mix(in oklab, $s-text, transparent 92%);',
-});
+/** The code the collapsed sidebar shows for the project; emptied, it is made from the name again. */
+async function codePrompt(pid: string, $p: any): Promise<void> {
+	const code = await S.prompt('One to three letters to stand for this project where its name does not fit (empty: made from the name):', A.peek(() => projectCode($p)));
+	if (code !== null) void cmd('setProject', { pid, code: code.trim().slice(0, 3) });
+}
 
-/** The right column at "/": every project as a line, and the way to add one. */
-export function drawProjectTable(): void {
+/** The project's colour, picked from the palette. */
+function colorDialog(pid: string, $p: any): void {
+	void S.dialog({ header: 'Project colour', attrs: 'w:24rem', content: close => {
+		A('p.s-help #The colour the sidebar shows the project and its tasks in.');
+		A('div display:flex flex-wrap:wrap gap:$2', () => {
+			for (const color of PROJECT_COLORS) {
+				A('button w:2.4rem h:2.4rem r:50% border:0 cursor:pointer display:inline-flex align-items:center justify-content:center fg:#14161a',
+					`bg:${color}`, 'aria-label=', color,
+					'click=', () => { void cmd('setProject', { pid, color }); close(); },
+					() => { A(() => { if (projectColor($p) === color) check({ size: '1.2em' }); }); });
+			}
+		});
+	}});
+}
+
+/** The project's menu: everything to do with it, from its row in the sidebar. */
+export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
+	return [
+		{ label: 'Add task', icon: plus, click: () => addTask(pid) },
+		{ label: 'View code', icon: code, click: () => void route.go(pathTo(pid, 'base')) },
+		{ label: 'Default task settings…', icon: settings, click: () => projectDefaultsDialog(pid, $p) },
+		{ separator: true },
+		{ label: 'Rename…', icon: pencil, click: () => void renameProject(pid, $p) },
+		{ label: 'Change code…', icon: tag, click: () => void codePrompt(pid, $p) },
+		{ label: 'Change colour…', icon: palette, click: () => colorDialog(pid, $p) },
+		{ separator: true },
+		{ label: 'Move up', icon: arrowUp, click: () => moveProject(pid, -1) },
+		{ label: 'Move down', icon: arrowDown, click: () => moveProject(pid, 1) },
+		{ separator: true },
+		{ label: 'Remove project…', icon: trash2, attrs: 'fg:$s-danger', click: () => void removeProject(pid, $p) },
+	];
+}
+
+/** The project's code in its colour: what stands for it wherever there is little room, and what its rows are recognised by. */
+export function drawProjectChip($p: any): void {
+	A(() => {
+		A('span display:inline-flex align-items:center justify-content:center flex-shrink:0 min-width:2em h:1.5em ph:0.3em r:$s-radius-sm font-size:0.72em font-weight:800 line-height:1 fg:#14161a letter-spacing:0.03em',
+			`bg:${projectColor($p)}`, 'text=', projectCode($p));
+	});
+}
+
+/**
+ * The project's page: its name and facts, what wants attention, what to do
+ * with it, and its board of five columns underneath.
+ */
+export function drawProjectPage(pid: string, $p: any): void {
 	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
-		A('div display:flex align-items:center gap:$2 min-width:0', () => {
-			A('h2 flex:1 m:0 font-size:1em fg:$s-muted #Projects');
-			S.button({ content: 'Add project', icon: plus, attrs: '.small .neutral', click: () => addProjectDialog() });
-		});
-		A('div flex:1 min-height:0 overflow:auto', () => {
-			A(() => {
-				if (A.isEmpty($state.projects)) {
-					A('p fg:$s-muted rich=', 'No projects yet. *Add project* takes a directory holding a git repository, on any of the hosts beside this.');
-					return;
-				}
-				A('table', projectTable, () => {
-					A('thead tr', () => {
-						A('th #Project');
-						for (const phase of PHASES) {
-							// The icon is the column's name; the label it stands for is
-							// in the tooltip, and in what a screen reader announces.
-							A('th text-align:center w:2.6rem aria-label=', PHASE_LABELS[phase], () => {
-								S.addTooltip({ tip: `Tasks in ${PHASE_LABELS[phase]}` });
-								A('span display:inline-flex', () => PHASE_ICONS[phase]({ size: '1em' }));
-							});
-						}
-						A('th w:9rem #Host');
-						A('th #Path');
-					});
-					A('tbody', () => {
-						A.onEach($state.projects, ($p: any, pid: string) => drawProjectRow(pid, $p), projectOrderOf);
-					});
-				});
+		A('div display:flex align-items:center gap:$3 flex-wrap:wrap min-width:0', () => {
+			A('h2 m:0 font-size:1.15em display:flex align-items:center gap:$2 min-width:0', () => {
+				drawProjectChip($p);
+				A(`span ${ELLIPSIS} text=`, A.ref($p, 'name'));
+			});
+			A(() => drawProjectFacts($p));
+			A('div flex:1');
+			A('div display:flex gap:$2 flex-wrap:wrap', () => {
+				S.button({ content: 'Add task', icon: plus, attrs: '.small', click: () => addTask(pid) });
+				S.button({ content: 'View code', icon: code, attrs: '.small .neutral', click: () => void route.go(pathTo(pid, 'base')) });
+				S.button({ content: 'Default task settings', icon: settings, attrs: '.small .neutral', click: () => projectDefaultsDialog(pid, $p) });
 			});
 		});
+		drawNotices(pid, $p);
+		A('div flex:1 min-height:0', () => drawBoard(pid, $p));
 	});
-}
-
-function projectOrderOf($p: any, pid: string): (number | string)[] {
-	return projectOrder(pid, $p);
-}
-
-/** One project: its name, what its tasks are up to, and where it lives. */
-function drawProjectRow(pid: string, $p: any): void {
-	A('tr', () => {
-		S.addContextMenu({ link: pathTo(pid), get items(): S.MenuEntry[] {
-			return [
-				{ label: 'Rename…', icon: pencil, click: () => void renameProject(pid, $p) },
-				{ separator: true },
-				{ label: 'Remove project…', icon: trash2, click: () => void removeProject(pid, $p) },
-			];
-		}});
-		// The whole line opens the project; the name is a real link, so it is
-		// also what the keyboard, the middle button and a copied address get.
-		A('click=', (e: MouseEvent) => {
-			if (!(e.target as HTMLElement).closest('a')) route.go(pathTo(pid));
-		});
-		A('td', () => {
-			A('div display:flex align-items:center gap:$2 min-width:0', () => {
-				A(`a ${ELLIPSIS} font-weight:600 fg:$s-text text-decoration:none`, 'href=', pathTo(pid), 'text=', A.ref($p, 'name'));
-				A(() => {
-					if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
-				});
-			});
-		});
-		A(() => drawPhaseCounts(pid));
-		A('td', () => A(() => drawHostCell($p.host)));
-		A('td', () => {
-			S.addTooltip({ tip: () => A('text=', $p.dir) });
-			A('text=', shortDir($p.host, $p.dir));
-		});
-	});
-}
-
-/** A cell per phase, holding how many of the project's tasks are in it. */
-function drawPhaseCounts(pid: string): void {
-	const counts = {} as Record<string, number>;
-	for (const $t of Object.values($state.projects[pid]?.tasks ?? {}) as any[]) counts[$t.phase] = (counts[$t.phase] ?? 0) + 1;
-	for (const phase of PHASES) {
-		const n = counts[phase] ?? 0;
-		// Waiting for a human is the one thing here worth looking at twice.
-		A(`td text-align:center ${n && phase === 'human' ? 'fg:$s-warning font-weight:700' : n ? '' : 'fg:$s-faint'}`, () => {
-			if (n) S.addTooltip({ tip: `${n} task${n > 1 ? 's' : ''} in ${PHASE_LABELS[phase]}` });
-			A('text=', n ? String(n) : '·');
-		});
-	}
 }
 
 /** The machine a project lives on, saying by its colour whether it is up. */
@@ -215,7 +218,7 @@ export function addProjectDialog(hid?: string): void {
 					input: () => { named = true; },
 				});
 				// Adding waits for the host to answer, and one being reached for the
-				// first time may want a login. That question waits in the host's box,
+				// first time may want a login. That question waits in the sidebar,
 				// which this dialog covers — so while we wait, it comes here instead.
 				A(() => {
 					if (!$busy.adding) return;
@@ -244,7 +247,7 @@ export function drawNotices(pid: string, $p: any): void {
 		const $h = $state.hosts?.[$p.host];
 		if (!$h) return;
 		// A login the host is waiting for is shown wherever the host is: the
-		// front page has its box, and here it is the reason nothing happens.
+		// sidebar has its strip, and here it is the reason nothing happens.
 		const ask = hostAsk($p.host);
 		if (ask) {
 			drawStrip('warning', `${$h.name}: ${askSummary(ask[1])}`, () => {
@@ -276,8 +279,7 @@ export function drawNotices(pid: string, $p: any): void {
  * Where the project stands, as one wrapping line of plain facts: the branch of
  * its checkout and what is uncommitted in it, then the machine and directory
  * it lives on. Nothing here is a button — reading is all it is for, and colour
- * is left to say what wants a second look. Renaming and removing the project
- * belong to its line on the front page.
+ * is left to say what wants a second look.
  */
 export function drawProjectFacts($p: any): void {
 	const facts: Array<() => void> = [
@@ -311,7 +313,7 @@ export function drawProjectFacts($p: any): void {
 
 /**
  * What the project's new tasks start out with. Rarely changed, so it waits
- * behind a button instead of taking the column.
+ * behind a button instead of taking the page.
  */
 export function projectDefaultsDialog(pid: string, $p: any): void {
 	void S.dialog({ header: 'Default task settings', attrs: 'w:36rem', content: () => {
@@ -326,20 +328,32 @@ export function projectDefaultsDialog(pid: string, $p: any): void {
 	}});
 }
 
-/** The right column for the base worktree: VS Code on the project's own checkout. */
-export function drawProjectCode(pid: string, $p: any): void {
-	const start = () => void cmd('openProjectCode', { pid });
-	A(start);
-	A(() => {
-		if ($p.codePort) {
-			// code-server's remote authority is the Host header, which the proxy passes on unchanged.
-			drawCode(`${pid}/-`, `/code/${pid}/-/?folder=${encodeURIComponent($p.dir)}`, $p.codePort);
-			return;
-		}
-		S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
-			if ($p.codeError) A('p fg:$s-danger text=', $p.codeError);
-			else { A('p#Starting VS Code on the checkout…'); A('progress w:100%'); }
-			S.button({ content: 'Retry', attrs: '.small .neutral', click: start });
-		}});
+/**
+ * VS Code on the project's own checkout, filling the window beside the
+ * sidebar. Arriving here holds the checkout (see holds.ts), which is what
+ * starts its code-server; the Close icon lets go of it and returns to the
+ * project.
+ */
+export function drawProjectCode(pid: string, $p: any, left: string): void {
+	hold(pid);
+	A('div position:relative flex:1 min-width:0 overflow:auto p:$3', () => {
+		A(() => {
+			if ($p.codePort) {
+				// code-server's remote authority is the Host header, which the proxy passes on unchanged.
+				drawCode(`${pid}/-`, `/code/${pid}/-/?folder=${encodeURIComponent($p.dir)}`, $p.codePort, left);
+				return;
+			}
+			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
+				if ($p.codeError) A('p fg:$s-danger text=', $p.codeError);
+				else { A('p#Starting VS Code on the checkout…'); A('progress w:100%'); }
+				S.button({ content: 'Retry', attrs: '.small .neutral', click: () => void cmd('openProjectCode', { pid }) });
+			}});
+		});
+		// Over the frame's top right corner; the frame is fixed under everything
+		// positioned after it, which the z-index sees to.
+		A('div.s-s.neutral.shadow position:absolute top:$3 right:$3 z-index:1 display:flex p:0.15rem r:99em', () => {
+			S.iconButton({ icon: x, ariaLabel: 'Close VS Code', tooltip: 'Close VS Code on the checkout and go back to the project',
+				click: () => { release(pid); void route.go(pathTo(pid)); } });
+		});
 	});
 }

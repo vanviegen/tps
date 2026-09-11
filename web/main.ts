@@ -1,161 +1,128 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, chevronRight, code, settings } from 'staffa/icons.js';
+import { plus } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
-import { drawBoard } from './board.ts';
 import { $state } from './conn.ts';
-import { drawHostList } from './hosts.ts';
+import './holds.ts';
 import { bindPalette } from './palette.ts';
-import { drawNotices, drawProjectCode, drawProjectFacts, drawProjectTable, projectDefaultsDialog, sortedProjects } from './projects.ts';
-import { draftFor, drawAgent, drawPlanEditor, drawPlanSettings, drawTaskCode, humanTasks, taskMenuItems, useTask } from './task.ts';
-import { drawBadge, drawTaskIcon, ELLIPSIS, pathTo, selection, taskTitle } from './util.ts';
+import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
+import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
+import { draftFor, drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
+import { pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
 bindPalette(); // the keyboard's way around: go to any project or task by name
 
-// Two columns, edge to edge: the left one says where you are and holds what to
-// do about it (the conversation included), the right one is the thing itself.
+// The sidebar (see sidebar.ts) and, beside it, whatever the address names.
+// Most of those are two columns, edge to edge: the left one holds what to do
+// (a task's chat, a plan's settings), the right one the thing itself (VS
+// Code, the description). The sidebar's width is a variable, as the frames
+// that VS Code lives in are positioned from it (see code.ts).
 A.insertGlobalCss({
 	':root': '--leftw: min(33.3vw, 600px)',
 	body: 'p:0 h:100dvh min-height:0 overflow:hidden',
 });
+A(() => { A.cssVars.sidew = $ui.collapsed ? SIDEBAR_CLOSED : SIDEBAR_OPEN; });
+
+/** Where the frame of a task's VS Code starts: after the sidebar and the chat column, and the latter's border. */
+export const TASK_CODE_LEFT = 'calc(var(--sidew) + var(--leftw) + 1px)';
+/** Where a full-width VS Code starts: right after the sidebar. */
+export const WIDE_CODE_LEFT = 'var(--sidew)';
 
 A('div display:flex h:100dvh align-items:stretch', () => {
-	A('div display:flex flex-direction:column gap:$3 w:var(--leftw) flex:none min-width:0 p:$3 overflow:hidden', drawSidebar);
-	A('div flex:1 min-width:0 overflow:auto p:$3 border-left: 1px solid $s-faint;', drawRight);
+	A('div flex:none w:var(--sidew) min-width:0 transition: width 0.15s;', drawSidebar);
+	A('div flex:1 min-width:0 display:flex align-items:stretch', drawMain);
 });
 
-// --- the left column ---
+// VS Code coming on screen folds the sidebar up: the code wants the room, and
+// the strip that is left still says where you are. It stays wherever it was
+// put otherwise, so the icon is the way back out.
+A(() => {
+	const { pid, tid, base } = selection();
+	const phase = pid && tid ? $state.projects[pid]?.tasks?.[tid]?.phase : undefined;
+	if (base || (phase && phase !== 'plan' && phase !== 'done')) $ui.collapsed = true;
+});
 
-function drawSidebar(): void {
-	drawCrumbs();
-	// This scope deliberately doesn't read the task's phase: a task changing
-	// phase must not tear down its chat stream (see useTask below).
+// The tab's title says where you are, now that nothing on the page does.
+A(() => {
+	const { pid, tid, base, draft } = selection();
+	const $p = pid ? $state.projects[pid] : undefined;
+	const $t = tid ? $p?.tasks?.[tid] : undefined;
+	const what = !$p ? '' : $t ? taskTitle($t) : base ? `${$p.defaultBranch ?? 'main'} branch` : draft ? 'New task' : '';
+	document.title = [what, $p?.name, 'TPS'].filter(Boolean).join(' · ');
+});
+
+function drawMain(): void {
 	A(() => {
-		const { pid, tid, draft } = selection();
-		const $p = pid ? $state.projects[pid] : undefined;
-		// At the root the hosts take this column, with the projects beside them.
-		if (!pid || !$p) return drawHostList();
-		if (draft) return drawPlanSettings(pid, undefined, draftFor(pid));
-		const $t = tid ? $p.tasks?.[tid] : undefined;
-		if ($t) drawTaskPanel(pid, tid!, $t);
-		else drawProjectPanel(pid, $p);
+		if (!$state.ready) { A('progress w:100% m:$3'); return; }
+		const { pid, tid, base, draft } = selection();
+		if (!pid) return drawHome();
+		const $p = $state.projects[pid];
+		if (!$p) return drawWide(() => S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' }));
+		if (base) return drawProjectCode(pid, $p, WIDE_CODE_LEFT);
+		if (draft) {
+			const $d = draftFor(pid);
+			return drawSplit(() => drawPlanSettings(pid, undefined, $d), () => drawPlanEditor(pid, undefined, $d));
+		}
+		if (!tid) return drawWide(() => drawProjectPage(pid, $p));
+		const $t = $p.tasks?.[tid];
+		if (!$t) return drawWide(() => S.box({ header: 'Unknown task', content: 'This task is not in the project (anymore).' }));
+		drawTaskView(pid, tid, $t);
+	});
+}
+
+/** One column, the width of the window minus the sidebar. */
+function drawWide(content: () => void): void {
+	A('div flex:1 min-width:0 overflow:auto p:$3', content);
+}
+
+/** The two columns: what to do on the left, the thing itself on the right. */
+function drawSplit(left: () => void, right: () => void): void {
+	A('div display:flex flex-direction:column gap:$3 w:var(--leftw) flex:none min-width:0 p:$3 overflow:hidden', left);
+	A('div flex:1 min-width:0 overflow:auto p:$3 border-left: 1px solid $s-faint;', right);
+}
+
+/**
+ * A task. Its settings and its description while it is in Plan; its chat
+ * beside VS Code once it has a workspace; its chat beside a note of the merge
+ * once it is Done, the workspace being gone then.
+ */
+function drawTaskView(pid: string, tid: string, $t: any): void {
+	// Its own scope: watching restarts the chat stream, so it must not be torn
+	// down and set up again every time the task changes phase.
+	A(() => useTask(pid, tid, $t));
+	drawSplit(() => {
+		A(() => {
+			if ($t.phase === 'plan') return drawPlanSettings(pid, tid, $t);
+			drawAgent(pid, tid, $t);
+		});
+	}, () => {
+		A(() => {
+			if ($t.phase === 'plan') return drawPlanEditor(pid, tid, $t);
+			if ($t.phase === 'done') return drawDonePanel(pid, tid, $t);
+			drawTaskCode(pid, tid, $t, TASK_CODE_LEFT);
+		});
 	});
 }
 
 /**
- * The trail to what is on screen: TPS / project / task, each but the last a
- * link one level up. The pills count what waits for a human *elsewhere*: in
- * the other projects, and in the project's other tasks.
+ * There is no front page: the address bar's "/" lands on the first project
+ * in the sidebar. Only a board without projects has nothing to land on, and
+ * says how to get one.
  */
-function drawCrumbs(): void {
-	A('nav display:flex align-items:center gap:$1 min-width:0', () => {
-		const { pid, tid, base, draft } = selection();
-		const $p = pid ? $state.projects[pid] : undefined;
-		// No pill at the root: what waits for a human is on screen there.
-		drawCrumb(pid ? '/' : undefined, () => {
-			bot({ size: '1.3em', color: 'var(--s-accent)' });
-			A('b#TPS');
-		}, pid ? () => sortedProjects().filter(([id]) => id !== pid && humanTasks(id)).length : undefined);
-		if (!$p) return;
-		drawSeparator();
-		drawCrumb(tid || base || draft ? pathTo(pid!) : undefined,
-			() => A(`span ${ELLIPSIS} text=`, A.ref($p, 'name')),
-			() => humanTasks(pid!, tid));
-		if (base) {
-			drawSeparator();
-			drawCrumb(undefined, () => drawBaseLabel($p));
-		} else if (draft) {
-			drawSeparator();
-			drawCrumb(undefined, () => A(`span ${ELLIPSIS}`, () => A('text=', taskTitle(draftFor(pid!), 'New task'))));
-		} else if (tid) {
-			const $t = $p.tasks?.[tid];
-			drawSeparator();
-			drawCrumb(undefined, () => {
-				if ($t) drawPhaseButton(pid!, tid, $t);
-				A(`span ${ELLIPSIS}`, () => A('text=', taskTitle($t)));
-			});
-		}
-	});
-}
-
-/** The task's phase, as an icon that drops its menu: the phases, and the task's own verbs. */
-function drawPhaseButton(pid: string, tid: string, $t: any): void {
-	S.iconButton({
-		icon: () => drawTaskIcon(pid, $t), ariaLabel: 'Change phase', attrs: '.small',
-		click: e => void S.showFloatingMenu({ items: taskMenuItems(pid, tid, $t), anchor: e.currentTarget as HTMLElement }),
-	});
-}
-
-/** One crumb: a link to what it names, unless it is the page you are on. */
-function drawCrumb(href: string | undefined, content: () => void, badge?: () => number): void {
-	const attrs = `display:flex align-items:center gap:$1 min-width:0 text-decoration:none ${ELLIPSIS}`;
-	const draw = () => {
-		content();
-		if (badge) A(() => drawBadge(badge()));
-	};
-	if (href) A('a', attrs, 'href=', href, draw);
-	else A('span', attrs, 'font-weight:700', draw);
-}
-
-function drawSeparator(): void {
-	A('span display:flex flex-shrink:0 fg:$s-muted', () => chevronRight({ size: '1em' }));
-}
-
-/** The base worktree, by the name of the branch it is on. */
-function drawBaseLabel($p: any): void {
-	A('span', () => A('text=', `"${$p.defaultBranch ?? 'main'}" branch`));
-}
-
-/** Under the crumbs of a project: where it stands, what stands in its way, and what to do with it. */
-function drawProjectPanel(pid: string, $p: any): void {
-	drawProjectFacts($p);
-	drawNotices(pid, $p);
-	A('div display:flex flex-wrap:wrap gap:$2', () => {
-		S.button({
-			content: 'View code', icon: code, attrs: '.small .neutral',
-			click: () => void route.go(pathTo(pid, 'base')),
-		});
-		S.button({
-			content: 'Default task settings', icon: settings, attrs: '.small .neutral',
-			click: () => projectDefaultsDialog(pid, $p),
-		});
-	});
-}
-
-/** Under the crumbs of a task: its settings while in Plan, else the chat. */
-function drawTaskPanel(pid: string, tid: string, $t: any): void {
-	// Its own scope: watching restarts the chat stream, so it must not be torn
-	// down and set up again every time the task changes phase.
-	A(() => useTask(pid, tid, $t));
-	A(() => {
-		if ($t.phase === 'plan') return drawPlanSettings(pid, tid, $t);
-		drawAgent(pid, tid, $t);
-	});
-}
-
-// --- the right column ---
-
-function drawRight(): void {
-	A(() => {
-		if (!$state.ready) { A('progress w:100%'); return; }
-		const { pid, tid, base, draft } = selection();
-		if (!pid) return drawProjectTable();
-		const $p = $state.projects[pid];
-		if (!$p) {
-			S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' });
-			return;
-		}
-		if (base) return drawProjectCode(pid, $p);
-		// A task still in Plan (a draft is nothing else) has no workspace to
-		// show, so its description takes the column.
-		if (draft) return drawPlanEditor(pid, undefined, draftFor(pid));
-		const $t = tid ? $p.tasks?.[tid] : undefined;
-		if (!$t) return drawBoard(pid, $p);
-		if ($t.phase === 'plan') return drawPlanEditor(pid, tid!, $t);
-		drawTaskCode(pid, tid!, $t);
+function drawHome(): void {
+	const first = sortedProjects()[0];
+	if (first) {
+		setTimeout(() => { if (!A.peek(selection).pid) void route.go(pathTo(first[0]), 'replace'); });
+		return;
+	}
+	drawWide(() => {
+		S.box({ header: 'Welcome to TPS', contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+			A('p rich=', 'No projects yet. *Add project* takes a directory holding a git repository, on this machine or on any host you reach over SSH.');
+			S.button({ content: 'Add project', icon: plus, click: () => addProjectDialog() });
+		}});
 	});
 }
 
@@ -165,9 +132,9 @@ A(() => {
 	if (!$state.connected) A.clean(S.toast({ message: 'Reconnecting to the TPS server…', type: 'danger', duration: 0, dismissible: false }));
 });
 
-// Questions from the server (SSH logins, host keys) wait in the box of the
-// host they are about, so they don't interrupt. One about a host that is not
-// on the board has nowhere to wait, and opens by itself after all.
+// Questions from the server (SSH logins, host keys) wait in the sidebar's
+// strip for the host they are about, so they don't interrupt. One about a
+// host that is not on the board has nowhere to wait, and opens by itself.
 A(() => {
 	for (const [id, $a] of Object.entries($state.ask ?? {}) as [string, any][]) {
 		if (!$a.host || !$state.hosts?.[$a.host]) showAsk(id);

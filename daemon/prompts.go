@@ -113,9 +113,16 @@ on the following.
 %s`, err, request)
 }
 
+// titlePrompt asks for a title of the form "subject: change to make". The
+// subject comes first and is a single word, so that the dashboard's sidebar,
+// which has room for only the first few letters, still says what a task is about.
 func titlePrompt(description string) string {
-	return "Come up with a short, plain-text title (at most six words, no quotes or trailing " +
-		"punctuation) for a coding task with this description. Reply with only the title.\n\n" + description
+	return "Come up with a short, plain-text title for a coding task with this description. " +
+		"It must have the form \"subject: change to make\": the subject is one word naming what " +
+		"the task is mostly about (a component, a screen, a feature, a file), then a colon, then a " +
+		"few words saying what is to be done to it — at most six words in all, no quotes, no " +
+		"trailing punctuation. Examples: \"sidebar: collapse into icons\", \"login: remember the " +
+		"email\", \"tests: cover the merge path\". Reply with only the title.\n\n" + description
 }
 
 func conflictPrompt(defaultBranch, message string) string {

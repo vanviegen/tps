@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -9,9 +10,11 @@ import (
 	"github.com/vanviegen/agent-manager/daemon"
 )
 
-// The dashboard's own state is the host list: which daemons to connect to.
-// The projects on a host belong to that host's daemon, so every dashboard
-// using it sees the same ones, under the same names.
+// The dashboard's own state is the host list — which daemons to connect to —
+// and the order the user put the projects in. The projects themselves belong
+// to their host's daemon, so every dashboard using it sees the same ones,
+// under the same names and colours; only their order spans hosts, and so
+// lives here.
 
 func configFile(name string) string {
 	home, _ := os.UserHomeDir()
@@ -26,16 +29,17 @@ type legacyProject struct {
 	Name string `json:"name"`
 }
 
-// loadHosts reads the ssh destinations to connect to, and the names an older
-// dashboard gave the projects there.
-func loadHosts() (hosts []string, names []legacyProject) {
+// loadHosts reads the ssh destinations to connect to, the project order, and
+// the names an older dashboard gave the projects there.
+func loadHosts() (hosts, order []string, names []legacyProject) {
 	var saved struct {
 		Hosts    []string        `json:"hosts"`
+		Order    []string        `json:"order"`
 		Projects []legacyProject `json:"projects"`
 	}
 	if data, err := os.ReadFile(configFile("dashboard.json")); err == nil {
 		_ = json.Unmarshal(data, &saved)
-		return saved.Hosts, saved.Projects
+		return saved.Hosts, saved.Order, saved.Projects
 	}
 	// Older still: hosts.json, with the hosts as objects.
 	var older struct {
@@ -49,14 +53,17 @@ func loadHosts() (hosts []string, names []legacyProject) {
 	for _, h := range older.Hosts {
 		hosts = append(hosts, h.Dest)
 	}
-	return hosts, nil
+	return hosts, nil, nil
 }
 
-func saveHosts(hosts []string) error {
+func saveHosts(hosts, order []string) error {
 	if hosts == nil {
 		hosts = []string{}
 	}
-	data, _ := json.MarshalIndent(map[string]any{"hosts": hosts}, "", "\t")
+	if order == nil {
+		order = []string{}
+	}
+	data, _ := json.MarshalIndent(map[string]any{"hosts": hosts, "order": order}, "", "\t")
 	path := configFile("dashboard.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -102,7 +109,41 @@ func (u *UI) indexHostL(dest string) int {
 }
 
 func (u *UI) saveL() {
-	if err := saveHosts(u.hosts); err != nil {
+	if err := saveHosts(u.hosts, u.order); err != nil {
 		log.Printf("saving the host list failed: %v", err)
 	}
+}
+
+// --- the project order: ids ("<host id>:<pid>") as the user arranged them ---
+
+// setProjectOrder stores the order the sidebar's projects were put in, and
+// publishes it. Projects it does not name follow the named ones, by name.
+func (u *UI) setProjectOrder(raw json.RawMessage) (any, error) {
+	var args struct {
+		Order []string `json:"order"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, errors.New("bad arguments")
+	}
+	seen := map[string]bool{}
+	order := []string{}
+	for _, id := range args.Order {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			order = append(order, id)
+		}
+	}
+	u.mu.Lock()
+	u.order = order
+	u.saveL()
+	u.mu.Unlock()
+	u.publishOrder()
+	return nil, nil
+}
+
+func (u *UI) publishOrder() {
+	u.mu.Lock()
+	order := append([]string{}, u.order...)
+	u.mu.Unlock()
+	u.hub.Set([]string{"projectOrder"}, order)
 }

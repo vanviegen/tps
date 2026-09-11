@@ -87,6 +87,11 @@ type Task struct {
 	container    *Container
 	viewers      int
 	lastActivity time.Time
+	codeWanted   bool  // a dashboard holds the task open: VS Code should be up
+	codeUp       bool  // code-server runs in the container
+	codeSyncing  bool  // a syncCode is under way
+	codeStart    int64 // ms epoch of the code-server start: a new one means VS Code must reload
+	codeError    string
 	live         bool
 	checkingLive bool
 	refreshing   bool // a changes overview is being computed
@@ -168,13 +173,22 @@ func (t *Task) publishL() {
 	t.pubL("live", t.live)
 	if t.status == StatusUp && t.container != nil {
 		t.pubL("appPort", t.container.AppPort)
-		t.pubL("codePort", t.container.CodePort)
 		t.pubL("runCmd", nonEmpty(cmdDisplay(t.runCmd)))
 	} else {
 		t.pubL("appPort", nil)
-		t.pubL("codePort", nil)
 		t.pubL("runCmd", nil)
 	}
+	// The port is there while VS Code is: its start time comes along, so a
+	// dashboard can tell a restarted code-server (which needs a reload) from
+	// the one it was talking to.
+	if t.status == StatusUp && t.container != nil && t.codeUp {
+		t.pubL("codePort", t.container.CodePort)
+		t.pubL("codeStart", t.codeStart)
+	} else {
+		t.pubL("codePort", nil)
+		t.pubL("codeStart", nil)
+	}
+	t.pubL("codeError", nonEmpty(t.codeError))
 	switch {
 	case t.run != nil:
 		t.pubL("run", map[string]any{"status": "running"})
@@ -225,6 +239,7 @@ func (t *Task) setPhaseL(phase Phase) {
 	t.p.m.saveL()
 	t.publishL()
 	t.p.autoStartL() // a task reaching Done may be the last one another was waiting for
+	go t.syncCode()  // a workspace it just got (or lost) changes what VS Code can show
 }
 
 // --- chat log (no manager lock needed) ---
@@ -795,6 +810,11 @@ func (t *Task) adoptL() {
 		}
 		t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
 		t.status = StatusUp
+		// A code-server still running in it is kept: the dashboards that held
+		// it are about to reconnect. One nobody comes back for goes in the sweep.
+		if codeAlive(c.CodePort) {
+			t.codeUp, t.codeStart = true, time.Now().UnixMilli()
+		}
 	}
 }
 
@@ -969,8 +989,9 @@ func (t *Task) clone() error {
 	return os.Rename(tmp, t.repoDir())
 }
 
-// Open is called when a user opens the task's page: bring the workspace up,
-// if there is one — a task in Plan has none yet, a merged one no longer.
+// Open is a dashboard's retry after a workspace failure: bring the workspace
+// up, if there is one — a task in Plan has none yet, a merged one no longer —
+// and VS Code with it, if the dashboard holds the task.
 func (t *Task) Open() {
 	t.lock()
 	t.touchL()
@@ -978,7 +999,93 @@ func (t *Task) Open() {
 	t.unlock()
 	if phase != PhasePlan && exists(t.repoDir()) {
 		t.bgUp()
+		go t.syncCode()
 	}
+}
+
+// --- VS Code: up while a dashboard holds the task open, down as soon as none does ---
+
+// setCodeWantedL records whether anyone holds the task open (its watchers, at
+// the hub), and sets the code-server after it.
+func (t *Task) setCodeWantedL(wanted bool) {
+	t.codeWanted = wanted
+	go t.syncCode()
+}
+
+// syncCode brings code-server in line with codeWanted: started in the
+// container (which is brought up first) while the task is held, stopped when
+// it is let go of — by a Close, or by the dashboard's connection going. It
+// converges in a loop, as the want may flip while it works; a start that fails
+// is reported once, and tried again by whatever next asks.
+func (t *Task) syncCode() {
+	t.lock()
+	if t.codeSyncing {
+		t.unlock()
+		return
+	}
+	t.codeSyncing = true
+	t.unlock()
+	defer func() {
+		t.lock()
+		t.codeSyncing = false
+		t.unlock()
+	}()
+	for {
+		t.lock()
+		wanted, up, phase := t.codeWanted, t.codeUp, t.info.Phase
+		t.unlock()
+		if wanted == up {
+			return
+		}
+		if wanted {
+			// Nothing to show yet, or no longer: a plan has no workspace, a merged
+			// task lost its one. The hold is left standing for when it has one.
+			if phase == PhasePlan || !exists(t.repoDir()) {
+				return
+			}
+			if err := t.startCode(); err != nil {
+				t.lock()
+				t.codeError = err.Error()
+				t.publishL()
+				t.unlock()
+				return
+			}
+		} else {
+			t.stopCode()
+		}
+	}
+}
+
+func (t *Task) startCode() error {
+	c, err := t.up()
+	if err != nil {
+		return err
+	}
+	if err := c.StartCode(); err != nil {
+		return err
+	}
+	t.lock()
+	defer t.unlock()
+	if t.container != c { // recycled meanwhile: the loop looks again
+		return nil
+	}
+	t.codeUp, t.codeStart, t.codeError = true, time.Now().UnixMilli(), ""
+	t.touchL()
+	t.publishL()
+	return nil
+}
+
+func (t *Task) stopCode() {
+	t.lock()
+	c := t.container
+	t.unlock()
+	if c != nil {
+		c.StopCode()
+	}
+	t.lock()
+	defer t.unlock()
+	t.codeUp = false
+	t.publishL()
 }
 
 func (t *Task) bgUp() {
@@ -1057,11 +1164,13 @@ func (t *Task) doUp() (*Container, error) {
 	}
 	t.lock()
 	t.container, t.lastTag, t.runCmd, t.imageErr = c, tag, containerfileCmd(cf), imageErr
+	t.codeUp = false // a fresh container has no code-server in it yet
 	t.setStatusL(StatusUp, "")
 	if imageErr != "" {
 		t.fixImageL()
 	}
 	t.unlock()
+	go t.syncCode() // VS Code back up in it, if the task is held
 	return c, nil
 }
 
@@ -1118,6 +1227,7 @@ func (t *Task) down() {
 	}
 	t.lock()
 	t.container = nil
+	t.codeUp = false
 	t.setStatusL(StatusDown, "")
 	t.unlock()
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -41,6 +42,19 @@ func (c *codeServer) kill() {
 // One at a time across projects: starting a code-server is rare, and the
 // toolbox download it may wait on is serialized anyway.
 var codeMu sync.Mutex
+
+// syncCode sets the code-server after codeWanted: up while a dashboard holds
+// the checkout open, down once none does.
+func (p *Project) syncCode() {
+	p.m.mu.Lock()
+	wanted := p.codeWanted
+	p.m.mu.Unlock()
+	if wanted {
+		p.bgOpenCode()
+	} else {
+		p.closeCode()
+	}
+}
 
 // bgOpenCode brings the code-server up without making the dashboard wait for
 // it: on a fresh host that includes downloading the toolbox. The dashboard
@@ -77,8 +91,10 @@ func (p *Project) openCode() error {
 	if err != nil {
 		return err
 	}
+	// The explicit --port keeps code-server from taking a $PORT it finds in
+	// the daemon's environment over the address it is told to bind.
 	cmd := exec.Command(filepath.Join(toolbox, "bin", "code-server"),
-		"--bind-addr", fmt.Sprintf("127.0.0.1:%d", port),
+		"--bind-addr", fmt.Sprintf("127.0.0.1:%d", port), "--port", strconv.Itoa(port),
 		"--auth", "none", "--disable-workspace-trust",
 		"--user-data-dir", vscode, "--extensions-dir", filepath.Join(vscode, "extensions"),
 		p.dir())
