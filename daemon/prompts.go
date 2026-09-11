@@ -29,6 +29,9 @@ Rules:
   there (binding localhost only would leave it unreachable: the container is a network
   namespace of its own, and TPS forwards a host port into it). Nothing is exposed
   beyond the machine: TPS publishes the ports on the host's loopback.
+- Attachments: files the user adds to a message (a pasted screenshot, say) are put in
+  /uploads, read-only, and their path is what the message refers to — read them there,
+  images included. They stay for the whole task, so an earlier one can be looked at again.
 - Your container is disposable: it is recreated after idle periods, and anything you
   install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
   create or edit /work/Containerfile.dev, the project's image definition, and end your

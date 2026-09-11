@@ -226,6 +226,12 @@ func serviceWrap(dir string, argv []string) int {
 		argv = []string{"bash", "-c", argv[0]}
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	// The wrapper flag is spent: it says "you are the wrapper of this service",
+	// and the service must not hear it. It would be handed down the whole
+	// process tree otherwise, and any TPS binary the service runs — this
+	// project's own, under `go run .` — would take itself for the wrapper and
+	// try to exec its arguments.
+	cmd.Env = withoutEnv(os.Environ(), serviceWrapEnv)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err := cmd.Start()
 	if ready := os.NewFile(3, "ready"); ready != nil { // run waits for this (see there)
@@ -241,6 +247,17 @@ func serviceWrap(dir string, argv []string) int {
 	}
 	_ = os.WriteFile(filepath.Join(dir, "exit"), []byte(strconv.Itoa(code)+"\n"), 0o644)
 	return code
+}
+
+// withoutEnv is the environment with one variable taken out of it.
+func withoutEnv(env []string, name string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, name+"=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // shellExitCode is the exit code a shell would report for a finished command: its

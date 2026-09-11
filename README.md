@@ -160,7 +160,11 @@ says what the next tasks start out with and leaves the ones that exist alone.
    objects, so nearly free), spins up the container, and hands the description
    to claude. A task that follows others is cloned when their work is in, so
    it includes it. The chat shows what the agent is doing, tool call by tool
-   call; type to steer it mid-run or to send follow-ups.
+   call; type to steer it mid-run or to send follow-ups. Images pasted into
+   the message are attached to it: each shows as a thumbnail you can take back
+   off until you send, and the message carries the path the agent reads it at
+   — `/uploads/image.png`, a read-only directory in the container that keeps
+   everything the task was ever sent.
 3. **Human**: Claude's turn ended, or you pressed stop, or you assigned the
    task to yourself. Chat to send the agent back in, open VS Code to work
    yourself, or merge. When the default branch has moved on since the clone

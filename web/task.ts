@@ -2,6 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { arrowDownToLine, bot, check, circleSlash, circleStop, ellipsisVertical, gitMerge, play, refreshCw, sendHorizontal, settings, square, squareCheck, trash2, user, x } from 'staffa/icons.js';
+import { addFiles, attachments, dropAttachment, drawAttachments, imageFiles, takeAttachments, uploadPath } from './attach.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
@@ -536,35 +537,83 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 function drawInputBar(pid: string, tid: string, $t: any): void {
 	// Whatever was typed here and never sent, from before this task was left.
 	const draft = chatDraft(pid, tid);
+	const $atts = attachments(pid, tid);
 	const $has = A.proxy({ text: !!draft.trim() });
 	// Looked up rather than remembered: with a draft restored, the field is in
 	// use before it has seen a single keystroke.
-	const area = () => row.querySelector('textarea') as HTMLTextAreaElement;
+	const area = () => bar.querySelector('textarea') as HTMLTextAreaElement;
 	const sendMsg = () => {
 		const el = area();
 		const text = el.value.trim();
-		if (!text) return;
+		const files = takeAttachments(pid, tid);
+		if (!text && !files.length) return;
 		el.value = '';
 		el.dispatchEvent(new Event('input')); // shrink it back down, drop $has.text, and forget the draft
-		void cmd('chat', { pid, tid, text });
+		void cmd('chat', { pid, tid, text, files });
 	};
-	const row = A('div display:flex align-items:flex-end gap:$2', () => {
-		S.textarea({
-			placeholder: 'Message the agent…', attrs: 'flex:1', inputAttrs: 'max-height:40dvh overflow-y:auto',
-			value: draft,
-			input: (e: Event) => {
-				const text = (e.target as HTMLTextAreaElement).value;
-				$has.text = !!text.trim();
-				setChatDraft(pid, tid, text);
-			},
+	// Images pasted into the field are attached to the message rather than
+	// pasted as whatever text the clipboard also holds, and the path the agent
+	// will read each at goes in where the cursor was.
+	const pasteImages = async (files: File[]) => {
+		for (const ref of await addFiles(pid, tid, files)) insertRef(area(), ref);
+	};
+	const bar = A('div display:flex flex-direction:column gap:$2', () => {
+		drawAttachments(pid, tid, name => {
+			dropAttachment(pid, tid, name);
+			removeRef(area(), uploadPath(name));
 		});
-		// One button beside the field: send while there is text, else stop while claude works.
-		A(() => {
-			if ($has.text) S.button({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', click: sendMsg });
-			else if ($t.working) S.button({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: '.danger',
-				click: () => void cmd('stopAgent', { pid, tid }) });
+		A('div display:flex align-items:flex-end gap:$2', () => {
+			S.textarea({
+				placeholder: 'Message the agent…', attrs: 'flex:1', inputAttrs: 'max-height:40dvh overflow-y:auto',
+				value: draft,
+				input: (e: Event) => {
+					const text = (e.target as HTMLTextAreaElement).value;
+					$has.text = !!text.trim();
+					setChatDraft(pid, tid, text);
+				},
+			});
+			// One button beside the field: send while there is something to send,
+			// else stop while claude works.
+			A(() => {
+				if ($has.text || $atts.length) S.button({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', click: sendMsg });
+				else if ($t.working) S.button({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: '.danger',
+					click: () => void cmd('stopAgent', { pid, tid }) });
+			});
 		});
 	}) as HTMLElement;
+	area().addEventListener('paste', (e: ClipboardEvent) => {
+		const files = imageFiles(e.clipboardData);
+		if (!files.length) return; // a plain paste is the browser's to handle
+		e.preventDefault();
+		void pasteImages(files);
+	});
+}
+
+/** Put an attachment's path where the cursor is, kept apart from the words around it. */
+function insertRef(el: HTMLTextAreaElement, ref: string): void {
+	const at = el.selectionStart ?? el.value.length;
+	const before = el.value.slice(0, at);
+	const after = el.value.slice(el.selectionEnd ?? at);
+	const lead = before && !/\s$/.test(before) ? ' ' : '';
+	const trail = /^\s/.test(after) ? '' : ' '; // also at the very end: what is typed next is a new word
+	el.value = before + lead + ref + trail + after;
+	const pos = before.length + lead.length + ref.length + trail.length;
+	el.setSelectionRange(pos, pos);
+	el.focus();
+	el.dispatchEvent(new Event('input')); // grow with it, and remember the draft
+}
+
+/** Take the path of a removed attachment back out, with the space it came with. */
+function removeRef(el: HTMLTextAreaElement, ref: string): void {
+	const at = el.value.indexOf(ref);
+	if (at < 0) return;
+	let end = at + ref.length;
+	let start = at;
+	if (el.value[end] === ' ') end++;
+	else if (start > 0 && el.value[start - 1] === ' ') start--;
+	el.value = el.value.slice(0, start) + el.value.slice(end);
+	el.setSelectionRange(start, start);
+	el.dispatchEvent(new Event('input'));
 }
 
 /**

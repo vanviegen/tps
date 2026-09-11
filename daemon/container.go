@@ -226,6 +226,7 @@ func splitPortSpec(spec string) (port int, proto string) {
 type containerOpts struct {
 	name, image, toolbox, repoDir, claudeDir string
 	servicesDir                              string // the task's services (see services.go), mounted at /services
+	uploadsDir                               string // what the user attached to its messages (see uploads.go), mounted read-only at /uploads
 	nestDir                                  string // the task's control directory for its docker socket, see nest.go
 }
 
@@ -243,7 +244,8 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		return c, nil
 	}
 	rmContainer(o.name)
-	clearServices(o.servicesDir) // whatever ran in the old one is gone
+	clearServices(o.servicesDir)         // whatever ran in the old one is gone
+	_ = os.MkdirAll(o.uploadsDir, 0o755) // a task that was never sent a file still needs the mountpoint
 	vscode, err := sharedVscodeDir()
 	if err != nil {
 		return nil, err
@@ -271,6 +273,8 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-v", o.repoDir + ":/work",
 		"-v", o.claudeDir + ":/claude",
 		"-v", o.servicesDir + ":" + servicesMount,
+		// Read-only: what the user attached is theirs, and the agent only reads it.
+		"-v", o.uploadsDir + ":" + uploadsMount + ":ro",
 		"-v", vscode + ":/vscode",
 		"-e", "CLAUDE_CONFIG_DIR=/claude",
 		"-e", "DISABLE_AUTOUPDATER=1", // the toolbox is read-only, and versioned by TPS
@@ -322,7 +326,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
 func containerConfig(image, toolbox string) string {
-	config, _ := json.Marshal([]any{12, image, filepath.Base(toolbox)})
+	config, _ := json.Marshal([]any{13, image, filepath.Base(toolbox)})
 	return string(config)
 }
 

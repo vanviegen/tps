@@ -104,6 +104,17 @@ func TestServiceTool(t *testing.T) {
 	if s := readService(root, "stubborn"); s.Status != "stopped" || *s.Code != 137 {
 		t.Errorf("killed: %+v", s)
 	}
+	// The wrapper keeps its own flag to itself: a service that runs a TPS
+	// binary (this project's own does) must not have it take over as wrapper.
+	if err := run("env", `echo "wrap=[$TPS_SERVICE_WRAP]"`); err != nil {
+		t.Fatal(err)
+	}
+	if code := st.await([]string{"env", "5"}); code != 0 {
+		t.Errorf("await env: %d", code)
+	}
+	if log := readFile(filepath.Join(root, "env", "log")); log != "wrap=[]\n" {
+		t.Errorf("the wrapper flag reached the service: %q", log)
+	}
 	if err := run("bad name", "x"); err == nil {
 		t.Error("bad name accepted")
 	}

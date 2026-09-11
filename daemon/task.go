@@ -549,10 +549,13 @@ func (t *Task) Assign(to string) error {
 	return nil
 }
 
-// SendChat: a user chat message, shown in the log, then fed to (or starting) claude.
-func (t *Task) SendChat(text string) error {
+// SendChat: a user chat message, shown in the log, then fed to (or starting)
+// claude. Files attached to it are written to the task's uploads directory
+// first, and the message refers to them by the path it reads them at (see
+// uploads.go).
+func (t *Task) SendChat(text string, files []ChatFile) error {
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && len(files) == 0 {
 		return nil
 	}
 	t.lock()
@@ -560,6 +563,12 @@ func (t *Task) SendChat(text string) error {
 		t.unlock()
 		return errors.New("Assign the task to the agent first")
 	}
+	t.unlock()
+	text, err := t.saveUploads(text, files)
+	if err != nil {
+		return err
+	}
+	t.lock()
 	t.touchL()
 	t.p.touchL()
 	t.doneNudges = 0
@@ -721,7 +730,7 @@ func (t *Task) MoveTo(phase Phase) error {
 			t.kickRebase(false)
 			return nil
 		}
-		return t.SendChat("Please continue working on the task.")
+		return t.SendChat("Please continue working on the task.", nil)
 	case PhaseHuman, PhaseMuted:
 		// Both wait for a human; muting is that with the task put away. Getting
 		// there is the same work either way, and only the phase set at the end
@@ -1517,7 +1526,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	t.lock()
 	t.setStatusL(StatusStarting, "starting container")
 	t.unlock()
-	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), servicesDir: t.servicesDir(), nestDir: nestDir(t.dir())})
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir())})
 }
 
 func (t *Task) down() {
