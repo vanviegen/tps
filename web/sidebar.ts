@@ -104,8 +104,8 @@ function drawProject(pid: string, $p: any): void {
 				},
 				'click=', (e: MouseEvent) => { if (dragged) e.preventDefault(); });
 			A(() => {
-				const { pid: shown, tid, base, draft } = selection();
-				A('.tps-current=', shown === pid && !tid && !base && !draft);
+				const { pid: shown, tid, base } = selection();
+				A('.tps-current=', shown === pid && !tid && !base);
 			});
 			A(() => {
 				if ($ui.collapsed) S.addTooltip({ tip: () => A('text=', $p.name), placement: 'right' });

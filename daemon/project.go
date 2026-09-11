@@ -356,17 +356,16 @@ func (p *Project) pubDefault(field string, value any) {
 	p.m.hub.Set([]string{"projects", p.pid, "defaults", field}, value)
 }
 
-// CreateTask writes a task down, description and settings and all. A task is
-// only created once there is something worth keeping: the dashboard drafts one
-// in the browser and sends it here when it is assigned, so a task the user
-// thought better of never reaches this file.
+// CreateTask writes a task down, description and settings and all. The
+// dashboard creates one the moment it is started, empty and in Plan, so it is
+// on the board and in the sidebar while its description is being written.
 func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	p.m.mu.Lock()
 	defer p.m.mu.Unlock()
 	tid := strconv.Itoa(p.info.NextTask)
 	p.info.NextTask++
 	// The project's defaults are what a task starts out with; whatever the
-	// partial names (the dashboard sends the draft's settings along) wins.
+	// partial names wins.
 	d := p.info.Defaults // a copy, so the task's settings are its own
 	info := &TaskInfo{Model: d.Model, AutoMerge: &d.AutoMerge, Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
 	if d.Budget != nil {

@@ -120,14 +120,13 @@ export function drawStrip(color: string, text: string, action?: () => void, clic
 A.insertGlobalCss({ '@keyframes spin': { to: 'transform:rotate(360deg)' } });
 
 /**
- * What the URL selects: a project, and within it a task, its base worktree, a
- * task being drafted, or none of those. Everything on screen follows from
- * this, so navigating is a link.
+ * What the URL selects: a project, and within it a task, its base worktree, or
+ * neither. Everything on screen follows from this, so navigating is a link.
  */
-export function selection(): { pid?: string; tid?: string; base?: boolean; draft?: boolean } {
+export function selection(): { pid?: string; tid?: string; base?: boolean } {
 	const p = route.current.p;
 	if (p[0] !== 'p' || !p[1]) return {};
-	return { pid: p[1], tid: p[2] === 't' ? p[3] : undefined, base: p[2] === 'base', draft: p[2] === 'draft' };
+	return { pid: p[1], tid: p[2] === 't' ? p[3] : undefined, base: p[2] === 'base' };
 }
 
 /**
@@ -141,11 +140,10 @@ export function branchLabel($p: any): string {
 
 /**
  * The path selecting a project, and in it a task — `'base'` for the base
- * worktree, `'draft'` for the task being written but not yet created. Task ids
- * are numbers, so neither name can collide with one.
+ * worktree. Task ids are numbers, so that name cannot collide with one.
  */
 export function pathTo(pid: string, tid?: string): string {
-	return `/p/${pid}` + (tid === 'base' || tid === 'draft' ? `/${tid}` : tid ? `/t/${tid}` : '');
+	return `/p/${pid}` + (tid === 'base' ? '/base' : tid ? `/t/${tid}` : '');
 }
 
 /** How many things wait for a human, as a pill. Nothing waiting draws nothing. */
@@ -190,9 +188,10 @@ export function shortDir(hid: string, dir: string): string {
 
 /**
  * What to call a task. A task gets its title when it leaves Plan (claude is
- * asked for one), so until then its description stands in for it.
+ * asked for one), so until then its description's first line stands in for it
+ * — and a task with nothing written down yet is simply "New".
  */
-export function taskTitle($t: any, fallback = '(untitled)'): string {
+export function taskTitle($t: any, fallback = 'New'): string {
 	const title = ($t?.title ?? '').trim();
 	if (title) return title;
 	const [line] = ($t?.description ?? '').replace(/^[#\s]+/, '').split('\n');

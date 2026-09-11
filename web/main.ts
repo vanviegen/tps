@@ -10,7 +10,7 @@ import { bindPalette } from './palette.ts';
 import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
-import { draftFor, drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
+import { drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
 import { branchLabel, hasWorkspace, isFinished, isOpenable, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
@@ -68,25 +68,21 @@ A(() => {
 
 // The tab's title says where you are, now that nothing on the page does.
 A(() => {
-	const { pid, tid, base, draft } = selection();
+	const { pid, tid, base } = selection();
 	const $p = pid ? $state.projects[pid] : undefined;
 	const $t = tid ? $p?.tasks?.[tid] : undefined;
-	const what = !$p ? '' : $t ? taskTitle($t) : base ? branchLabel($p) : draft ? 'New task' : '';
+	const what = !$p ? '' : $t ? taskTitle($t) : base ? branchLabel($p) : '';
 	document.title = [what, $p?.name, 'TPS'].filter(Boolean).join(' · ');
 });
 
 function drawMain(): void {
 	A(() => {
 		if (!$state.ready) { A('progress w:100% m:$3'); return; }
-		const { pid, tid, base, draft } = selection();
+		const { pid, tid, base } = selection();
 		if (!pid) return drawHome();
 		const $p = $state.projects[pid];
 		if (!$p) return drawWide(() => S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' }));
 		if (base) return drawProjectCode(pid, $p, WIDE_CODE_LEFT);
-		if (draft) {
-			const $d = draftFor(pid);
-			return drawSplit(() => drawPlanSettings(pid, undefined, $d), () => drawPlanEditor(pid, undefined, $d));
-		}
 		if (!tid) return drawWide(() => drawProjectPage(pid, $p));
 		const $t = $p.tasks?.[tid];
 		if (!$t) return drawWide(() => S.box({ header: 'Unknown task', content: 'This task is not in the project (anymore).' }));
