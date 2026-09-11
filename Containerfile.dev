@@ -43,7 +43,10 @@ RUN printf '%s\n' '#!/bin/sh' \
     'done' \
     'exec docker "$@"' >/usr/local/bin/podman && chmod +x /usr/local/bin/podman
 
-ARG GO_VERSION=1.24.7
+# Keep GO_VERSION on the `go` line of go.mod. GOTOOLCHAIN=auto below fetches
+# whatever go.mod asks for and cannot find here — a quarter of a gigabyte into
+# the task's module cache, which a fresh container downloads all over again.
+ARG GO_VERSION=1.27.1
 ARG NODE_VERSION=22.19.0
 RUN arch="$(dpkg --print-architecture)" \
     && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" | tar -C /usr/local -xz \

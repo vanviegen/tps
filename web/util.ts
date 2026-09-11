@@ -215,22 +215,33 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 	}
 }
 
+/** Where the task stands, in one line: its phase, whether claude is on it, and what its workspace is doing. */
+export function taskTip(pid: string, $t: any): string {
+	const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
+	return `${phase}${$t.working ? ', claude is working' : ''} · ${taskActivity(pid, $t).text}`;
+}
+
 /**
  * The task at a glance: its phase as an icon (a spinner while claude works or
  * merges, an hourglass while it waits for the tasks it follows), colored by the
  * container status.
+ *
+ * `tip: false` is for where something around it already tells that story — the
+ * collapsed sidebar, whose rows carry it themselves. `color` is for where the
+ * icon belongs to something it should look part of — the sidebar again, where
+ * a task wears its project's colour — and gives way to the status colour when
+ * the workspace is in trouble, which no cohesion is worth hiding.
  */
-export function drawTaskIcon(pid: string, $t: any): void {
+export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?: boolean; color?: string } = {}): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
 		const icon = $t.working ? loaderCircle : autoStarts($t) ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
-		const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 		// Turning while something is going on: claude at work, or the merge a
 		// task in Merging is in the middle of — which is what tells those apart
 		// from the merged ones they sit above on the board.
 		const busy = $t.working || $t.phase === 'merge';
-		A(`span display:inline-flex flex-shrink:0 fg:$s-${activity.color}`, () => {
-			S.addTooltip({ tip: () => A('text=', `${phase}${$t.working ? ', claude is working' : ''} · ${activity.text}`) });
+		A(`span display:inline-flex flex-shrink:0 fg:${color && activity.color !== 'danger' ? color : `$s-${activity.color}`}`, () => {
+			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
 			icon({ size: '1.1em', attrs: busy ? 'animation: spin 1.2s linear infinite;' : undefined });
 		});
 	});

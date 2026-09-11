@@ -41,14 +41,16 @@ The sidebar on the left is the way around. It lists every project, in the
 order you put them in (drag one, or use *Move up* and *Move down* in its
 menu), each wearing a colour of its own and a chip with its initials, made
 from its name — Aberdeen becomes A, ShoTest ST, wild-mail WM — until you
-spell them out yourself. Under each project sit its *open* tasks: the ones
-waiting for you, in warning colour, the ones an agent is on, and the ones you
+spell them out yourself. A project and its tasks sit together on a wash of
+that colour. Under each project sit its *open* tasks: the ones waiting for
+you, the bright ones among them, the ones an agent is on, and the ones you
 have VS Code open on (see below), each with its phase icon. Muted tasks are the ones left out:
 muting is how you put a task that waits for you out of sight until you want
 it back. The sidebar folds up into a narrow strip whenever VS Code comes on
 screen, and by the icon beside the logo:
-just the chips and the first letters of each task then, which is what the
-colours and the `subject: change` form of task titles are for. Under the
+the chips, the phase icons and the first word of each title then, which is
+what the `subject: change` form of task titles is for — hovering a task gives
+the whole of it. Under the
 projects are *Add project* and *Manage hosts*, and under those only the hosts
 that want something from you — a login, a connection that failed, a daemon
 to update — since a host that works has nothing to say.
