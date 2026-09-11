@@ -949,15 +949,24 @@ func (t *Task) clone() error {
 		return err
 	}
 	// A local git clone hardlinks the object store (objects are immutable,
-	// so sharing them is safe): nearly free even for big repos.
-	if _, err := runCmd([]string{"git", "clone", "--quiet", "-b", t.p.defaultBranch, t.p.dir(), t.repoDir()}, RunOpts{}); err != nil {
+	// so sharing them is safe): nearly free even for big repos. It is made
+	// beside its place and moved there once complete, so that the directory
+	// existing means a workspace ready to use: git makes the directory first
+	// and checks the files out after, and a container brought up in between
+	// (the task's page being opened is enough) would find no Containerfile.dev
+	// and run the default image.
+	tmp := t.repoDir() + ".tmp"
+	os.RemoveAll(tmp)
+	if _, err := runCmd([]string{"git", "clone", "--quiet", "-b", t.p.defaultBranch, t.p.dir(), tmp}, RunOpts{}); err != nil {
 		return err
 	}
-	if _, err := git(t.repoDir(), "config", "user.name", "TPS"); err != nil {
+	if _, err := git(tmp, "config", "user.name", "TPS"); err != nil {
 		return err
 	}
-	_, err := git(t.repoDir(), "config", "user.email", "tps@localhost")
-	return err
+	if _, err := git(tmp, "config", "user.email", "tps@localhost"); err != nil {
+		return err
+	}
+	return os.Rename(tmp, t.repoDir())
 }
 
 // Open is called when a user opens the task's page: bring the workspace up,
