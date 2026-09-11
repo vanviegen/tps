@@ -98,9 +98,10 @@ do not commit or rebase yourself, and end your turn with a TPS-DONE line.
 %[2]s`, branch, request)
 }
 
-// fallbackPrompt wraps the request the agent is kicked with while the task
-// runs in the default image because its own Containerfile.dev is broken.
-func fallbackPrompt(err, request string) string {
+// fallbackPrompt says the task runs in the default image because its own
+// Containerfile.dev is broken. It waits for the agent's next turn (see queueL),
+// ahead of whatever that turn is about.
+func fallbackPrompt(err string) string {
 	return fmt.Sprintf(`Bringing up the container from /work/Containerfile.dev failed:
 
 %s
@@ -108,9 +109,72 @@ func fallbackPrompt(err, request string) string {
 You are running in the default image (/tps/Containerfile.dev) instead, which may lack
 what the project needs. Before anything else, fix Containerfile.dev and end your turn
 with TPS-DONE: {"next": "reload"}, so the container is rebuilt from it. Only then take
-on the following.
+on the rest.`, err)
+}
 
-%s`, err, request)
+// The notes below wait for the agent's next turn (see queueL) rather than
+// starting one: things that happened to a task while no agent was running in
+// it. They go in ahead of whatever sends it in, so it knows what it is coming
+// back to before it acts on what it remembers.
+
+// idlePrompt: the container was shut down for being idle and started again.
+const idlePrompt = `Your container was shut down while the task sat idle, and has been started again
+for this turn. It is the same image and the same /work — nothing you committed or
+wrote there is affected — but it is a new container: background processes you left
+running are gone, as is anything you installed by hand rather than through
+Containerfile.dev. Start what you need again, and put lasting tools in
+Containerfile.dev.`
+
+// rebuiltPrompt: a human pressed the rebuild button while the agent was away.
+const rebuiltPrompt = `Your container was rebuilt from Containerfile.dev while you were not running.
+/work is untouched, but the container is a new one: background processes and
+anything installed by hand are gone, and the image may differ from the one you
+last saw. Check what you rely on before you use it.`
+
+// restartedPrompt: TPS itself went down in the middle of the agent's turn.
+const restartedPrompt = `TPS restarted while your last turn was running, so that turn was cut off partway:
+what you were in the middle of did not finish, and the tools you called after the
+last message you managed to send may or may not have run. /work is as it was left.
+Check the state of the work before continuing it.`
+
+// stoppedPrompt: the user pressed stop (or moved the task) mid-turn.
+const stoppedPrompt = `Your previous turn was stopped by the user before it finished, so whatever you were
+in the middle of was left half done. /work is as it was at that moment. Check the
+state of the work before continuing it.`
+
+// budgetPrompt: spending reached the task's limit, and the task was parked.
+func budgetPrompt(budget, spent float64) string {
+	return fmt.Sprintf(`This task reached its budget limit of $%g (spent $%.2f) and was parked, which is why
+your work on it stopped where it did. The user has let it go on. Take stock of where
+the task stands before continuing, and keep the remaining room in mind.`, budget, spent)
+}
+
+// rebasedPrompt tells the agent that its workspace was replayed onto the latest
+// default branch while it wasn't running.
+func rebasedPrompt(branch string) string {
+	return fmt.Sprintf(`Your workspace was rebased while you were not running: what you had in /work has been
+replayed on top of the latest '%[1]s', which had moved on since this task started.
+Uncommitted work was kept — it is uncommitted again now — but the files around it may
+have changed, so re-read what you are about to rely on rather than trusting your notes
+on it. Nothing else about the task changed.`, branch)
+}
+
+// rebaseConflictPrompt sends a fresh agent in to finish a rebase that was not a
+// merge: the workspace is being brought up to date, and stays a workspace after.
+func rebaseConflictPrompt(branch string) string {
+	return fmt.Sprintf(`This task's workspace is being brought up to date with '%[1]s', and the rebase hit
+conflicts. /work is mid-rebase: the task's work — uncommitted changes included, which
+were parked in a temporary commit for this — is being replayed onto the latest %[1]s.
+In the conflict markers, 'ours'/HEAD is the latest %[1]s; 'theirs' is this task's work.
+The commit messages on both sides (git log) explain the intent.
+
+Resolve every conflict so the result honors BOTH sides. Just for this job, the no-rebase
+rule is lifted: stage the resolved files and run GIT_EDITOR=true git rebase --continue,
+repeating if more conflicts appear. Do not abort or skip, do not push, do not create
+commits of your own — the temporary commit is undone for you once the rebase completes,
+leaving that work uncommitted in the tree again. Nothing is merged at the end of this:
+the task returns to where it was, on newer ground. Verify what you can, then end your
+turn with TPS-DONE: {"next": "user"}.`, branch)
 }
 
 // titlePrompt asks for a title of the form "subject: change to make". The

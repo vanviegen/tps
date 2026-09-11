@@ -20,14 +20,16 @@ import (
 type Phase string
 
 const (
-	PhasePlan  Phase = "plan"
-	PhaseAgent Phase = "agent"
-	PhaseHuman Phase = "human"
-	PhaseMerge Phase = "merge" // TPS is merging: committing, rebasing, or an agent resolving conflicts
-	PhaseDone  Phase = "done"
+	PhasePlan   Phase = "plan"
+	PhaseAgent  Phase = "agent"
+	PhaseHuman  Phase = "human"
+	PhaseMuted  Phase = "muted"  // waiting for a human too, but parked: out of the sidebar and at the foot of its column
+	PhaseMerge  Phase = "merge"  // TPS is merging: committing, rebasing, or an agent resolving conflicts
+	PhaseDone   Phase = "done"   // merged: its work is on the branch and its workspace is gone
+	PhaseClosed Phase = "closed" // closed without merging: its work stays in its own worktree, off the branch
 )
 
-var phases = []Phase{PhasePlan, PhaseAgent, PhaseHuman, PhaseMerge, PhaseDone}
+var phases = []Phase{PhasePlan, PhaseAgent, PhaseHuman, PhaseMuted, PhaseMerge, PhaseDone, PhaseClosed}
 
 type WorkStatus string
 
@@ -60,6 +62,20 @@ type TaskInfo struct {
 	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
 	PhaseAt       int64    `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
+	RebaseOnly    bool     `json:"rebaseOnly,omitempty"`    // the agent in the merge phase is resolving a plain rebase, which ends there
+	TmpCommit     bool     `json:"tmpCommit,omitempty"`     // the workspace holds a temporary commit with what was uncommitted (see stashInCommit)
+
+	// Pending is what the agent is told the next time it is sent in: things
+	// that happened to its workspace while it wasn't running.
+	Pending []PendingNote `json:"pending,omitempty"`
+}
+
+// PendingNote is one message waiting for the agent's next turn. A key makes it
+// replaceable (the same thing happening twice says it once) and droppable (see
+// dropPendingL), for notes that can go stale before they are ever read.
+type PendingNote struct {
+	Key  string `json:"key,omitempty"`
+	Text string `json:"text"`
 }
 
 // flight is one in-progress operation shared by everyone who asks for it
@@ -96,13 +112,13 @@ type Task struct {
 	checkingLive bool
 	refreshing   bool // a changes overview is being computed
 	autoStarting bool // an auto-start is under way, so it isn't started twice
+	behind       int  // commits on the default branch the workspace doesn't have yet (see refreshBehind)
 
 	session       *ChatSession
 	sessionFlight *flight[*ChatSession]
 	sessionBudget *float64 // the budget setting the running claude was started under
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
-	imageErr      string // why the task runs in the default image instead; told to the agent on its next kick
 	stopping      bool
 	doneNudges    int // turns in a row the agent was sent back in for a missing TPS-DONE line
 	chatMu        sync.Mutex
@@ -166,6 +182,23 @@ func (t *Task) publishL() {
 		t.pubL("rebasing", true)
 	} else {
 		t.pubL("rebasing", nil)
+	}
+	if t.info.RebaseOnly {
+		t.pubL("rebaseOnly", true)
+	} else {
+		t.pubL("rebaseOnly", nil)
+	}
+	// Whether there is a workspace to open at all: a task in Plan has none yet,
+	// a merged one no longer, and one closed without merging kept the one it had.
+	if exists(t.repoDir()) {
+		t.pubL("worktree", true)
+	} else {
+		t.pubL("worktree", nil)
+	}
+	if t.behind > 0 {
+		t.pubL("behind", t.behind)
+	} else {
+		t.pubL("behind", nil)
 	}
 	t.pubL("status", t.status)
 	t.pubL("statusDetail", t.statusDetail)
@@ -281,6 +314,65 @@ func (t *Task) note(text string, detail ...string) {
 
 func (t *Task) noteErr(prefix string, err error) { t.note(prefix + ": " + err.Error()) }
 
+// queueL saves something for the agent to be told the next time it is sent in,
+// ahead of whatever sends it (see kick). Things happen to a workspace while no
+// agent runs in it — it is rebased, its image falls back to the default one —
+// and this is how the agent hears of them: not by interrupting whoever is
+// working now, and not by being forgotten either. A note with a key replaces
+// the one that key already had, so the same thing happening twice is said once.
+func (t *Task) queueL(key, text string) {
+	if key != "" {
+		for i, n := range t.info.Pending {
+			if n.Key == key {
+				t.info.Pending[i].Text = text
+				t.p.m.saveL()
+				return
+			}
+		}
+	}
+	t.info.Pending = append(t.info.Pending, PendingNote{Key: key, Text: text})
+	t.p.m.saveL()
+}
+
+// queue is queueL for a caller that holds no lock.
+func (t *Task) queue(key, text string) {
+	t.lock()
+	defer t.unlock()
+	t.queueL(key, text)
+}
+
+// dropPendingL takes back a note that never got read and no longer holds.
+func (t *Task) dropPendingL(key string) {
+	kept := t.info.Pending[:0]
+	for _, n := range t.info.Pending {
+		if n.Key != key {
+			kept = append(kept, n)
+		}
+	}
+	if len(kept) != len(t.info.Pending) {
+		t.info.Pending = kept
+		t.p.m.saveL()
+	}
+}
+
+// takePendingL puts the waiting notes in front of the message the agent is
+// about to get, and clears them.
+func (t *Task) takePendingL(text string) string {
+	if len(t.info.Pending) == 0 {
+		return text
+	}
+	parts := make([]string, 0, len(t.info.Pending)+1)
+	for _, n := range t.info.Pending {
+		parts = append(parts, n.Text)
+	}
+	t.info.Pending = nil
+	t.p.m.saveL()
+	if strings.TrimSpace(text) != "" {
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func (t *Task) loadChat() {
 	f, err := os.Open(t.chatFile())
 	if err != nil {
@@ -363,11 +455,17 @@ func (t *Task) applyL(partial map[string]any) {
 	}
 }
 
+// finishedL: the task is over, merged or closed without merging. Nothing
+// waits for it any longer, and no agent is sent into it.
+func (t *Task) finishedL() bool {
+	return t.info.Phase == PhaseDone || t.info.Phase == PhaseClosed
+}
+
 // blockedL: some task this one follows is not done yet. A deleted one is
 // nothing to wait for.
 func (t *Task) blockedL() bool {
 	for _, tid := range t.info.StartAfter {
-		if dep := t.p.tasks[tid]; dep != nil && dep.info.Phase != PhaseDone {
+		if dep := t.p.tasks[tid]; dep != nil && !dep.finishedL() {
 			return true
 		}
 	}
@@ -390,6 +488,7 @@ func (t *Task) overBudgetL() bool {
 
 func (t *Task) noteBudgetL() {
 	t.note(fmt.Sprintf("the task budget ($%g) is used up (spent $%.2f); raise it in the task settings to continue", *t.info.Budget, t.info.Spent))
+	t.queueL("budget", budgetPrompt(*t.info.Budget, t.info.Spent))
 }
 
 // --- phase transitions ---
@@ -509,6 +608,7 @@ func (t *Task) kick(text string, fresh bool) {
 	}
 	reopened := t.info.Merged
 	wasDone := t.info.Phase == PhaseDone
+	wasClosed := t.info.Phase == PhaseClosed
 	if t.midRebase() { // the agent's 'merge' verdict then reruns it
 		t.setPhaseL(PhaseMerge)
 	} else if t.info.Phase != PhaseMerge {
@@ -541,17 +641,23 @@ func (t *Task) kick(text string, fresh bool) {
 				t.note("picked up after the merge; the workspace is a fresh clone of " + branch)
 			}
 			text = continuePrompt(branch, text)
+		} else if wasClosed {
+			// Closed without merging: its worktree is normally still there, but
+			// a task closed before it ever started has none.
+			if err := t.ensureClone(); err != nil {
+				t.failKick("workspace failed", err)
+				return
+			}
 		}
 		s, err := t.ensureSession(fresh)
 		if err != nil {
 			t.failKick("agent start failed", err)
 			return
 		}
+		// Taken only now that there is someone to tell: a kick that never got
+		// this far leaves the notes waiting for the next one.
 		t.lock()
-		if t.imageErr != "" {
-			text = fallbackPrompt(t.imageErr, text)
-			t.imageErr = ""
-		}
+		text = t.takePendingL(text)
 		t.unlock()
 		s.Send(text)
 		t.lock()
@@ -589,6 +695,11 @@ func (t *Task) stopSession(s *ChatSession) {
 func (t *Task) StopAgent() error {
 	t.lock()
 	s := t.session
+	if t.workingL() {
+		// Its turn is about to be cut off mid-thought; whatever it was doing
+		// was left half done, which it has no other way of finding out.
+		t.queueL("stopped", stoppedPrompt)
+	}
 	t.unlock()
 	if s != nil {
 		t.stopSession(s)
@@ -601,7 +712,8 @@ func (t *Task) StopAgent() error {
 	return nil
 }
 
-// MoveTo maps board drags onto the real actions.
+// MoveTo maps board drags onto the real actions. Dropped on Done, a task is
+// merged; Closed is where it goes when it should not be (see Close).
 func (t *Task) MoveTo(phase Phase) error {
 	t.lock()
 	current := t.info.Phase
@@ -625,17 +737,52 @@ func (t *Task) MoveTo(phase Phase) error {
 			return nil
 		}
 		return t.SendChat("Please continue working on the task.")
-	case PhaseHuman:
-		if current == PhasePlan {
-			return t.Assign("human")
+	case PhaseHuman, PhaseMuted:
+		// Both wait for a human; muting is that with the task put away. Getting
+		// there is the same work either way, and only the phase set at the end
+		// differs — a task coming from Plan or a closed one has a workspace
+		// made first.
+		switch current {
+		case PhasePlan:
+			if err := t.Assign("human"); err != nil {
+				return err
+			}
+		case PhaseDone, PhaseClosed:
+			if err := t.reopen(); err != nil {
+				return err
+			}
+		case PhaseAgent, PhaseMerge:
+			if err := t.StopAgent(); err != nil {
+				return err
+			}
 		}
-		if current == PhaseDone {
-			return t.reopen()
+		t.lock()
+		defer t.unlock()
+		if t.info.Phase != phase {
+			t.setPhaseL(phase)
 		}
-		return t.StopAgent()
+		return nil
+	case PhaseClosed:
+		return t.Close()
 	default:
 		return t.Merge("")
 	}
+}
+
+// Close puts a task away without merging it: its work stays in its own
+// worktree, off the default branch, and can still be opened, merged, or
+// thrown out with the task. The dashboard offers this beside merging, and
+// recommends merging.
+func (t *Task) Close() error {
+	_ = t.StopAgent()
+	if exists(t.repoDir()) {
+		t.note("closed without merging: its work stays in the task's own worktree, off " + t.p.defaultBranch)
+	}
+	t.lock()
+	defer t.unlock()
+	t.info.CommitMessage = ""
+	t.setPhaseL(PhaseClosed)
+	return nil
 }
 
 // Merge commits the working tree as one commit, rebases it onto the latest
@@ -679,6 +826,11 @@ func (t *Task) Merge(message string) error {
 
 func (t *Task) merge(repo, message string) error {
 	branch := t.p.defaultBranch
+	// A temporary commit from a rebase is not a commit of its own: it holds
+	// what the working tree had, and goes back into it before this one is made.
+	if err := t.undoTmpCommit(repo); err != nil {
+		return err
+	}
 	if _, err := git(repo, "add", "-A"); err != nil {
 		return err
 	}
@@ -687,22 +839,12 @@ func (t *Task) merge(repo, message string) error {
 			return err
 		}
 	}
-	if _, err := git(repo, "fetch", "--quiet", "origin"); err != nil {
-		return err
-	}
-	target, err := git(repo, "rev-parse", "origin/"+branch)
+	target, handed, err := t.rebaseOnto(repo)
 	if err != nil {
 		return err
 	}
-	if !gitOK(repo, "merge-base", "--is-ancestor", target, "HEAD") {
-		if _, err := git(repo, "rebase", target); err != nil {
-			if !t.midRebase() {
-				return fmt.Errorf("rebase onto %s failed", branch)
-			}
-			t.note(fmt.Sprintf("rebasing onto the latest %s hit conflicts; sending in a fresh agent to resolve them", branch))
-			t.kickRebase(true)
-			return nil
-		}
+	if handed { // an agent is resolving the conflicts; it comes back through onTurnEnd
+		return nil
 	}
 	if head, _ := git(repo, "rev-parse", "HEAD"); head != target {
 		if err := t.p.fastForward(repo); err != nil {
@@ -720,8 +862,156 @@ func (t *Task) merge(repo, message string) error {
 	t.lock()
 	t.info.CommitMessage = ""
 	t.info.Merged = true // the agent's tree is clean because of this, not because it did nothing
+	t.info.RebaseOnly = false
+	// The workspace these were about is gone; a task picked up after the merge
+	// gets a fresh clone, and hears about that instead (see continuePrompt).
+	for _, key := range []string{"rebase", "container", "stopped", "restart"} {
+		t.dropPendingL(key)
+	}
 	t.setPhaseL(PhaseDone)
 	t.unlock()
+	return nil
+}
+
+// rebaseOnto brings the workspace up to date with the default branch: it
+// fetches, and replays whatever the workspace has on top of it. Conflicts are
+// handed to a fresh agent (see kickRebase), which the `handed` return says —
+// the caller is then done, and the work continues in onTurnEnd. Shared by the
+// merge, which rebases before it fast-forwards, and by Rebase, which stops here.
+func (t *Task) rebaseOnto(repo string) (target string, handed bool, err error) {
+	branch := t.p.defaultBranch
+	if _, err = git(repo, "fetch", "--quiet", "origin"); err != nil {
+		return "", false, err
+	}
+	if target, err = git(repo, "rev-parse", "origin/"+branch); err != nil {
+		return "", false, err
+	}
+	if gitOK(repo, "merge-base", "--is-ancestor", target, "HEAD") {
+		return target, false, nil // the branch has nothing this workspace lacks
+	}
+	if _, err := git(repo, "rebase", target); err != nil {
+		if !t.midRebase() {
+			return "", false, fmt.Errorf("rebase onto %s failed", branch)
+		}
+		t.note(fmt.Sprintf("rebasing onto the latest %s hit conflicts; sending in a fresh agent to resolve them", branch))
+		t.kickRebase(true)
+		return target, true, nil
+	}
+	return target, false, nil
+}
+
+// Rebase brings the workspace onto the latest default branch without merging
+// anything into it: the same replay a merge does first, and nothing after it.
+// What the working tree has is put in a temporary commit so the rebase has
+// something to move, and taken back out of it when the replay lands. Conflicts
+// go the way a merge's do — a fresh agent resolves them, with the task in the
+// merge phase meanwhile — and the agent is told what happened to its workspace
+// the next time it is sent in (see queueL).
+func (t *Task) Rebase() error {
+	defer t.p.m.work()()
+	repo := t.repoDir()
+	if !exists(repo) {
+		return errors.New("The task has no workspace to rebase")
+	}
+	if t.midRebase() {
+		return errors.New("A rebase is still in progress in the workspace; let the agent finish it (or resolve it in VS Code) first")
+	}
+	_ = t.StopAgent()
+	t.lock()
+	t.info.RebaseOnly = true
+	t.setPhaseL(PhaseMerge)
+	t.unlock()
+	err := t.rebase(repo)
+	if err != nil {
+		t.noteErr("rebase failed", err)
+		t.lock()
+		t.info.RebaseOnly = false
+		if t.info.Phase == PhaseMerge {
+			t.setPhaseL(PhaseHuman)
+		}
+		t.unlock()
+	}
+	go t.refreshChanges()
+	return err
+}
+
+func (t *Task) rebase(repo string) error {
+	if err := t.stashInCommit(repo); err != nil {
+		return err
+	}
+	_, handed, err := t.rebaseOnto(repo)
+	if err != nil {
+		return err
+	}
+	if handed { // the agent has it; finishRebase runs when its turn ends
+		return nil
+	}
+	return t.finishRebase(repo)
+}
+
+// finishRebase takes the working tree back out of its temporary commit and
+// hands the task back to the human, with a note for the agent's next turn:
+// the ground under its workspace moved while it wasn't running.
+func (t *Task) finishRebase(repo string) error {
+	if err := t.undoTmpCommit(repo); err != nil {
+		return err
+	}
+	branch := t.p.defaultBranch
+	t.note("rebased onto the latest " + branch + " ✔")
+	t.lock()
+	t.info.RebaseOnly = false
+	t.queueL("rebase", rebasedPrompt(branch))
+	if t.info.Phase == PhaseMerge {
+		t.setPhaseL(PhaseHuman)
+	}
+	t.unlock()
+	go t.refreshChanges()
+	return nil
+}
+
+// tmpCommitSubject marks the commit a rebase parks the working tree in, so it
+// can be told from the task's own work — and undone — later on.
+const tmpCommitSubject = "TPS: work in progress (temporary commit for a rebase)"
+
+// stashInCommit puts everything the workspace has in a commit of its own: a
+// rebase moves commits, not working trees. Nothing to commit, nothing to do.
+func (t *Task) stashInCommit(repo string) error {
+	if _, err := git(repo, "add", "-A"); err != nil {
+		return err
+	}
+	if gitOK(repo, "diff", "--cached", "--quiet") {
+		return nil
+	}
+	if _, err := git(repo, "commit", "--no-verify", "-m", tmpCommitSubject); err != nil {
+		return err
+	}
+	t.lock()
+	defer t.unlock()
+	t.info.TmpCommit = true
+	t.p.m.saveL()
+	return nil
+}
+
+// undoTmpCommit puts that commit back where it came from: the working tree it
+// was made of, files untracked as it found them (a mixed reset, so nothing is
+// left staged that wasn't). The subject is checked, so a commit the agent made
+// on top of it (it is asked not to, but still) is left alone.
+func (t *Task) undoTmpCommit(repo string) error {
+	t.lock()
+	parked := t.info.TmpCommit
+	t.unlock()
+	if !parked {
+		return nil
+	}
+	if subject, _ := git(repo, "log", "-1", "--format=%s"); subject == tmpCommitSubject {
+		if _, err := git(repo, "reset", "--quiet", "HEAD~1"); err != nil {
+			return err
+		}
+	}
+	t.lock()
+	defer t.unlock()
+	t.info.TmpCommit = false
+	t.p.m.saveL()
 	return nil
 }
 
@@ -755,10 +1045,14 @@ func (t *Task) freshClone() error {
 	return t.clone()
 }
 
-// kickRebase sends the agent in to finish the rebase a merge got stuck in.
+// kickRebase sends the agent in to finish the rebase a merge — or a plain
+// rebase, which ends as soon as the replay lands — got stuck in.
 func (t *Task) kickRebase(fresh bool) {
 	t.lock()
 	prompt := conflictPrompt(t.p.defaultBranch, t.info.CommitMessage)
+	if t.info.RebaseOnly {
+		prompt = rebaseConflictPrompt(t.p.defaultBranch)
+	}
 	t.unlock()
 	t.kick(prompt, fresh)
 }
@@ -767,18 +1061,32 @@ func (t *Task) midRebase() bool {
 	return exists(filepath.Join(t.repoDir(), ".git", "rebase-merge")) || exists(filepath.Join(t.repoDir(), ".git", "rebase-apply"))
 }
 
-// reopen picks a merged task back up: a clone of the branch as it is now
-// (its own work included, and everything that landed since), and the
-// conversation that was kept beside it. The workspace is made here for a human
-// to work in; the agent gets the same through kick. The 'merged' mark stays
-// either way: it is the agent that has yet to hear of the merge.
+// reopen picks a closed task back up. One that was merged has no workspace
+// left, and gets a clone of the branch as it is now — its own work included,
+// and everything that landed since; one that was closed without merging kept
+// its worktree, unmerged work and all, and that is what it comes back with.
+// The conversation was kept beside it either way. The workspace is made here
+// for a human to work in; the agent gets the same through kick. The 'merged'
+// mark stays: it is the agent that has yet to hear of the merge.
 func (t *Task) reopen() error {
 	defer t.p.m.work()()
-	if err := t.freshClone(); err != nil {
+	t.lock()
+	merged := t.info.Phase == PhaseDone
+	t.unlock()
+	// Merged, whatever is left of the old workspace is not what the task should
+	// come back with (the merge threw it away; one merged by an older TPS did
+	// not). Closed, it is exactly that.
+	clone := t.ensureClone
+	if merged {
+		clone = t.freshClone
+	}
+	if err := clone(); err != nil {
 		t.noteErr("workspace failed", err)
 		return err
 	}
-	t.note("picked up after the merge; the workspace is a fresh clone of " + t.p.defaultBranch)
+	if merged {
+		t.note("picked up after the merge; the workspace is a fresh clone of " + t.p.defaultBranch)
+	}
 	t.lock()
 	t.setPhaseL(PhaseHuman)
 	t.unlock()
@@ -833,6 +1141,7 @@ func (t *Task) Discard() error {
 	t.info.Started = false
 	t.info.CommitMessage = ""
 	t.info.Merged = false
+	t.info.RebaseOnly, t.info.TmpCommit, t.info.Pending = false, false, nil // nothing of the old workspace is left to tell
 	t.p.m.hub.SetChat(t.key(), nil)
 	t.pubL("changes", nil)
 	t.setPhaseL(PhasePlan)
@@ -950,6 +1259,36 @@ func (t *Task) refreshChanges() {
 		return
 	}
 	t.pubL("changes", changes)
+	go t.refreshBehind()
+}
+
+// refreshBehind counts the commits the default branch has that this workspace
+// was never given: what a rebase (see Rebase) would bring in. Where the two
+// parted ways is the workspace's own business — a merge base, which holds even
+// after a fetch brought newer commits into the clone without replaying onto
+// them — and the project repo counts the distance from there to its branch.
+func (t *Task) refreshBehind() {
+	repo := t.repoDir()
+	behind := 0
+	if exists(repo) {
+		branch := t.p.defaultBranch
+		if base, err := git(repo, "merge-base", "HEAD", "origin/"+branch); err == nil {
+			if out, err := git(t.p.dir(), "rev-list", "--count", base+".."+branch); err == nil {
+				behind, _ = strconv.Atoi(strings.TrimSpace(out))
+			}
+		}
+	}
+	t.lock()
+	defer t.unlock()
+	if t.behind == behind {
+		return
+	}
+	t.behind = behind
+	if behind > 0 {
+		t.pubL("behind", behind)
+	} else {
+		t.pubL("behind", nil)
+	}
 }
 
 // --- workspace (clone + container) ---
@@ -1163,11 +1502,14 @@ func (t *Task) doUp() (*Container, error) {
 		return t.failUp(err)
 	}
 	t.lock()
-	t.container, t.lastTag, t.runCmd, t.imageErr = c, tag, containerfileCmd(cf), imageErr
+	t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
 	t.codeUp = false // a fresh container has no code-server in it yet
 	t.setStatusL(StatusUp, "")
 	if imageErr != "" {
+		t.queueL("image", fallbackPrompt(imageErr))
 		t.fixImageL()
+	} else {
+		t.dropPendingL("image") // the file builds again: nothing left to tell
 	}
 	t.unlock()
 	go t.syncCode() // VS Code back up in it, if the task is held
@@ -1178,7 +1520,7 @@ func (t *Task) doUp() (*Container, error) {
 // underway already (it then carries the message, see kick). Mid-rebase, the
 // conflict resolution the merge was waiting for is resumed.
 func (t *Task) fixImageL() {
-	if t.sessionFlight != nil || t.info.Phase == PhaseDone {
+	if t.sessionFlight != nil || t.finishedL() {
 		return
 	}
 	rebase := t.midRebase()
@@ -1251,7 +1593,9 @@ func (t *Task) Reload() error {
 		t.down()
 		if _, err := t.up(); err != nil {
 			t.noteErr("workspace failed", err)
+			return
 		}
+		t.queue("container", rebuiltPrompt)
 	}()
 	return nil
 }
@@ -1372,6 +1716,34 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		return
 	}
 	t.doneNudges = 0
+	if t.info.Phase == PhaseMerge && t.info.RebaseOnly {
+		// A plain rebase: nothing is merged at the end of it, so any verdict
+		// will do — what counts is whether the replay landed.
+		if t.overBudgetL() {
+			t.noteBudgetL()
+		}
+		t.unlock()
+		if t.midRebase() {
+			t.note("rebase paused: it is unfinished")
+			t.lock()
+			t.info.RebaseOnly = false
+			if t.info.Phase == PhaseMerge {
+				t.setPhaseL(PhaseHuman)
+			}
+			t.unlock()
+			return
+		}
+		if err := t.finishRebase(t.repoDir()); err != nil {
+			t.noteErr("rebase failed", err)
+			t.lock()
+			t.info.RebaseOnly = false
+			if t.info.Phase == PhaseMerge {
+				t.setPhaseL(PhaseHuman)
+			}
+			t.unlock()
+		}
+		return
+	}
 	if t.info.Phase == PhaseMerge { // the agent was resolving rebase conflicts
 		msg := t.info.CommitMessage
 		if next != "merge" {

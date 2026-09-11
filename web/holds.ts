@@ -1,5 +1,6 @@
 import A from 'aberdeen';
 import { $state, addWatch, dropWatch } from './conn.ts';
+import { isOpenable } from './util.ts';
 
 /**
  * What this dashboard holds open: tasks whose VS Code it keeps running, and
@@ -63,9 +64,10 @@ try {
 } catch {}
 
 // A hold on what has nothing to show is let go of: a task that merged (its
-// workspace is gone), went back to Plan, or was deleted, and a project that
-// left the board. A project that is merely not here *yet* — its host still
-// connecting — keeps its holds until the host has spoken.
+// workspace is gone), went back to Plan, was muted (put away, sidebar and all)
+// or was deleted, and a project that left the board. A project that is merely
+// not here *yet* — its host still connecting — keeps its holds until the host
+// has spoken.
 A(() => {
 	if (!$state.ready) return;
 	for (const key of Object.keys($holds)) {
@@ -77,7 +79,7 @@ A(() => {
 			continue;
 		}
 		if (tid === '-') continue;
-		const phase = $p.tasks?.[tid]?.phase;
-		if (!phase || phase === 'plan' || phase === 'done') release(pid, tid);
+		const $t = $p.tasks?.[tid];
+		if (!$t || !isOpenable($t) || $t.phase === 'muted') release(pid, tid);
 	}
 });

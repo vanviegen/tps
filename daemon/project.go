@@ -28,8 +28,8 @@ type TaskDefaults struct {
 type ProjectInfo struct {
 	Dir       string               `json:"dir"`
 	Name      string               `json:"name"`
-	Color     string               `json:"color,omitempty"` // the accent the dashboards show it in, as #rrggbb
-	Code      string               `json:"code,omitempty"`  // one to three letters standing for it where there is no room for the name; empty: made from the name
+	Color     string               `json:"color,omitempty"`    // the accent the dashboards show it in, as #rrggbb
+	Initials  string               `json:"initials,omitempty"` // one to three letters standing for it where there is no room for the name; empty: made from the name
 	Defaults  TaskDefaults         `json:"defaults"`
 	AutoMerge *bool                `json:"autoMerge,omitempty"` // where the merge setting sat before Defaults; see newProject
 	Activity  int64                `json:"activity,omitempty"`  // unix ms of the last change to a task
@@ -46,6 +46,7 @@ type Project struct {
 	defaultBranch string
 	code          *codeServer // VS Code on the checkout itself; see code.go
 	codeWanted    bool        // a dashboard holds the checkout open
+	head          string      // the default branch's tip at the last refreshMeta; a new one dates every workspace
 }
 
 // projectColors are the accents a project may wear: hues that sit well on the
@@ -150,6 +151,7 @@ func (p *Project) init() error {
 		if info.Phase == PhaseMerge || info.Phase == PhaseAgent { // the daemon restarted mid-turn
 			t.note("TPS restarted while the agent was working; send a message to continue")
 			info.Phase = PhaseHuman
+			t.queueL("restart", restartedPrompt) // saves the phase above with it
 		}
 		t.adoptL()
 		t.publishL()
@@ -244,6 +246,20 @@ func (p *Project) refreshMeta() {
 	status, _ := git(p.dir(), "status", "--porcelain")
 	p.pub("dirty", status != "")
 	p.pub("git", gitSummary(status))
+	// A branch that moved — a merge, or a commit made in the checkout — leaves
+	// every workspace a little further behind; they count again (see refreshBehind).
+	head, _ := git(p.dir(), "rev-parse", p.defaultBranch)
+	p.m.mu.Lock()
+	moved := head != "" && head != p.head
+	p.head = head
+	tasks := p.taskListL()
+	p.m.mu.Unlock()
+	if !moved {
+		return
+	}
+	for _, t := range tasks {
+		go t.refreshBehind()
+	}
 }
 
 // gitSummary boils `git status --porcelain` down to the few words the
@@ -288,14 +304,14 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		}
 		p.info.Color = strings.ToLower(color)
 	}
-	// The code is the user's spelling, or nothing: the dashboard then makes
-	// one from the name, as it does for projects that never got one.
-	if code, ok := partial["code"].(string); ok {
-		code = strings.TrimSpace(code)
-		if runes := []rune(code); len(runes) > 3 {
-			code = string(runes[:3])
+	// The initials are the user's spelling, or nothing: the dashboard then makes
+	// them from the name, as it does for projects that never got any.
+	if initials, ok := partial["initials"].(string); ok {
+		initials = strings.TrimSpace(initials)
+		if runes := []rune(initials); len(runes) > 3 {
+			initials = string(runes[:3])
 		}
-		p.info.Code = code
+		p.info.Initials = initials
 	}
 	// The defaults arrive as the task settings they are, one or more at a time.
 	if defaults, ok := partial["defaults"].(map[string]any); ok {
@@ -317,13 +333,13 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	return nil
 }
 
-// pubLook publishes how the dashboards show the project: its colour and code.
+// pubLook publishes how the dashboards show the project: its colour and initials.
 func (p *Project) pubLook() {
 	p.pub("color", p.info.Color)
-	if p.info.Code != "" {
-		p.pub("code", p.info.Code)
+	if p.info.Initials != "" {
+		p.pub("initials", p.info.Initials)
 	} else {
-		p.pub("code", nil)
+		p.pub("initials", nil)
 	}
 }
 

@@ -9,7 +9,7 @@ import { $state } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectCode, projectColor, selection, shortDir } from './util.ts';
+import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, projectInitials, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
@@ -89,10 +89,10 @@ async function renameProject(pid: string, $p: any): Promise<void> {
 	if (name?.trim()) void cmd('setProject', { pid, name: name.trim() });
 }
 
-/** The code the collapsed sidebar shows for the project; emptied, it is made from the name again. */
-async function codePrompt(pid: string, $p: any): Promise<void> {
-	const code = await S.prompt('One to three letters to stand for this project where its name does not fit (empty: made from the name):', A.peek(() => projectCode($p)));
-	if (code !== null) void cmd('setProject', { pid, code: code.trim().slice(0, 3) });
+/** The initials the collapsed sidebar shows for the project; emptied, they are made from the name again. */
+async function initialsPrompt(pid: string, $p: any): Promise<void> {
+	const initials = await S.prompt('One to three letters to stand for this project where its name does not fit (empty: made from the name):', A.peek(() => projectInitials($p)));
+	if (initials !== null) void cmd('setProject', { pid, initials: initials.trim().slice(0, 3) });
 }
 
 /** The project's colour, picked from the palette. */
@@ -118,7 +118,7 @@ export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 		{ label: 'Default task settings…', icon: settings, click: () => projectDefaultsDialog(pid, $p) },
 		{ separator: true },
 		{ label: 'Rename…', icon: pencil, click: () => void renameProject(pid, $p) },
-		{ label: 'Change code…', icon: tag, click: () => void codePrompt(pid, $p) },
+		{ label: 'Change initials…', icon: tag, click: () => void initialsPrompt(pid, $p) },
 		{ label: 'Change colour…', icon: palette, click: () => colorDialog(pid, $p) },
 		{ separator: true },
 		{ label: 'Move up', icon: arrowUp, click: () => moveProject(pid, -1) },
@@ -128,11 +128,11 @@ export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	];
 }
 
-/** The project's code in its colour: what stands for it wherever there is little room, and what its rows are recognised by. */
+/** The project's initials in its colour: what stands for it wherever there is little room, and what its rows are recognised by. */
 export function drawProjectChip($p: any): void {
 	A(() => {
 		A('span display:inline-flex align-items:center justify-content:center flex-shrink:0 min-width:2em h:1.5em ph:0.3em r:$s-radius-sm font-size:0.72em font-weight:800 line-height:1 fg:#14161a letter-spacing:0.03em',
-			`bg:${projectColor($p)}`, 'text=', projectCode($p));
+			`bg:${projectColor($p)}`, 'text=', projectInitials($p));
 	});
 }
 

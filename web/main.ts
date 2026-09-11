@@ -9,7 +9,7 @@ import { bindPalette } from './palette.ts';
 import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { draftFor, drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
-import { pathTo, selection, taskTitle } from './util.ts';
+import { hasWorkspace, isFinished, isOpenable, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -41,8 +41,8 @@ A('div display:flex h:100dvh align-items:stretch', () => {
 // put otherwise, so the icon is the way back out.
 A(() => {
 	const { pid, tid, base } = selection();
-	const phase = pid && tid ? $state.projects[pid]?.tasks?.[tid]?.phase : undefined;
-	if (base || (phase && phase !== 'plan' && phase !== 'done')) $ui.collapsed = true;
+	const $t = pid && tid ? $state.projects[pid]?.tasks?.[tid] : undefined;
+	if (base || ($t && isOpenable($t))) $ui.collapsed = true;
 });
 
 // The tab's title says where you are, now that nothing on the page does.
@@ -101,7 +101,9 @@ function drawTaskView(pid: string, tid: string, $t: any): void {
 	}, () => {
 		A(() => {
 			if ($t.phase === 'plan') return drawPlanEditor(pid, tid, $t);
-			if ($t.phase === 'done') return drawDonePanel(pid, tid, $t);
+			// Done and merged, there is nothing left to open; done without
+			// merging, the worktree is still there and still worth showing.
+			if (isFinished($t) && !hasWorkspace($t)) return drawDonePanel(pid, tid, $t);
 			drawTaskCode(pid, tid, $t, TASK_CODE_LEFT);
 		});
 	});

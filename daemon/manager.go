@@ -310,6 +310,7 @@ func (m *Manager) sweep() {
 	m.mu.Unlock()
 	for _, t := range idle {
 		t.note("workspace idle, shutting down (your work is untouched)")
+		t.queue("container", idlePrompt)
 		t.down()
 	}
 	for _, t := range unheld {
@@ -475,6 +476,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"chat":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text) }),
 		"stopAgent":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
+		"rebaseTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
 		"moveTask":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
 		"deleteTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
 		"runTask":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Run() }),

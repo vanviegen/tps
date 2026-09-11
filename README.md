@@ -39,12 +39,14 @@ CGO_ENABLED=0 go build -o tps .    # embeds it; one static binary is all you nee
 
 The sidebar on the left is the way around. It lists every project, in the
 order you put them in (drag one, or use *Move up* and *Move down* in its
-menu), each wearing a colour of its own and a chip with its code: one or two
-initials made from its name — Aberdeen becomes A, ShoTest ST, wild-mail WM —
-until you give it one. Under each project sit its *open* tasks: the ones
+menu), each wearing a colour of its own and a chip with its initials, made
+from its name — Aberdeen becomes A, ShoTest ST, wild-mail WM — until you
+spell them out yourself. Under each project sit its *open* tasks: the ones
 waiting for you, in warning colour, and the ones you have VS Code open on
-(see below), each with its phase icon. The sidebar folds up into a narrow
-strip whenever VS Code comes on screen, and by the icon beside the logo:
+(see below), each with its phase icon. Muted tasks are the ones left out:
+muting is how you put a task that waits for you out of sight until you want
+it back. The sidebar folds up into a narrow strip whenever VS Code comes on
+screen, and by the icon beside the logo:
 just the chips and the first letters of each task then, which is what the
 colours and the `subject: change` form of task titles are for. Under the
 projects are *Add project* and *Manage hosts*, and under those only the hosts
@@ -66,7 +68,7 @@ it already has are listed along with it.
 
 Right-click a project in the sidebar for what can be done with it: adding a
 task, opening its checkout, its default task settings, renaming it, changing
-its code or colour, moving it, and removing it. A host's menu (right-click
+its initials or colour, moving it, and removing it. A host's menu (right-click
 its box, or the ⋮ in its header) holds connecting, copying your claude login
 there, updating or stopping its daemon, and removing it. Removing a host
 takes it off this dashboard only; removing a project takes it off its host,
@@ -96,15 +98,23 @@ the task's container.
 
 ## How a task flows
 
-A project's page is its board of five columns, under a line with its name,
-where it stands, and the buttons that add a task, open its checkout in VS
-Code, and set its default task settings. A task's page beside the sidebar is
-two columns: on the left its settings while it is in Plan and its chat with
-the agent afterwards, the whole height; on the right the description while in
-Plan, VS Code (running in the container) on its workspace once it has one,
-and a note of the merge once it is Done. The chat's top right corner holds
-the icons for running the project, rebuilding the container, the task's
-settings, and *Close*.
+A project's page is its board, under a line with its name, where it stands,
+and the buttons that add a task, open its checkout in VS Code, and set its
+default task settings. Seven phases share four columns: *Human* has the muted
+tasks at its foot, under a marker and dimmed, and *Merge* — where a task
+passes through rather than sits — is mostly the *Done* and *Closed* tasks
+under it, so dropping a card on the top merges it and the rest is the archive.
+A task's page beside the sidebar is two columns: on the left its settings
+while it is in Plan and its chat with the agent afterwards, the whole height;
+on the right the description while in Plan, VS Code (running in the container)
+on its workspace once it has one, and a note of the merge once it is over.
+The chat's top right corner holds the icons for running the project, rebasing
+onto the latest default branch, rebuilding the container, the task's settings,
+its menu (where it goes next, renaming, deleting — the card's menu, from its
+own page) and *Close*. Rebasing and rebuilding show only while the task is
+yours, and the rebase only when the branch has moved on: both change the
+ground under a
+workspace, which is not something to do to a running agent.
 
 Opening a task with a workspace opens VS Code on it, and that stays open —
 listed in the sidebar, the container up and code-server running in it — until
@@ -143,8 +153,17 @@ says what the next tasks start out with and leaves the ones that exist alone.
    call; type to steer it mid-run or to send follow-ups.
 3. **Human**: Claude's turn ended, or you pressed stop, or you assigned the
    task to yourself. Chat to send the agent back in, open VS Code to work
-   yourself, or merge.
-4. **Merge**: The working tree becomes a single commit on the default branch.
+   yourself, or merge. When the default branch has moved on since the clone
+   was made, the card says by how much and the rebase icon replays the task's
+   work on top of it: what is in the tree is parked in a temporary commit
+   first and unpacked again afterwards, so nothing has to be committed for
+   this, and conflicts go the way a merge's do — a fresh agent resolves them.
+   The agent working on the task is told what happened the next time it is
+   sent in, rather than mid-turn.
+4. **Muted**: Human, with the task put away: at the foot of the Human column
+   and out of the sidebar, for what waits for you but not today. Opening a
+   muted task takes it back to Human — looking at it is picking it up.
+5. **Merge**: The working tree becomes a single commit on the default branch.
    The agent proposes the commit message when it reports the task ready; with
    *Merge when ready* (a task setting, out of the project's defaults) that
    merge happens by itself, otherwise you confirm the message first. If
@@ -153,16 +172,23 @@ says what the next tasks start out with and leaves the ones that exist alone.
    by the commit messages on both sides), after which the merge completes; the
    task stays in this column meanwhile. If the agent gives up midway, the task
    goes back to you with a warning; sending the agent back in resumes the rebase.
-5. **Done**: Merged. The workspace goes — its work is on the branch, and the
+6. **Done**: Merged. The workspace goes — its work is on the branch, and the
    container with it — but the conversation stays until the task is deleted,
    so the task can be picked up again for follow-up work: a chat message sends
    the agent back in with everything it knew, and moving the card to Human
-   (or the *Pick up as human* button beside the chat) takes it on yourself. Either way it gets a new clone of the default branch
-   as it stands then, exactly like a task leaving Plan, so the follow-up builds
-   on its own merged work and on whatever other tasks landed meanwhile. The
+   (or the *Pick up as human* button beside the chat) takes it on yourself.
+   Either way it gets a new clone of the default branch as it stands then,
+   exactly like a task leaving Plan, so the follow-up builds on its own merged
+   work and on whatever other tasks landed meanwhile. The
    agent is told what happened: that its work became a commit, that the old
    workspace (and anything only in it) is gone, and that what it changes now
    becomes a commit of its own.
+7. **Closed**: Over without being merged, for work that should not land: the
+   task keeps its worktree, unmerged and off the branch, so it still opens in
+   VS Code, can still be merged later, and takes its work with it when it is
+   deleted. Ending a task by hand — dropping it on Done or Closed, or picking
+   either from its menu — asks which of the two is meant, and offers the merge
+   first, that being how a task is normally closed.
 
 Moving a task back to Plan discards all of its work, after a confirmation.
 
@@ -172,9 +198,9 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   state in `~/.config/tps/projects.json`, the workspaces (repo clone, claude
   session state, chat log) and the downloaded tools under
   `~/.local/share/tps/`, and the daemon's socket, log and, on SSH hosts, its
-  binary next to them. Projects, with the names, colours and codes you gave
-  them, are part of that: the dashboard only keeps the list of hosts and the
-  order of the projects (which spans hosts), in
+  binary next to them. Projects, with the names, colours and initials you
+  gave them, are part of that: the dashboard only keeps the list of hosts
+  and the order of the projects (which spans hosts), in
   `~/.config/tps/dashboard.json`. There is no database and your repository
   only ever receives the final merge commit.
 - Removing a project is a change on its host, so every dashboard using it
@@ -201,6 +227,16 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   keep it going.
 - Each task tracks what its agent runs cost; an optional budget limit parks
   the task for you when spending reaches it.
+- Things that happen to a task while no agent is running in it are not shouted
+  at the agent mid-turn and not lost either: they wait, and go in ahead of
+  whatever sends it in next, so it knows what it is coming back to before it
+  acts on what it remembers. It hears that its workspace was rebased, that its
+  container was rebuilt or recycled after idling (background processes and
+  hand-installed tools gone with it), that its image fell back to the default
+  one because `Containerfile.dev` broke, that its turn was cut off by the user
+  or by a TPS restart, and that the task was parked on its budget. A note
+  replaces an earlier one about the same thing, or is taken back when it no
+  longer holds (a file that builds again, a workspace that was merged away).
 - Container builds use the task's clone as their only build context, and code
   runs as an unprivileged user in a rootless container. A container nobody
   holds open and no agent works in is torn down after 15 minutes; a workspace

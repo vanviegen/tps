@@ -19,7 +19,7 @@ import { drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, se
  * at the bottom only the hosts that want something — a login, an update, a
  * connection — as the ones that work have nothing to say.
  *
- * Collapsed, it is a narrow strip: a coloured chip with the project's code
+ * Collapsed, it is a narrow strip: a coloured chip with the project's initials
  * where its name was, and the first letters of each task's title, which the
  * `subject: change` form of titles makes readable. It collapses by itself
  * when VS Code comes on screen (see main.ts), and by the icon beside the logo.
@@ -124,11 +124,16 @@ function drawProject(pid: string, $p: any): void {
 	});
 }
 
-/** A task is listed while it waits for a human, while this dashboard holds it, and while it is on screen. */
+/**
+ * A task is listed while it waits for a human, while this dashboard holds it,
+ * and while it is on screen. A muted one is none of those: putting it away is
+ * what muting is for, and opening it takes it back out (see useTask).
+ */
 function isOpen(pid: string, tid: string, $t: any): boolean {
-	if ($t.phase === 'human' || $holds[holdKey(pid, tid)]) return true;
 	const { pid: shown, tid: shownTid } = selection();
-	return shown === pid && shownTid === tid;
+	if (shown === pid && shownTid === tid) return true;
+	if ($t.phase === 'muted') return false;
+	return $t.phase === 'human' || !!$holds[holdKey(pid, tid)];
 }
 
 function drawTask(pid: string, tid: string, $t: any): void {

@@ -47,7 +47,9 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 		}
 		const el = document.createElement('iframe');
 		el.setAttribute('allow', 'clipboard-read; clipboard-write');
-		el.style.cssText = 'position:fixed;top:0;right:0;bottom:0;width:auto;height:auto;border:0;display:none;transition:left 0.15s';
+		// An iframe is a replaced element: left and right alone leave it at its
+		// intrinsic 300x150, so its size is spelled out against the viewport.
+		el.style.cssText = 'position:fixed;top:0;height:100%;border:0;display:none;transition:left 0.15s, width 0.15s';
 		el.src = src;
 		el.addEventListener('load', () => { el.focus(); shareKeys(el); });
 		document.body.appendChild(el);
@@ -58,6 +60,7 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 	}
 	const shown = view;
 	shown.el.style.left = left;
+	shown.el.style.width = `calc(100% - ${left})`;
 	shown.uses++;
 	sync();
 	setTimeout(() => shown.el.focus(), 100);

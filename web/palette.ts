@@ -2,7 +2,7 @@ import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { claimKeyInCode } from './code.ts';
 import { sortedProjects } from './projects.ts';
-import { pathTo, phaseOrder, PHASE_LABELS, taskTitle, type Phase } from './util.ts';
+import { isFinished, pathTo, phaseOrder, PHASE_LABELS, taskTitle, type Phase } from './util.ts';
 
 /**
  * Go anywhere without the mouse: a key opens a field, you type a few letters of
@@ -51,7 +51,7 @@ function destinations(): Destination[] {
 		const tasks = Object.entries($p.tasks ?? {}) as [string, any][];
 		tasks.sort((a, b) => {
 			const [ka, kb] = [phaseOrder(a[1], a[0]), phaseOrder(b[1], b[0])];
-			return (a[1].phase === 'done' ? 1 : 0) - (b[1].phase === 'done' ? 1 : 0) || ka[0] - kb[0] || ka[1] - kb[1];
+			return (isFinished(a[1]) ? 1 : 0) - (isFinished(b[1]) ? 1 : 0) || ka[0] - kb[0] || ka[1] - kb[1];
 		});
 		for (const [tid, $t] of tasks) {
 			const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;

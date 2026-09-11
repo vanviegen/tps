@@ -1,17 +1,54 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, check, circle, gitMerge, globe, hourglass, listTodo, loaderCircle, monitor, server, user } from 'staffa/icons.js';
+import { bellOff, bot, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, loaderCircle, monitor, server, user } from 'staffa/icons.js';
 import { $state, send } from './conn.ts';
 
-export const PHASES = ['plan', 'agent', 'human', 'merge', 'done'] as const;
+/**
+ * The phases a task can be in. Muted is Human with the task put away: it waits
+ * for you too, but quietly — at the foot of the Human column, and out of the
+ * sidebar. Closed is Done without the merge: the task is over, but its work
+ * stayed in its own worktree rather than landing on the branch.
+ */
+export const PHASES = ['plan', 'agent', 'human', 'muted', 'merge', 'done', 'closed'] as const;
 export type Phase = typeof PHASES[number];
 
+/**
+ * The columns of the board. Three phases have none of their own: Muted sits
+ * under the Human column, Done and Closed under the Merge one (see board.ts).
+ */
+export const COLUMNS = PHASES.filter(p => p === 'plan' || p === 'agent' || p === 'human' || p === 'merge');
+
 export const PHASE_LABELS: Record<Phase, string> = {
-	plan: 'Plan', agent: 'Agent', human: 'Human', merge: 'Merge', done: 'Done',
+	plan: 'Plan', agent: 'Agent', human: 'Human', muted: 'Muted', merge: 'Merge', done: 'Done', closed: 'Closed',
 };
 
-export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, merge: gitMerge, done: check };
+export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, muted: bellOff, merge: gitMerge, done: check, closed: circleSlash };
+
+/** Whether the task has a workspace right now: what the daemon says it sees on disk. */
+export function hasWorkspace($t: any): boolean {
+	return !!$t.worktree;
+}
+
+/**
+ * Whether the task is one to keep open: it has a workspace, or is about to get
+ * one. A task in Plan has none yet and a merged one no longer, while a Closed
+ * one kept the worktree it had. This goes by the phase rather than by the
+ * workspace, which lags a moment behind it.
+ */
+export function isOpenable($t: any): boolean {
+	return $t.phase !== 'plan' && $t.phase !== 'done';
+}
+
+/** Whether the task is over: merged, or closed without merging. Nothing waits for it. */
+export function isFinished($t: any): boolean {
+	return $t.phase === 'done' || $t.phase === 'closed';
+}
+
+/** Whether the task is waiting for a human: the Human phase, or that with the task muted. */
+export function waitsForHuman($t: any): boolean {
+	return $t.phase === 'human' || $t.phase === 'muted';
+}
 
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
@@ -37,14 +74,14 @@ export function projectColor($p: any): string {
 }
 
 /**
- * What stands for the project where there is no room for its name: the code
- * the user gave it, or one or two initials — Aberdeen becomes A, ShoTest ST,
+ * What stands for the project where there is no room for its name: the letters
+ * the user gave it, or its initials — Aberdeen becomes A, ShoTest ST,
  * wild-mail WM. Words are split on anything that is not a letter or digit,
  * and on the case change inside a camel-cased one.
  */
-export function projectCode($p: any): string {
-	const code = ($p?.code ?? '').trim();
-	if (code) return code;
+export function projectInitials($p: any): string {
+	const initials = ($p?.initials ?? '').trim();
+	if (initials) return initials;
 	const words = ($p?.name ?? '')
 		.split(/[^\p{L}\p{N}]+/u)
 		.flatMap((w: string) => w.split(/(?<=[\p{Ll}\p{N}])(?=\p{Lu})/u))
@@ -116,7 +153,7 @@ export function autoStarts($t: any): boolean {
 /** The tasks `$t` follows that are not there yet: existing tasks not yet done. */
 export function waitingFor(pid: string, $t: any): string[] {
 	const $tasks = $state.projects[pid]?.tasks ?? {};
-	return ($t.startAfter ?? []).filter((d: string) => $tasks[d] && $tasks[d].phase !== 'done');
+	return ($t.startAfter ?? []).filter((d: string) => $tasks[d] && !isFinished($tasks[d]));
 }
 
 /** The icon a host goes by: this machine, or another one. */
