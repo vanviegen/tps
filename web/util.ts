@@ -242,16 +242,23 @@ export function costText($t: any): string | undefined {
 	return `$${($t.spent ?? 0).toFixed(2)}${$t.budget ? ` / $${$t.budget.toFixed(2)}` : ''}`;
 }
 
-/** A globe link, shown while something inside the container answers on its $PORT. */
+/** Where a forwarded port of a task is reached from this browser. */
+export function portUrl(p: { host: number }): string {
+	return `http://${location.hostname}:${p.host}/`;
+}
+
+/** A globe link per forwarded port that something inside the container answers HTTP on. */
 export function drawLiveLink($t: any): void {
 	A(() => {
-		if (!$t.live || !$t.appPort) return;
-		A('a display:inline-flex flex-shrink:0', 'href=', `http://${location.hostname}:${$t.appPort}/`, 'target=_blank',
-			'click=', (e: Event) => e.stopPropagation(),
-			() => {
-				S.addTooltip({ tip: 'Open the page served by this task' });
-				globe({ size: '1.1em' });
-			});
+		for (const p of $t.ports ?? []) {
+			if (!p.live) continue;
+			A('a display:inline-flex flex-shrink:0', 'href=', portUrl(p), 'target=_blank',
+				'click=', (e: Event) => e.stopPropagation(),
+				() => {
+					S.addTooltip({ tip: `Open port ${p.port}, served by this task` });
+					globe({ size: '1.1em' });
+				});
+		}
 	});
 }
 

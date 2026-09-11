@@ -21,8 +21,8 @@ import (
 
 // A Link is the dashboard's connection to one daemon. It mirrors the daemon's
 // projects into the state tree under "<host id>:<pid>", forwards commands and
-// watches the other way, and for remote hosts turns app ports into local
-// listeners so the browser can open them.
+// watches the other way, and for remote hosts turns the ports tasks publish
+// into local listeners so the browser can open them.
 type Link struct {
 	ui     *UI
 	hid    string
@@ -36,9 +36,9 @@ type Link struct {
 	w        *bufio.Writer
 	nextID   int
 	pending  map[int]replyFn
-	mirrored map[string]bool     // the daemon's pids that are in the state tree
-	watches  map[string]bool     // keys (pid/tid) watched at the daemon
-	forwards map[string]*forward // task key → local listener for its app port
+	mirrored map[string]bool             // the daemon's pids that are in the state tree
+	watches  map[string]bool             // keys (pid/tid) watched at the daemon
+	forwards map[string]map[int]*forward // task key → port on the host → local listener piped to it
 	wake     chan struct{}
 	closed   bool
 	stopped  bool              // the user stopped the daemon: don't start it again until asked
@@ -57,9 +57,38 @@ type Link struct {
 
 type replyFn func(result json.RawMessage, err error)
 
+// A forward is one local listener, piping each connection to a port on the
+// host's loopback (through the transport, so ssh -W for a remote host).
 type forward struct {
 	remotePort, localPort int
 	ln                    net.Listener
+}
+
+func (l *Link) listen(remotePort int) (*forward, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	f := &forward{remotePort: remotePort, localPort: ln.Addr().(*net.TCPAddr).Port, ln: ln}
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				up, err := l.tr.DialPort(f.remotePort)
+				if err != nil {
+					c.Close()
+					return
+				}
+				go func() { _, _ = io.Copy(up, c); up.Close() }()
+				_, _ = io.Copy(c, up)
+				c.Close()
+			}()
+		}
+	}()
+	return f, nil
 }
 
 type proxyKey struct{}
@@ -71,7 +100,7 @@ type proxyTarget struct {
 
 func newLink(u *UI, hid, dest string, tr transport) *Link {
 	l := &Link{ui: u, hid: hid, dest: dest, remote: dest != "", tr: tr,
-		pending: map[int]replyFn{}, mirrored: map[string]bool{}, watches: map[string]bool{}, forwards: map[string]*forward{},
+		pending: map[int]replyFn{}, mirrored: map[string]bool{}, watches: map[string]bool{}, forwards: map[string]map[int]*forward{},
 		names: map[string]string{}, wake: make(chan struct{}, 1)}
 	l.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -233,9 +262,8 @@ func (l *Link) serve(conn net.Conn) {
 	pending := l.pending
 	l.pending = map[int]replyFn{}
 	l.watches = map[string]bool{}
-	for key, f := range l.forwards {
-		f.ln.Close()
-		delete(l.forwards, key)
+	for key := range l.forwards {
+		l.closeForwardsL(key)
 	}
 	l.mu.Unlock()
 	for _, cb := range pending {
@@ -438,9 +466,10 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 			return
 		}
 		l.ui.hub.Set(out, nil)
-		if len(p) == 4 && p[2] == "tasks" {
-			l.closeForwards(pid + "/" + p[3])
-		} else if len(p) == 5 && p[4] == "appPort" {
+		switch {
+		case len(p) == 3 && p[2] == "tasks":
+			l.closeForwards(pid + "/")
+		case p[2] == "tasks" && (len(p) == 4 || len(p) == 5 && p[4] == "ports"):
 			l.closeForwards(pid + "/" + p[3])
 		}
 		return
@@ -452,8 +481,8 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 		return
 	case len(p) == 4 && p[2] == "tasks":
 		value = l.translateTask(pid+"/"+p[3], value)
-	case len(p) == 5 && p[2] == "tasks" && p[4] == "appPort":
-		value = l.forwardPort(pid+"/"+p[3], value)
+	case len(p) == 5 && p[2] == "tasks" && p[4] == "ports":
+		value = l.forwardPorts(pid+"/"+p[3], value)
 	}
 	l.ui.hub.Set(out, value)
 }
@@ -478,70 +507,74 @@ func (l *Link) translateTask(key string, v any) any {
 	if !ok || !l.remote {
 		return v
 	}
-	if port, ok := task["appPort"]; ok {
-		task["appPort"] = l.forwardPort(key, port)
+	if ports, ok := task["ports"]; ok {
+		task["ports"] = l.forwardPorts(key, ports)
 	} else {
 		l.closeForwards(key)
 	}
 	return task
 }
 
-// forwardPort maps a remote task's app port to a local listener piped to it.
-func (l *Link) forwardPort(key string, v any) any {
+// forwardPorts maps a remote task's published ports — [{port, host, live}],
+// host being a loopback port there — to local listeners piped to them, one
+// per host port, kept across rounds and dropped when the port is gone. The
+// browser then sees the local port in "host".
+func (l *Link) forwardPorts(key string, v any) any {
 	if !l.remote {
 		return v
 	}
-	port, _ := v.(float64)
-	if port == 0 {
-		l.closeForwards(key)
-		return nil
-	}
+	list, _ := v.([]any)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if f := l.forwards[key]; f != nil {
-		if f.remotePort == int(port) {
-			return f.localPort
+	had := l.forwards[key]
+	kept := map[int]*forward{}
+	var out []any
+	for _, entry := range list {
+		m, _ := entry.(map[string]any)
+		host, _ := m["host"].(float64)
+		if host == 0 {
+			continue
 		}
-		f.ln.Close()
-		delete(l.forwards, key)
+		f := had[int(host)]
+		if f == nil {
+			var err error
+			if f, err = l.listen(int(host)); err != nil {
+				continue
+			}
+		}
+		kept[int(host)] = f
+		m["host"] = f.localPort
+		out = append(out, m)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+	for port, f := range had {
+		if kept[port] == nil {
+			f.ln.Close()
+		}
+	}
+	if len(kept) == 0 {
+		delete(l.forwards, key)
 		return nil
 	}
-	f := &forward{remotePort: int(port), localPort: ln.Addr().(*net.TCPAddr).Port, ln: ln}
-	l.forwards[key] = f
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				up, err := l.tr.DialPort(f.remotePort)
-				if err != nil {
-					c.Close()
-					return
-				}
-				go func() { _, _ = io.Copy(up, c); up.Close() }()
-				_, _ = io.Copy(c, up)
-				c.Close()
-			}()
-		}
-	}()
-	return f.localPort
+	l.forwards[key] = kept
+	return out
 }
 
 // closeForwards drops the listeners of the task key, or of every key with the prefix.
 func (l *Link) closeForwards(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for k, f := range l.forwards {
-		if k == key || strings.HasPrefix(k, key) && strings.HasSuffix(key, "/") {
-			f.ln.Close()
-			delete(l.forwards, k)
+	for k := range l.forwards {
+		if k == key || strings.HasSuffix(key, "/") && strings.HasPrefix(k, key) {
+			l.closeForwardsL(k)
 		}
 	}
+}
+
+func (l *Link) closeForwardsL(key string) {
+	for _, f := range l.forwards[key] {
+		f.ln.Close()
+	}
+	delete(l.forwards, key)
 }
 
 func entryID(raw json.RawMessage) string {

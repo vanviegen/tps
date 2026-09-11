@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -96,28 +97,44 @@ func closeWrite(c net.Conn) {
 // forwarder is one published port of one sibling.
 type forwarder struct {
 	control string // host path of the control file
-	target  string // ip:port on the shared network
+	binding        // what it was asked for
 	port    string // the port it listens on, once known
 }
 
-// wantedForwarders is what a running sibling's port label asks for: listen
-// address → target, given the sibling's address on the shared network.
-func wantedForwarders(pb portBindings, ip string) map[string]string {
-	out := map[string]string{}
+// binding is one published port as a forwarder serves it: the address to
+// listen on in the owner, and the sibling's address to relay to.
+type binding struct {
+	listen, target string
+}
+
+// wantedForwarders is what a running sibling's port label asks for, given
+// its address as the owner reaches it. Keyed by container port and listen
+// address together (see bindingKey): a listen address is no key on its own,
+// as every "any port" binding asks for :0.
+func wantedForwarders(pb portBindings, ip string) map[string]binding {
+	out := map[string]binding{}
 	for port, bindings := range pb {
 		private, proto := splitPort(port)
 		if proto != "tcp" {
 			continue
 		}
 		for _, b := range bindings {
-			host := b.HostIP
-			if host == "" || host == "0.0.0.0" {
-				host = ""
-			}
-			out[net.JoinHostPort(host, b.HostPort)] = fmt.Sprintf("%s:%d", ip, private)
+			out[bindingKey(port, b)] = binding{listenAddr(b), fmt.Sprintf("%s:%d", ip, private)}
 		}
 	}
 	return out
+}
+
+func bindingKey(port string, b portBinding) string { return port + "@" + listenAddr(b) }
+
+// listenAddr is where a binding asks to listen in the owner: "host:port",
+// the host empty for all addresses.
+func listenAddr(b portBinding) string {
+	host := b.HostIP
+	if host == "0.0.0.0" {
+		host = ""
+	}
+	return net.JoinHostPort(host, b.HostPort)
 }
 
 // sync brings the forwarders of the owner in line with its running siblings:
@@ -132,7 +149,7 @@ func (p *Proxy) syncForwarders(ctx context.Context) {
 		p.logf("listing containers for port forwarding: %v", err)
 		return
 	}
-	wanted := map[string]map[string]string{} // container id → listen → target
+	wanted := map[string]map[string]binding{} // container id → binding key → binding
 	for _, c := range list {
 		if c.State != "running" || c.Labels[portsLabel] == "" {
 			continue
@@ -141,7 +158,7 @@ func (p *Proxy) syncForwarders(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		ip := insp.NetworkSettings.Networks[p.Network()].IPAddress
+		ip := siblingAddr(insp.NetworkSettings.Networks, p.Network())
 		if ip == "" {
 			continue
 		}
@@ -152,10 +169,10 @@ func (p *Proxy) syncForwarders(ctx context.Context) {
 		wanted[c.ID] = wantedForwarders(pb, ip)
 	}
 	for id, fwds := range p.fwds {
-		for listen, f := range fwds {
-			if wanted[id][listen] != f.target {
+		for key, f := range fwds {
+			if wanted[id][key] != f.binding {
 				p.stopForwarder(f)
-				delete(fwds, listen)
+				delete(fwds, key)
 			}
 		}
 		if len(fwds) == 0 {
@@ -163,30 +180,30 @@ func (p *Proxy) syncForwarders(ctx context.Context) {
 		}
 	}
 	for id, w := range wanted {
-		for listen, target := range w {
-			if p.fwds[id] != nil && p.fwds[id][listen] != nil {
+		for key, b := range w {
+			if p.fwds[id] != nil && p.fwds[id][key] != nil {
 				continue
 			}
-			f, err := p.startForwarder(ctx, id, listen, target)
+			f, err := p.startForwarder(ctx, id, key, b)
 			if err != nil {
-				p.logf("forwarding %s to %s: %v", listen, target, err)
+				p.logf("forwarding %s to %s: %v", b.listen, b.target, err)
 				continue
 			}
 			if p.fwds[id] == nil {
 				p.fwds[id] = map[string]*forwarder{}
 			}
-			p.fwds[id][listen] = f
+			p.fwds[id][key] = f
 		}
 	}
 }
 
-func (p *Proxy) startForwarder(ctx context.Context, id, listen, target string) (*forwarder, error) {
-	name := fmt.Sprintf("fwd-%s-%s", id[:12], strings.ReplaceAll(strings.ReplaceAll(listen, ":", "_"), "/", "_"))
-	f := &forwarder{control: p.cfg.Control + "/" + name, target: target}
+func (p *Proxy) startForwarder(ctx context.Context, id, key string, b binding) (*forwarder, error) {
+	name := fmt.Sprintf("fwd-%s-%s", id[:12], strings.NewReplacer(":", "_", "/", "_", "@", "_").Replace(key))
+	f := &forwarder{control: p.cfg.Control + "/" + name, binding: b}
 	if err := os.WriteFile(f.control, []byte("starting\n"), 0o644); err != nil {
 		return nil, err
 	}
-	argv := append(append([]string{}, p.cfg.Forwarder...), "--control", p.cfg.ControlMount+"/"+name, listen, target)
+	argv := append(append([]string{}, p.cfg.Forwarder...), "--control", p.cfg.ControlMount+"/"+name, b.listen, b.target)
 	var created struct {
 		ID string `json:"Id"`
 	}
@@ -240,14 +257,33 @@ func (p *Proxy) actualPorts(id string, pb portBindings) map[string]string {
 	out := map[string]string{}
 	for port, bindings := range pb {
 		for _, b := range bindings {
-			host := b.HostIP
-			if host == "0.0.0.0" {
-				host = ""
-			}
-			if f := p.fwds[id][net.JoinHostPort(host, b.HostPort)]; f != nil {
+			if f := p.fwds[id][bindingKey(port, b)]; f != nil {
 				out[port] = f.port
 			}
 		}
 	}
 	return out
+}
+
+// siblingAddr is where the owner reaches a sibling: its address on the shared
+// bridge, or failing that on any other network — every network made through
+// the proxy has the owner on it too — the lowest name first, for a steady
+// choice. "" for a sibling with no address at all.
+func siblingAddr(networks map[string]struct {
+	IPAddress string `json:"IPAddress"`
+}, shared string) string {
+	if ip := networks[shared].IPAddress; ip != "" {
+		return ip
+	}
+	names := make([]string, 0, len(networks))
+	for name := range networks {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if ip := networks[name].IPAddress; ip != "" {
+			return ip
+		}
+	}
+	return ""
 }

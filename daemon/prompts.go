@@ -13,12 +13,12 @@ working; treat them as steering.
 Rules:
 - Do not commit, and never push, pull, fetch, merge, rebase or switch branches: TPS
   commits your working tree when the user merges the task. Read-only git is fine.
-- If the task involves serving something, listen on $PORT and on 0.0.0.0 (binding
-  localhost only would leave it unreachable: the container is a network namespace of
-  its own, and TPS forwards a host port into it). Give Containerfile.dev a CMD line
-  that starts it, and the user runs and previews the project from the dashboard with
-  that. Nothing is exposed beyond the machine: TPS publishes the port on the host's
-  loopback.
+- If the task involves serving something, give Containerfile.dev a CMD line that starts
+  it and an EXPOSE line naming its port (several ports are fine): the user runs it from
+  the dashboard with that, and every exposed port is forwarded to their browser. Listen
+  on 0.0.0.0 there (binding localhost only would leave it unreachable: the container is
+  a network namespace of its own, and TPS forwards a host port into it). Nothing is
+  exposed beyond the machine: TPS publishes the ports on the host's loopback.
 - Your container is disposable: it is recreated after idle periods, and anything you
   install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
   create or edit /work/Containerfile.dev, the project's image definition, and end your

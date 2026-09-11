@@ -320,27 +320,51 @@ func (m *Manager) sweep() {
 
 var liveClient = &http.Client{Timeout: 1500 * time.Millisecond}
 
-// checkLive probes each running task's app port; any HTTP response counts.
+// checkLive probes each running task's published ports; any HTTP response
+// counts, and says the port is worth a browser tab. One round per task at a
+// time, all of its ports at once.
 func (m *Manager) checkLive() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.allTasksL() {
-		if t.status != StatusUp || t.container == nil || t.checkingLive {
+		if t.status != StatusUp || t.container == nil || t.checkingLive || len(t.container.Ports) == 0 {
 			continue
 		}
 		t.checkingLive = true
-		port := t.container.AppPort
+		c := t.container
 		go func() {
-			resp, err := liveClient.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
-			if err == nil {
-				resp.Body.Close()
+			live := make(map[int]bool, len(c.Ports))
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			for _, p := range c.Ports {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if answersHTTP(p.Host) {
+						mu.Lock()
+						live[p.Port] = true
+						mu.Unlock()
+					}
+				}()
 			}
+			wg.Wait()
 			m.mu.Lock()
 			t.checkingLive = false
-			t.setLiveL(err == nil && t.status == StatusUp)
+			if t.container == c && t.status == StatusUp {
+				t.setLiveL(live)
+			}
 			m.mu.Unlock()
 		}()
 	}
+}
+
+func answersHTTP(port int) bool {
+	resp, err := liveClient.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
 }
 
 // refreshWatched keeps what the dashboard has open current: the changed files,

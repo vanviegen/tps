@@ -227,12 +227,17 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   "Update daemon" button retries a push that failed. The host's menu on the
   front page holds the rest: stop the daemon (with its workspaces), copy your
   claude login there.
-- A `CMD` line in `Containerfile.dev` says how to run the project, listening on
-  `$PORT` (published on a random localhost port of its host). The play button
-  beside a task runs it in the task's container, showing the console and, once
-  something answers, the live site (tunnelled for SSH hosts); the task's card
-  shows a green globe meanwhile. Closing the dialog stops the run, unless you
-  keep it going.
+- A `CMD` line in `Containerfile.dev` says how to run the project, and its
+  `EXPOSE` lines which ports it serves on: each is published on a random
+  localhost port of its host when the container starts (so a change to them
+  takes a rebuild), and tunnelled to the dashboard's machine from an SSH host.
+  The play button in a task's chat runs the CMD in the task's container and
+  shows the console, with a button per port — `8080 → 56123`, the port inside
+  and the one it is on here — that comes alive, and opens the page in a new
+  tab, once something answers HTTP there; the task's card shows a green globe
+  per such port meanwhile. *Background* (or Esc) closes the dialog and leaves
+  the run going: the play button turns red, and brings the console back, output
+  and all. *Stop* ends the run on the way out.
 - Each task tracks what its agent runs cost; an optional budget limit parks
   the task for you when spending reaches it.
 - Things that happen to a task while no agent is running in it are not shouted

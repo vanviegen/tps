@@ -4,8 +4,9 @@
 # runs the task in it as uid 1000 with that clone mounted at /work. code-server
 # and claude are mounted in at run time, so nothing here is TPS-specific: use
 # whatever base suits the project, as long as it has bash and git, and a user
-# with uid 1000 who owns a home directory. Anything the task serves should
-# listen on $PORT; a CMD line that starts it gives the dashboard a Run button.
+# with uid 1000 who owns a home directory. A CMD line that starts what the
+# project serves gives the dashboard a Run button, and the ports EXPOSE names
+# are forwarded to it.
 #
 # TPS itself needs Go (the binary) and node (only to bundle the web UI).
 
@@ -24,6 +25,23 @@ RUN arch="$(uname -m)" \
     && curl -fsSL --create-dirs -o /usr/local/lib/docker/cli-plugins/docker-compose \
        "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${arch}" \
     && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+# A podman that is the docker CLI in disguise, so that a TPS daemon started in
+# here (the CMD below) can run task containers of its own through the docker
+# socket TPS serves it: the spellings docker lacks (`image exists`, `rm -t`, the
+# --userns that siblings cannot have anyway) are translated, and the rest of the
+# CLI mirrors podman's. Not a podman.
+RUN printf '%s\n' '#!/bin/sh' \
+    '[ "$1 $2" = "image exists" ] && exec docker image inspect "$3" >/dev/null 2>&1' \
+    'cmd=$1; n=$#' \
+    'while [ $n -gt 0 ]; do a=$1; shift; n=$((n-1))' \
+    '  case "$a" in' \
+    '    -t) if [ "$cmd" = rm ]; then shift; n=$((n-1)); continue; fi ;;' \
+    '    --userns=*) continue ;;' \
+    '    --userns) shift; n=$((n-1)); continue ;;' \
+    '  esac' \
+    '  set -- "$@" "$a"' \
+    'done' \
+    'exec docker "$@"' >/usr/local/bin/podman && chmod +x /usr/local/bin/podman
 
 ARG GO_VERSION=1.24.7
 ARG NODE_VERSION=22.19.0
@@ -43,7 +61,9 @@ USER dev
 WORKDIR /work
 
 # Run TPS itself, so the dashboard's Run button previews this project: the web
-# bundle first, then the binary on $PORT. It listens on 0.0.0.0 because the
-# forwarded port arrives on the container's own address, not its loopback; TPS
-# publishes that port on the host's loopback, so this is not exposure.
-CMD npm install --silent && npm run build && go run . --host 0.0.0.0 --port $PORT --no-open
+# bundle first, then the binary on the exposed port. It listens on 0.0.0.0
+# because the forwarded port arrives on the container's own address, not its
+# loopback; TPS publishes that port on the host's loopback, so this is not
+# exposure.
+EXPOSE 8080
+CMD npm install --silent && npm run build && go run . --host 0.0.0.0 --port 8080 --no-open

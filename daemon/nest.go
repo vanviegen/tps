@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,10 +42,17 @@ var (
 	podmanErr  error
 )
 
-// podmanAPI is the podman API socket on this host: the user's podman.socket
-// when systemd runs one, else a service of our own that dies with the daemon.
+// podmanAPI is the podman API socket on this host: the one CONTAINER_HOST
+// names, if it answers (podman's own way of being pointed at a service; in a
+// TPS task container it is the task's docker socket, which is what lets TPS
+// run inside TPS), else the user's podman.socket when systemd runs one, else
+// a service of our own that dies with the daemon.
 func podmanAPI() (string, error) {
 	podmanOnce.Do(func() {
+		if sock, ok := strings.CutPrefix(os.Getenv("CONTAINER_HOST"), "unix://"); ok && podnester.SocketAnswers(sock) {
+			podmanSock = sock
+			return
+		}
 		if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
 			sock := filepath.Join(dir, "podman", "podman.sock")
 			if _, err := podnester.EnsureService(sock); err == nil {

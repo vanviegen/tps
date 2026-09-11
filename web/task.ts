@@ -462,7 +462,11 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		// rather than through them.
 		A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
 			A(() => { // its own scope: the CMD arriving must not redraw the row
-				if ($t.runCmd) S.iconButton({ icon: play, ariaLabel: 'Run the project', click: () => runDialog(pid, tid, $t) });
+				if (!$t.runCmd) return;
+				// Red while it runs: the run goes on behind a closed dialog, and this is what reopens it.
+				const running = $t.run?.status === 'running';
+				S.iconButton({ icon: play, ariaLabel: running ? 'Running: show the console' : 'Run the project',
+					attrs: running ? 'fg:$s-danger' : '', click: () => runDialog(pid, tid, $t) });
 			});
 			// Only while the task is yours: rebasing and rebuilding both move the
 			// ground under a running agent, and both are for the human at the wheel.

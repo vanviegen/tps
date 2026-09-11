@@ -14,9 +14,10 @@ import (
 
 // Running the project. Its Containerfile.dev says how with a CMD line, as any
 // image does. TPS doesn't let podman run that (the container runs code-server)
-// but starts it in the task's container on request, with $PORT and the rest
-// of the container environment. The output goes to the state tree, not to
-// the chat log.
+// but starts it in the task's container on request, in the container's own
+// environment. The ports its EXPOSE lines name are published as the container
+// starts (see ensureContainer), whether the CMD runs or not. The output goes
+// to the state tree, not to the chat log.
 
 const runLogMax = 32 << 10
 

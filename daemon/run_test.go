@@ -17,3 +17,21 @@ func TestContainerfileCmd(t *testing.T) {
 		t.Error("no CMD")
 	}
 }
+
+func TestPublishedPorts(t *testing.T) {
+	text := `{"9000/tcp":[{"HostIp":"127.0.0.1","HostPort":"41001"}],"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"41002"}],` +
+		`"53/udp":[{"HostIp":"127.0.0.1","HostPort":"41003"}],"3000/tcp":null}`
+	got := parsePublishedPorts(text)
+	if !slices.Equal(got, []PortMap{{8080, 41002}, {9000, 41001}}) {
+		t.Errorf("published ports: %v", got)
+	}
+	if parsePublishedPorts("null") != nil || parsePublishedPorts("") != nil {
+		t.Error("no bindings")
+	}
+	if port, proto := splitPortSpec("8080"); port != 8080 || proto != "tcp" {
+		t.Errorf("bare spec: %d/%s", port, proto)
+	}
+	if port, proto := splitPortSpec("53/UDP"); port != 53 || proto != "udp" {
+		t.Errorf("udp spec: %d/%s", port, proto)
+	}
+}

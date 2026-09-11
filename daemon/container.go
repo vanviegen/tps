@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -84,7 +84,7 @@ func seedVscodeDir(dir string) error {
 }
 
 // vscodeDefaults go into settings that don't set them: a dark theme, and no
-// port-forward popups (the task's $PORT is what TPS previews).
+// port-forward popups (the ports the Containerfile exposes are what TPS forwards).
 var vscodeDefaults = map[string]any{
 	"workbench.colorTheme":    "Default Dark Modern",
 	"remote.autoForwardPorts": false,
@@ -114,11 +114,12 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # runs the task in it as uid 1000 with that clone mounted at /work. code-server
 # and claude are mounted in at run time, so nothing here is TPS-specific: use
 # whatever base suits the project, as long as it has bash and git, and a user
-# with uid 1000 who owns a home directory. Anything the task serves should listen
-# on $PORT, bound to 0.0.0.0 — the port TPS forwards in arrives on the container's
-# own address, so localhost-only would be unreachable, and TPS publishes it on the
-# host's loopback, so 0.0.0.0 here is not exposure. A CMD line that starts it gives
-# the dashboard a Run button.
+# with uid 1000 who owns a home directory. A CMD line that starts what the
+# project serves gives the dashboard a Run button, and every port an EXPOSE line
+# names is forwarded to the dashboard's machine. Listen on 0.0.0.0 there: the
+# forwarded port arrives on the container's own address, so localhost-only would
+# be unreachable, and TPS publishes it on the host's loopback, so 0.0.0.0 here is
+# not exposure.
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
@@ -175,15 +176,50 @@ func buildImage(tag, containerfile, contextDir string, onLog func(string)) error
 	return nil
 }
 
-const (
-	codePort = 9000 // code-server inside the container
-	appPort  = 8080 // $PORT, for whatever the task itself serves
-)
+const codePort = 9000 // code-server inside the container
 
 type Container struct {
 	Name     string
-	CodePort int // published on the host loopback
-	AppPort  int
+	CodePort int       // code-server's port, published on the host loopback
+	Ports    []PortMap // the ports the image exposes, each published likewise
+}
+
+// PortMap is one published port: Port inside the container, Host on the
+// host's loopback.
+type PortMap struct {
+	Port, Host int
+}
+
+// exposedPorts lists the tcp ports the image declares (EXPOSE lines, its base
+// images' included), in ascending order. The code-server port is left out:
+// it is published regardless, and once is all podman allows.
+func exposedPorts(image string) ([]int, error) {
+	r, err := runCmd([]string{"podman", "image", "inspect", "--format", "{{json .Config.ExposedPorts}}", image}, RunOpts{})
+	if err != nil {
+		return nil, err
+	}
+	var exposed map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(r.Out)), &exposed); err != nil {
+		return nil, fmt.Errorf("reading the exposed ports of %s: %w", image, err)
+	}
+	var ports []int
+	for spec := range exposed {
+		if port, proto := splitPortSpec(spec); proto == "tcp" && port != codePort {
+			ports = append(ports, port)
+		}
+	}
+	sort.Ints(ports)
+	return ports, nil
+}
+
+// splitPortSpec reads "8080/tcp" (or "8080", which is tcp too).
+func splitPortSpec(spec string) (port int, proto string) {
+	num, proto, ok := strings.Cut(spec, "/")
+	if !ok {
+		proto = "tcp"
+	}
+	port, _ = strconv.Atoi(num)
+	return port, strings.ToLower(proto)
 }
 
 type containerOpts struct {
@@ -209,6 +245,10 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if err != nil {
 		return nil, err
 	}
+	exposed, err := exposedPorts(o.image)
+	if err != nil {
+		return nil, err
+	}
 	if err := nest.EnsureNetwork(context.Background()); err != nil {
 		return nil, fmt.Errorf("creating the task's network: %w", err)
 	}
@@ -230,10 +270,13 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-v", vscode + ":/vscode",
 		"-e", "CLAUDE_CONFIG_DIR=/claude",
 		"-e", "DISABLE_AUTOUPDATER=1", // the toolbox is read-only, and versioned by TPS
-		"-e", fmt.Sprintf("PORT=%d", appPort),
-		"-p", fmt.Sprintf("127.0.0.1::%d", codePort),
-		"-p", fmt.Sprintf("127.0.0.1::%d", appPort),
 		"-w", "/work",
+	}
+	// Every port the image exposes goes on a loopback port of the host's
+	// choosing, like code-server's: nothing of a task is reachable beyond the
+	// machine, and the dashboard tunnels what it shows.
+	for _, port := range append([]int{codePort}, exposed...) {
+		args = append(args, "-p", fmt.Sprintf("127.0.0.1::%d", port))
 	}
 	// The host's claude login is shared with every task, read-write. claude
 	// refreshes the OAuth tokens in that file in place, and a refresh revokes
@@ -255,11 +298,19 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if _, err := runCmd(append([]string{"podman"}, args...), RunOpts{}); err != nil {
 		return nil, err
 	}
-	code, app := containerPorts(o.name)
-	if code == 0 || app == 0 {
+	// podman binds the ports as the container starts. A docker socket served
+	// by podnester (TPS running inside a TPS task) picks them a moment later,
+	// so a container short of its ports is given a few seconds to get them.
+	var c *Container
+	for i := 0; i < 60; i++ {
+		if c = publishedContainer(o.name); c != nil && len(c.Ports) == len(exposed) {
+			return c, c.waitReady()
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if c == nil {
 		return nil, fmt.Errorf("container %s has no published ports", o.name)
 	}
-	c := &Container{o.name, code, app}
 	return c, c.waitReady()
 }
 
@@ -267,7 +318,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
 func containerConfig(image, toolbox string) string {
-	config, _ := json.Marshal([]any{10, image, filepath.Base(toolbox)})
+	config, _ := json.Marshal([]any{11, image, filepath.Base(toolbox)})
 	return string(config)
 }
 
@@ -278,29 +329,54 @@ func runningContainer(name, config string) *Container {
 	if strings.TrimSpace(inspect.Out) != config+"\ttrue" {
 		return nil
 	}
-	code, app := containerPorts(name)
-	if code == 0 || app == 0 {
-		return nil
-	}
-	return &Container{name, code, app}
+	return publishedContainer(name)
 }
 
 func rmContainer(name string) {
 	_, _ = runCmd([]string{"podman", "rm", "-f", "-t", "2", name}, RunOpts{NoCheck: true})
 }
 
-var portRe = regexp.MustCompile(`:(\d+)\s*$`)
-
-func containerPorts(name string) (code, app int) {
-	get := func(cport int) int {
-		r, _ := runCmd([]string{"podman", "port", name, fmt.Sprintf("%d/tcp", cport)}, RunOpts{NoCheck: true})
-		if m := portRe.FindStringSubmatch(strings.TrimSpace(r.Out)); m != nil {
-			n, _ := strconv.Atoi(m[1])
-			return n
-		}
-		return 0
+// publishedContainer describes the container by the ports podman gave it;
+// nil when it has none for code-server, which means it isn't one of ours.
+func publishedContainer(name string) *Container {
+	r, err := runCmd([]string{"podman", "inspect", "--format", "{{json .NetworkSettings.Ports}}", name}, RunOpts{NoCheck: true})
+	if err != nil || r.Code != 0 {
+		return nil
 	}
-	return get(codePort), get(appPort)
+	c := &Container{Name: name}
+	for _, m := range parsePublishedPorts(r.Out) {
+		if m.Port == codePort {
+			c.CodePort = m.Host
+		} else {
+			c.Ports = append(c.Ports, m)
+		}
+	}
+	if c.CodePort == 0 {
+		return nil
+	}
+	return c
+}
+
+// parsePublishedPorts reads podman's port bindings, as `podman inspect` shows
+// them: {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "45123"}]}. The
+// result is sorted by container port.
+func parsePublishedPorts(text string) []PortMap {
+	var bindings map[string][]struct {
+		HostPort string
+	}
+	_ = json.Unmarshal([]byte(strings.TrimSpace(text)), &bindings)
+	var ports []PortMap
+	for spec, list := range bindings {
+		port, proto := splitPortSpec(spec)
+		if proto != "tcp" || len(list) == 0 {
+			continue
+		}
+		if host, _ := strconv.Atoi(list[0].HostPort); host != 0 {
+			ports = append(ports, PortMap{port, host})
+		}
+	}
+	sort.Slice(ports, func(i, j int) bool { return ports[i].Port < ports[j].Port })
+	return ports
 }
 
 func (c *Container) waitReady() error {
@@ -315,8 +391,8 @@ func (c *Container) waitReady() error {
 
 // codeScript runs code-server in the container, with the toolbox on PATH so
 // terminals in VS Code can run claude too. The explicit --port keeps it from
-// picking up $PORT, which is meant for whatever the task itself serves. Its
-// pid is written down first (exec keeps it), for killCodeScript.
+// picking up a $PORT the image may set for whatever the task itself serves.
+// Its pid is written down first (exec keeps it), for killCodeScript.
 var codeScript = fmt.Sprintf("export PATH=/tps/bin:$PATH; echo $$ >%[2]s; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d"+
 	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions /work", codePort, codePidFile)
 

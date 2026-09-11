@@ -23,7 +23,9 @@ only after holding it to what that container may have:
 - Published ports are published *in that container*, the way a mount source is
   found there: the proxy runs a small forwarder inside it for each, so
   `-p 5432:5432` makes `localhost:5432` work exactly as it would on a host.
-  `-p 0:5432` picks a free port and `docker port` tells which.
+  `-p 0:5432` picks a free port and `docker port` tells which. A sibling on
+  a network of its own (compose makes one per project) is reached there: the
+  top-level container is on every network made through the proxy.
 - Sub-containers join a bridge network of the top-level container's, which
   it is on as well, so they reach each other and it reaches them by name;
   `docker network create` makes further networks it joins too (what compose

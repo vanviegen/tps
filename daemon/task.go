@@ -108,7 +108,7 @@ type Task struct {
 	codeSyncing  bool  // a syncCode is under way
 	codeStart    int64 // ms epoch of the code-server start: a new one means VS Code must reload
 	codeError    string
-	live         bool
+	live         map[int]bool // by container port: something answers HTTP there (see checkLive)
 	checkingLive bool
 	refreshing   bool // a changes overview is being computed
 	autoStarting bool // an auto-start is under way, so it isn't started twice
@@ -203,12 +203,10 @@ func (t *Task) publishL() {
 	t.pubL("status", t.status)
 	t.pubL("statusDetail", t.statusDetail)
 	t.pubL("working", t.workingL())
-	t.pubL("live", t.live)
+	t.pubL("ports", t.portsL())
 	if t.status == StatusUp && t.container != nil {
-		t.pubL("appPort", t.container.AppPort)
 		t.pubL("runCmd", nonEmpty(cmdDisplay(t.runCmd)))
 	} else {
-		t.pubL("appPort", nil)
 		t.pubL("runCmd", nil)
 	}
 	// The port is there while VS Code is: its start time comes along, so a
@@ -260,7 +258,7 @@ func optional[T any](v *T) any {
 func (t *Task) setStatusL(status WorkStatus, detail string) {
 	t.status, t.statusDetail = status, detail
 	if status != StatusUp {
-		t.setLiveL(false)
+		t.live = nil
 	}
 	t.publishL()
 }
@@ -1860,12 +1858,26 @@ func (t *Task) onRunExit(s *runSession, code int) {
 	}
 }
 
-// --- the 'live' indicator: is something answering on the task's $PORT? ---
+// --- the forwarded ports, and whether something answers on them ---
 
-func (t *Task) setLiveL(live bool) {
-	if live == t.live {
-		return
+// portsL is what the dashboard shows of the container's published ports:
+// each with the loopback port it is on here (a remote dashboard swaps in a
+// tunnel of its own) and whether HTTP answers on it. nil while there is no
+// container, or it exposes nothing.
+func (t *Task) portsL() any {
+	if t.status != StatusUp || t.container == nil || len(t.container.Ports) == 0 {
+		return nil
 	}
+	ports := make([]map[string]any, len(t.container.Ports))
+	for i, m := range t.container.Ports {
+		ports[i] = map[string]any{"port": m.Port, "host": m.Host, "live": t.live[m.Port]}
+	}
+	return ports
+}
+
+// setLiveL records a probe round's findings (the hub drops a publish that
+// changes nothing).
+func (t *Task) setLiveL(live map[int]bool) {
 	t.live = live
-	t.pubL("live", live)
+	t.pubL("ports", t.portsL())
 }

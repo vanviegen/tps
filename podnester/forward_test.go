@@ -70,8 +70,21 @@ func TestForward(t *testing.T) {
 		t.Errorf("busy port reported as %q", data)
 	}
 	// What running siblings ask for.
-	w := wantedForwarders(portBindings{"5432/tcp": {{HostIP: "", HostPort: "5432"}, {HostIP: "127.0.0.1", HostPort: "0"}}, "53/udp": {{HostPort: "53"}}}, "10.1.2.3")
-	if len(w) != 2 || w[":5432"] != "10.1.2.3:5432" || w["127.0.0.1:0"] != "10.1.2.3:5432" {
+	// Two "any port" bindings share a listen address and are still two forwarders.
+	w := wantedForwarders(portBindings{"5432/tcp": {{HostIP: "", HostPort: "5432"}, {HostIP: "127.0.0.1", HostPort: "0"}}, "53/udp": {{HostPort: "53"}}, "8080/tcp": {{HostIP: "127.0.0.1", HostPort: "0"}}}, "10.1.2.3")
+	if len(w) != 3 || w["5432/tcp@:5432"] != (binding{":5432", "10.1.2.3:5432"}) || w["5432/tcp@127.0.0.1:0"] != (binding{"127.0.0.1:0", "10.1.2.3:5432"}) || w["8080/tcp@127.0.0.1:0"] != (binding{"127.0.0.1:0", "10.1.2.3:8080"}) {
 		t.Errorf("wantedForwarders: %v", w)
+	}
+	nets := map[string]struct {
+		IPAddress string `json:"IPAddress"`
+	}{"x-bridge": {""}, "other": {"10.2.0.5"}, "app": {"10.3.0.9"}}
+	if siblingAddr(nets, "x-bridge") != "10.3.0.9" {
+		t.Errorf("siblingAddr without a shared-bridge address: %s", siblingAddr(nets, "x-bridge"))
+	}
+	nets["x-bridge"] = struct {
+		IPAddress string `json:"IPAddress"`
+	}{"10.1.0.2"}
+	if siblingAddr(nets, "x-bridge") != "10.1.0.2" {
+		t.Error("siblingAddr prefers the shared bridge")
 	}
 }

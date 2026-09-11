@@ -1,43 +1,31 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { externalLink } from 'staffa/icons.js';
-import { cmd } from './util.ts';
+import { cmd, portUrl } from './util.ts';
 
 /**
  * Run the project (its Containerfile's CMD) in the task's container: a dialog
- * with the console output and, once something answers on $PORT, the site.
- * Closing it stops the run, unless asked to keep it going.
+ * with the console output, and a button per port the image exposes, live once
+ * HTTP answers there. The run outlives the dialog — the play button reopens it
+ * with the output intact — unless *Stop* ends it on the way out.
  */
 export function runDialog(pid: string, tid: string, $t: any): void {
-	const $ui = A.proxy({ tab: 'console', keep: false });
 	if (A.peek(() => $t.run?.status) !== 'running') void cmd('runTask', { pid, tid });
-	const url = () => `http://${location.hostname}:${$t.appPort}/`;
+	let close: () => void;
 	void S.dialog({
 		header: () => { A('span text=', 'Run: '); A('code text=', $t.runCmd); },
-		attrs: 'w:110rem max-width:96vw',
-		onClose: () => { if (!$ui.keep) void cmd('stopRun', { pid, tid }); },
-		content: close => {
-			S.tabs({
-				bind: A.ref($ui, 'tab'),
-				contentAttrs: 'h:65dvh display:flex flex-direction:column',
-				tabs: [
-					{ id: 'console', label: 'Console', content: () => drawConsole($t) },
-					{ id: 'site', label: 'Live Site', get disabled() { return !$t.live; }, content: () => {
-						A('iframe flex:1 w:100% border:0', 'src=', url());
-					}},
-				],
-			});
-			// The site as soon as it answers; the console until then.
-			A(() => { if ($t.live) $ui.tab = 'site'; });
-			A('div display:flex align-items:center gap:$2 margin-top:$3', () => {
-				S.checkbox({ label: 'Keep running when closed', bind: A.ref($ui, 'keep') });
-				A('div flex:1');
-				A(() => {
-					S.iconButton({ icon: externalLink, ariaLabel: 'Open in a new tab', disabled: !$t.live, click: () => window.open(url(), '_blank') });
-					if ($t.run?.status === 'running') S.button({ content: 'Stop', attrs: '.danger', click: () => void cmd('stopRun', { pid, tid }) });
-					else S.button({ content: 'Run again', click: () => void cmd('runTask', { pid, tid }) });
-				});
-				S.button({ content: 'Close', attrs: '.neutral', click: close });
+		// A height of its own, so the console scrolls inside it and the dialog never does.
+		attrs: 'w:110rem max-width:96vw h:min(88vh,800px)',
+		content: c => { close = c; drawConsole($t); },
+		footer: () => {
+			A('div display:flex flex-wrap:wrap gap:$2 margin-right:auto', () => drawPorts($t));
+			A(() => {
+				if ($t.run?.status === 'running') {
+					S.button({ content: 'Stop', attrs: '.danger', click: () => { void cmd('stopRun', { pid, tid }); close(); } });
+					S.button({ content: 'Background', attrs: '.neutral', tooltip: 'Leave it running; the play button brings this back', click: () => close() });
+				} else {
+					S.button({ content: 'Run again', click: () => void cmd('runTask', { pid, tid }) });
+					S.button({ content: 'Close', attrs: '.neutral', click: () => close() });
+				}
 			});
 		},
 	});
@@ -45,7 +33,7 @@ export function runDialog(pid: string, tid: string, $t: any): void {
 
 /** The output tail, following new output unless scrolled up, and a status line. */
 function drawConsole($t: any): void {
-	const el = A('pre r:0 flex:1 min-height:0 overflow:auto white-space:pre-wrap overflow-wrap:anywhere', () => {
+	const el = A('pre r:0 flex:1 min-height:0 m:0 overflow:auto white-space:pre-wrap overflow-wrap:anywhere', () => {
 		A('text=', $t.runLog || '');
 	}) as HTMLElement;
 	let stick = true;
@@ -59,8 +47,23 @@ function drawConsole($t: any): void {
 	A('div fg:$s-muted font-size:0.9em', () => {
 		const run = $t.run;
 		if ($t.status !== 'up') A('text=', `${$t.statusDetail || $t.status}…`);
-		else if (run?.status === 'running') A('text=', $t.live ? 'Running; something answers on $PORT.' : 'Running; nothing answers on $PORT yet.');
+		else if (run?.status === 'running') A('text=', $t.ports ? 'Running.' : 'Running. Ports named by EXPOSE lines in Containerfile.dev are forwarded; this one has none.');
 		else if (run?.status === 'exited') A('text=', run.code ? `Exited with code ${run.code}.` : 'Finished.');
 		else A('text=', 'Starting…');
+	});
+}
+
+/**
+ * One button per forwarded port, "8080 → 56123" being the port inside the
+ * container and the one it is on here; it opens the page in a new tab, and
+ * is disabled until something answers HTTP there.
+ */
+function drawPorts($t: any): void {
+	A(() => {
+		for (const p of $t.ports ?? []) {
+			S.button({ content: `${p.port} → ${p.host}`, attrs: '.neutral', disabled: !p.live,
+				tooltip: p.live ? 'Open in a new tab' : 'Nothing answers HTTP here yet',
+				click: () => window.open(portUrl(p), '_blank') });
+		}
 	});
 }

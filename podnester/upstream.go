@@ -194,7 +194,7 @@ func labelFilter(label string) string {
 // process. Callers keep the returned command alive for as long as they need
 // the socket; nil when the socket was there already.
 func EnsureService(sock string) (*exec.Cmd, error) {
-	if socketAnswers(sock) {
+	if SocketAnswers(sock) {
 		return nil, nil
 	}
 	if err := os.MkdirAll(dir(sock), 0o700); err != nil {
@@ -208,7 +208,7 @@ func EnsureService(sock string) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("starting podman system service: %w", err)
 	}
 	for i := 0; i < 100; i++ {
-		if socketAnswers(sock) {
+		if SocketAnswers(sock) {
 			return cmd, nil
 		}
 		if cmd.ProcessState != nil {
@@ -220,7 +220,8 @@ func EnsureService(sock string) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("podman system service did not come up on %s", sock)
 }
 
-func socketAnswers(sock string) bool {
+// SocketAnswers: does a docker-compatible API answer on this socket?
+func SocketAnswers(sock string) bool {
 	u := newUpstream(sock)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
