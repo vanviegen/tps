@@ -67,12 +67,12 @@ are ready. A new host gets the daemon installed and started, and the projects
 it already has are listed along with it.
 
 Right-click a project in the sidebar for what can be done with it: adding a
-task, opening its checkout, its default task settings, renaming it, changing
-its initials or colour, moving it, and removing it. A host's menu (right-click
-its box, or the ⋮ in its header) holds connecting, copying your claude login
-there, updating or stopping its daemon, and removing it. Removing a host
-takes it off this dashboard only; removing a project takes it off its host,
-with the tasks it holds, for every dashboard.
+task, opening its checkout, its settings — its name, initials and colour, and
+the settings its new tasks start out with — moving it, and removing it. A
+host's menu (right-click its box, or the ⋮ in its header) holds connecting,
+copying your claude login there, updating or stopping its daemon, and removing
+it. Removing a host takes it off this dashboard only; removing a project takes
+it off its host, with the tasks it holds, for every dashboard.
 
 Tasks run in a Debian image with the basics (git, curl, a compiler). A
 repository with its own `Containerfile.dev` at the root gets that instead: a

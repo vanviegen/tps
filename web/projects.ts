@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, check, code, folder, gitBranch, keyRound, palette, pencil, plus, settings, tag, trash2, x } from 'staffa/icons.js';
+import { arrowDown, arrowUp, check, code, folder, gitBranch, keyRound, plus, settings, trash2, x } from 'staffa/icons.js';
 import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
@@ -9,7 +9,7 @@ import { $state } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, projectInitials, selection, shortDir } from './util.ts';
+import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, projectInitials, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
@@ -84,42 +84,12 @@ async function removeProject(pid: string, $p: any): Promise<boolean> {
 	return true;
 }
 
-async function renameProject(pid: string, $p: any): Promise<void> {
-	const name = await S.prompt('Name for this project:', A.peek($p, 'name') ?? '');
-	if (name?.trim()) void cmd('setProject', { pid, name: name.trim() });
-}
-
-/** The initials the collapsed sidebar shows for the project; emptied, they are made from the name again. */
-async function initialsPrompt(pid: string, $p: any): Promise<void> {
-	const initials = await S.prompt('One to three letters to stand for this project where its name does not fit (empty: made from the name):', A.peek(() => projectInitials($p)));
-	if (initials !== null) void cmd('setProject', { pid, initials: initials.trim().slice(0, 3) });
-}
-
-/** The project's colour, picked from the palette. */
-function colorDialog(pid: string, $p: any): void {
-	void S.dialog({ header: 'Project colour', attrs: 'w:24rem', content: close => {
-		A('p.s-help #The colour the sidebar shows the project and its tasks in.');
-		A('div display:flex flex-wrap:wrap gap:$2', () => {
-			for (const color of PROJECT_COLORS) {
-				A('button w:2.4rem h:2.4rem r:50% border:0 cursor:pointer display:inline-flex align-items:center justify-content:center fg:#14161a',
-					`bg:${color}`, 'aria-label=', color,
-					'click=', () => { void cmd('setProject', { pid, color }); close(); },
-					() => { A(() => { if (projectColor($p) === color) check({ size: '1.2em' }); }); });
-			}
-		});
-	}});
-}
-
 /** The project's menu: everything to do with it, from its row in the sidebar. */
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	return [
 		{ label: 'Add task', icon: plus, click: () => addTask(pid) },
 		{ label: 'View code', icon: code, click: () => void route.go(pathTo(pid, 'base')) },
-		{ label: 'Default task settings…', icon: settings, click: () => projectDefaultsDialog(pid, $p) },
-		{ separator: true },
-		{ label: 'Rename…', icon: pencil, click: () => void renameProject(pid, $p) },
-		{ label: 'Change initials…', icon: tag, click: () => void initialsPrompt(pid, $p) },
-		{ label: 'Change colour…', icon: palette, click: () => colorDialog(pid, $p) },
+		{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
 		{ separator: true },
 		{ label: 'Move up', icon: arrowUp, click: () => moveProject(pid, -1) },
 		{ label: 'Move down', icon: arrowDown, click: () => moveProject(pid, 1) },
@@ -155,7 +125,7 @@ export function drawProjectPage(pid: string, $p: any): void {
 			A('div display:flex gap:$2 flex-wrap:wrap', () => {
 				S.button({ content: 'Add task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: () => addTask(pid) });
 				S.button({ content: 'View code', icon: code, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
-				S.button({ content: 'Default task settings', icon: settings, attrs: '.small .neutral', click: () => projectDefaultsDialog(pid, $p) });
+				S.button({ content: 'Settings', icon: settings, attrs: '.small .neutral', click: () => projectSettingsDialog(pid, $p) });
 			});
 		});
 		drawNotices(pid, $p);
@@ -315,20 +285,65 @@ export function drawProjectFacts($p: any): void {
 }
 
 /**
- * What the project's new tasks start out with. Rarely changed, so it waits
- * behind a button instead of taking the page.
+ * Everything about the project that is set rather than done: what it is called
+ * and what stands for it in the sidebar, and — kept apart, being about the
+ * tasks to come rather than the project itself — what its new tasks start out
+ * with. Every field saves itself as it is changed, so there is nothing here to
+ * confirm and nothing lost by closing the dialog.
  */
-export function projectDefaultsDialog(pid: string, $p: any): void {
-	void S.dialog({ header: 'Default task settings', attrs: 'w:36rem', content: () => {
-		A('p.s-help #Copied into every new task of this project; the tasks that exist keep what they have.');
-		A(() => {
-			// The defaults land with the project itself; each is patched on its
-			// own, so typing in one is not interrupted by another being saved.
-			const $d = $p.defaults;
-			if (!$d) return;
-			drawTaskFields(pid, undefined, $d, patch => void cmd('setProject', { pid, defaults: patch }));
+export function projectSettingsDialog(pid: string, $p: any): void {
+	const save = (patch: object) => void cmd('setProject', { pid, ...patch });
+	void S.dialog({ header: 'Project settings', attrs: 'w:36rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => {
+		// The values are read once and written back by the fields themselves: a
+		// redraw while typing would take the cursor with it.
+		A('div display:flex flex-direction:column gap:$2', () => {
+			S.textline({
+				label: 'Name', value: A.peek($p, 'name') ?? '',
+				input: debounce(600, (e: Event) => {
+					const name = (e.target as HTMLInputElement).value.trim();
+					if (name) save({ name });
+				}),
+			});
+			S.textline({
+				label: 'Initials', value: A.peek(() => projectInitials($p)),
+				help: 'One to three letters to stand for the project where its name does not fit; emptied, they are made from the name again.',
+				input: debounce(600, (e: Event) => save({ initials: (e.target as HTMLInputElement).value.trim().slice(0, 3) })),
+			});
+			drawColorField(pid, $p);
+		});
+		// A section of its own, boxed and headed, so what it is about is not
+		// mistaken for more of the project's own settings.
+		S.box({
+			header: 'Default task settings', attrs: 'mt:0',
+			contentAttrs: 'display:flex flex-direction:column gap:$2',
+			content: () => {
+				A('p.s-help m:0 #Copied into every new task of this project; the tasks that exist keep what they have.');
+				A(() => {
+					// The defaults land with the project itself; each is patched on its
+					// own, so typing in one is not interrupted by another being saved.
+					const $d = $p.defaults;
+					if (!$d) return;
+					drawTaskFields(pid, undefined, $d, patch => save({ defaults: patch }));
+				});
+			},
 		});
 	}});
+}
+
+/** The project's colour, as a field of the settings: the palette, with the one in use ticked. */
+function drawColorField(pid: string, $p: any): void {
+	A('div.s-field', () => {
+		A('label #Colour');
+		A('div display:flex flex-wrap:wrap gap:$2', () => {
+			for (const color of PROJECT_COLORS) {
+				A('button type=button w:2.4rem h:2.4rem r:50% border:0 cursor:pointer display:inline-flex align-items:center justify-content:center fg:#14161a',
+					`bg:${color}`, 'aria-label=', color,
+					'click=', () => void cmd('setProject', { pid, color }),
+					() => { A(() => { if (projectColor($p) === color) check({ size: '1.2em' }); }); });
+			}
+		});
+		A('span.s-help #What the sidebar shows the project and its tasks in.');
+	});
 }
 
 /**
