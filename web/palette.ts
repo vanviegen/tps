@@ -5,7 +5,7 @@ import { claimKeyInCode } from './code.ts';
 import { $state } from './conn.ts';
 import { sortedProjects } from './projects.ts';
 import { closeBase } from './sidebar.ts';
-import { closeTask } from './task.ts';
+import { addTask, closeTask } from './task.ts';
 import { branchLabel, isFinished, pathTo, phaseOrder, PHASE_LABELS, selection, taskTitle, type Phase } from './util.ts';
 
 /**
@@ -39,14 +39,17 @@ function isPaletteKey(e: KeyboardEvent): boolean {
 	return (APPLE ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === 'l';
 }
 
-/** One place to go: the path to it, and the text you type against. */
+/** One entry: the path it goes to (or the word it acts on), and the text you type against. */
 interface Destination { value: string; label: string }
 
 /**
- * The one entry that is not a place to go: closing what is open. Every other
- * value is a path, and none of those is a bare word.
+ * The two entries that are not a place to go: closing what is open, and
+ * creating a task in a project, which is CREATE and the project id. Every
+ * other value is a path, and a path begins with a slash, so neither can be
+ * taken for one.
  */
 const CLOSE = 'close';
+const CREATE = 'create:';
 
 /**
  * Closing what is on screen, as an entry — the task, or the project's own
@@ -66,16 +69,18 @@ function closeEntry(): { label: string; act: () => void } | undefined {
 /**
  * Everywhere the palette can take you, in the order the board would show it:
  * projects with something waiting first, and under each its own checkout —
- * named for its branch, as the sidebar and the tab title name it — and then
- * its tasks, the done ones last. The label carries the project's name and the
- * task's phase, as matching is on the label alone — so "human" finds what
- * waits for you.
+ * named for its branch, as the sidebar and the tab title name it — then the
+ * task to start, which is the one entry here that makes its destination
+ * rather than going to it, and then its tasks, the done ones last. The label
+ * carries the project's name and the task's phase, as matching is on the
+ * label alone — so "human" finds what waits for you.
  */
 function destinations(): Destination[] {
 	const out: Destination[] = [];
 	for (const [pid, $p] of sortedProjects()) {
 		out.push({ value: pathTo(pid), label: $p.name });
 		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › ${branchLabel($p)}` });
+		out.push({ value: CREATE + pid, label: `${$p.name} › Create task` });
 		const tasks = Object.entries($p.tasks ?? {}) as [string, any][];
 		tasks.sort((a, b) => {
 			const [ka, kb] = [phaseOrder(a[1], a[0]), phaseOrder(b[1], b[0])];
@@ -103,11 +108,12 @@ function showPalette(): void {
 			A('input=', (e: Event) => { $typed.yes = !!(e.target as HTMLInputElement).value.trim(); });
 			const bind = {
 				get value(): string { return ''; },
-				set value(path: string) {
-					const act = path === CLOSE ? A.peek(closeEntry)?.act : undefined;
+				set value(value: string) {
+					const act = value === CLOSE ? A.peek(closeEntry)?.act : undefined;
 					close();
 					if (act) act();
-					else void route.go(path);
+					else if (value.startsWith(CREATE)) void addTask(value.slice(CREATE.length));
+					else void route.go(value);
 				},
 			};
 			S.autocomplete({

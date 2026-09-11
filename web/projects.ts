@@ -87,7 +87,7 @@ async function removeProject(pid: string, $p: any): Promise<boolean> {
 /** The project's menu: everything to do with it, from its row in the sidebar. */
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	return [
-		{ label: 'Add task', icon: plus, click: () => addTask(pid) },
+		{ label: 'Create task', icon: plus, click: () => addTask(pid) },
 		{ label: `Open ${branchLabel($p)}`, icon: gitBranch, click: () => void route.go(pathTo(pid, 'base')) },
 		{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
 		{ separator: true },
@@ -123,7 +123,7 @@ export function drawProjectPage(pid: string, $p: any): void {
 			// rows, so each is bound once while the project is on screen (see
 			// KEYS in main.ts).
 			A('div display:flex gap:$2 flex-wrap:wrap', () => {
-				S.button({ content: 'Add task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: () => addTask(pid) });
+				S.button({ content: 'Create task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: () => addTask(pid) });
 				S.button({ content: `Open ${branchLabel($p)}`, icon: gitBranch, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
 				S.button({ content: 'Settings', icon: settings, attrs: '.small .neutral', click: () => projectSettingsDialog(pid, $p) });
 			});

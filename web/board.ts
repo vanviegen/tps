@@ -34,7 +34,7 @@ export function drawBoard(pid: string, $p: any): void {
 				contentAttrs: 'flex:1 min-height:0 overflow-y:auto display:flex flex-direction:column',
 				header: () => {
 					A('text=', PHASE_LABELS[phase]);
-					if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Add task', attrs: '.small ml:auto', click: () => void addTask(pid) });
+					if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Create task', attrs: '.small ml:auto', click: () => void addTask(pid) });
 				},
 				content: () => drawColumn(pid, $p, phase),
 			});
