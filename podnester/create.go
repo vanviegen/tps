@@ -19,6 +19,7 @@ import (
 // createCtx carries what one create request gathers on the way.
 type createCtx struct {
 	c        *call
+	owner    *containerInspect
 	table    *mountTable
 	warnings []string
 	ports    portBindings
@@ -28,16 +29,47 @@ func (cc *createCtx) warn(format string, args ...any) {
 	cc.warnings = append(cc.warnings, "podnester: "+fmt.Sprintf(format, args...))
 }
 
-// mounts is the owner's filesystem view, inspected once per request.
+// ownerInspect is the owner, inspected once per request.
+func (cc *createCtx) ownerInspect() (*containerInspect, error) {
+	if cc.owner == nil {
+		insp, err := cc.c.p.up.inspectContainer(cc.c.ctx, cc.c.p.cfg.Owner)
+		if err != nil {
+			return nil, fmt.Errorf("inspecting %s: %w", cc.c.p.cfg.Owner, err)
+		}
+		cc.owner = insp
+	}
+	return cc.owner, nil
+}
+
+// mounts is the owner's filesystem view.
 func (cc *createCtx) mounts() (*mountTable, error) {
 	if cc.table == nil {
-		t, err := cc.c.ownerTable()
+		insp, err := cc.ownerInspect()
 		if err != nil {
 			return nil, err
 		}
-		cc.table = t
+		cc.table = ownerTable(insp)
 	}
 	return cc.table, nil
+}
+
+// usernsMode puts a sibling in the owner's user namespace: the one namespace,
+// not a copy of its mapping. Uids then mean the same in all of them and in
+// the owner (root is the owner's root, the uid it runs as is the same uid),
+// and siblings can join each other's network, pid and ipc namespaces, which
+// the kernel allows only within one user namespace (mounting sysfs in a
+// joined network namespace, for one, needs capabilities over its owner).
+// An owner without a user namespace of its own runs in podman's, and so
+// do siblings by default: nothing to set then.
+func (cc *createCtx) usernsMode() (string, error) {
+	insp, err := cc.ownerInspect()
+	if err != nil {
+		return "", err
+	}
+	if insp.HostConfig.UsernsMode == "" || insp.HostConfig.UsernsMode == "host" {
+		return "", nil
+	}
+	return "container:" + cc.c.p.cfg.Owner, nil
 }
 
 // hostPath is the host path a bind source (a path in the owner) means. The
@@ -163,9 +195,6 @@ func (cc *createCtx) container(body map[string]json.RawMessage) (map[string]json
 			return nil, denied("%s is not a field this socket accepts in a container spec", key)
 		}
 	}
-	if err := cc.defaultUser(out); err != nil {
-		return nil, err
-	}
 	out["Labels"] = cc.labels(labels)
 	return out, nil
 }
@@ -237,14 +266,9 @@ func (cc *createCtx) hostConfig(hc map[string]json.RawMessage) (map[string]json.
 		case "NetworkMode":
 			out[key], err = cc.networkMode(str(v))
 		case "UsernsMode":
-			s := str(v)
-			if s != p.cfg.UsernsMode {
-				if s != "" {
-					cc.warn("UsernsMode %q ignored: siblings run with the same user mapping as this container", s)
-				}
-				s = p.cfg.UsernsMode
+			if s := str(v); s != "" {
+				cc.warn("UsernsMode %q ignored: siblings share this container's user namespace", s)
 			}
-			out[key] = marshal(s)
 		case "SecurityOpt":
 			var opts []string
 			if err := unmarshalNonNull(v, &opts); err != nil {
@@ -309,8 +333,10 @@ func (cc *createCtx) hostConfig(hc map[string]json.RawMessage) (map[string]json.
 	if _, ok := hc["NetworkMode"]; !ok {
 		out["NetworkMode"] = marshal(p.Network())
 	}
-	if _, ok := hc["UsernsMode"]; !ok && p.cfg.UsernsMode != "" {
-		out["UsernsMode"] = marshal(p.cfg.UsernsMode)
+	if userns, err := cc.usernsMode(); err != nil {
+		return nil, err
+	} else if userns != "" {
+		out["UsernsMode"] = marshal(userns)
 	}
 	if _, ok := hc["SecurityOpt"]; !ok && len(p.cfg.SecurityOpt) > 0 {
 		out["SecurityOpt"] = marshal(p.cfg.SecurityOpt)
@@ -751,28 +777,4 @@ func randomName() string {
 	var b [4]byte
 	_, _ = rand.Read(b[:])
 	return fmt.Sprintf("c%x", b)
-}
-
-// defaultUser keeps docker's meaning of an unset User: the image's user, or
-// root. Under a keep-id mapping podman would fill in the owner's uid instead,
-// and then a plain debian cannot even apt-get. Root here is the same as in
-// the owner itself: a subordinate uid of the host's, nothing more.
-func (cc *createCtx) defaultUser(spec map[string]json.RawMessage) error {
-	if str(spec["User"]) != "" || !strings.HasPrefix(cc.c.p.cfg.UsernsMode, "keep-id") {
-		return nil
-	}
-	var img struct {
-		Config struct{ User string }
-	}
-	err := cc.c.p.up.call(cc.c.ctx, "GET", "/images/"+str(spec["Image"])+"/json", nil, nil, &img)
-	if isNotFound(err) {
-		return nil // podman answers the create with that, and the client pulls and comes back
-	}
-	if err != nil {
-		return err
-	}
-	if img.Config.User == "" {
-		spec["User"] = marshal("0:0")
-	}
-	return nil
 }

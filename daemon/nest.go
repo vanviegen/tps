@@ -76,8 +76,7 @@ func nestFor(name, dir string) (*podnester.Proxy, error) {
 		Owner:        name,
 		Control:      dir,
 		ControlMount: nestMount,
-		UsernsMode:   "keep-id:uid=1000,gid=1000", // as the task container runs
-		SecurityOpt:  []string{"label=disable"},   // likewise
+		SecurityOpt:  []string{"label=disable"}, // as the task container runs
 		Logf:         logf,
 	})
 	if err != nil {

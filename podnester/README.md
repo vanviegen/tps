@@ -27,10 +27,13 @@ only after holding it to what that container may have:
 - Sub-containers join a bridge network of the top-level container's, which
   it is on as well, so they reach each other and it reaches them by name;
   `docker network create` makes further networks it joins too (what compose
-  does). The user namespace mapping and SELinux settings of the top-level
-  container are forced on them, so shared files show the same owners. A
-  sub-container still runs as its image's user, or root (podman's keep-id
-  would put the top-level container's uid there), as it would under docker.
+  does). Sub-containers live in the top-level container's own user namespace
+  (and get its SELinux settings), so uids mean the same everywhere: a file
+  written as root in one is root's in the top-level container too, and its
+  own uid is the same uid in them. That is also what lets them join each
+  other's network, pid and ipc namespaces (`--network container:app`), as
+  the kernel allows that only within one user namespace. A sub-container
+  runs as its image's user, or root, as it would under docker.
 - Everything that would reach past the container is refused: privileges,
   capabilities, devices, sysctls, the host's namespaces, registry logins,
   image removal (images are the host's, shared by all), host paths in volume
@@ -54,17 +57,17 @@ podnester run --rm -it --name mytask --userns keep-id:uid=1000,gid=1000 \
 
 That is a `podman run` with `--network mytask-bridge`, the mount of the
 directory holding the socket and `DOCKER_HOST`/`CONTAINER_HOST` pointing at
-it added. `--name`, `--userns` and `--security-opt` are read off the options
-(the container's sub-containers get the same user mapping and security
-options, so shared files show the same owners); without a name one is made
-up. With `-d`, podnester keeps serving the socket in the background for as
+it added. `--name` and `--security-opt` are read off the options (the
+container's sub-containers share its user namespace and get the same
+security options, so shared files show the same owners); without a name one
+is made up. With `-d`, podnester keeps serving the socket in the background for as
 long as the container exists; otherwise it serves while the container runs
 and removes what it started when it exits. Every other command (`podnester
 ps`, ...) is podman's, so `alias podman=podnester` is an option. Put a
 static `docker` in the image or on a mount; `DOCKER_BUILDKIT=0` is set, as
 podman builds without buildkit.
 
-`podnester serve X [--userns ...] [--security-opt ...]` serves the socket for
+`podnester serve X [--security-opt ...]` serves the socket for
 a container run by something else, which must be started with `--network
 X-bridge`, the control directory (`$XDG_RUNTIME_DIR/podnester/X`) mounted at
 `/run/podnester`, and `DOCKER_HOST=unix:///run/podnester/podman.sock`.
@@ -78,7 +81,7 @@ nothing answers there, a `podman system service` is started on it.
 ```go
 p, err := podnester.New(podnester.Config{
     Upstream: sock, Owner: name, Control: dir, ControlMount: "/run/podnester",
-    UsernsMode: "keep-id:uid=1000,gid=1000", SecurityOpt: []string{"label=disable"},
+    SecurityOpt: []string{"label=disable"},
 })
 p.EnsureNetwork(ctx)              // then run the owner with --network p.Network()
 go p.ListenAndServe(ctx)          // p.Socket() on the host, p.SocketMount() inside

@@ -31,10 +31,12 @@ Rules:
   you prefer that name, as the CLIs mirror each other; podman's own API is not served.
   Containers you start are siblings of yours on a private network: reach them by name,
   or publish ports (-p 5432:5432 makes localhost:5432 work in here, like on a host).
-  Bind mounts take paths as you see them (/work/...). Privileged options, host
-  namespaces, devices, port ranges and image removal are refused. These containers go
-  away when yours is recreated (named volumes stay), so keep what starts them in a
-  script or a compose file.
+  Bind mounts take paths as you see them (/work/...). They share your user namespace:
+  root in them is the root your sudo gives, and uid 1000 in them is you, so a container
+  writing as root leaves root-owned files, as on any docker host (run it with --user
+  1000:1000, or sudo rm them). Privileged options, host namespaces, devices, port
+  ranges and image removal are refused. These containers go away when yours is
+  recreated (named volumes stay), so keep what starts them in a script or a compose file.
 
 End every turn with a TPS-DONE line: the last line of your last message, saying where
 the task goes next and nothing after it.

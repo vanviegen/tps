@@ -52,7 +52,8 @@ func TestAgainstPodman(t *testing.T) {
 	}
 	if err := up.call(ctx, "POST", "/containers/create", url.Values{"name": {owner}}, map[string]any{
 		"Image": "docker.io/library/alpine:latest", "Cmd": []string{"sleep", "600"},
-		"HostConfig": map[string]any{"NetworkMode": p.Network(), "Binds": []string{work + ":/work"}},
+		// A user namespace of its own, as a rootless owner typically has: siblings join it.
+		"HostConfig": map[string]any{"NetworkMode": p.Network(), "Binds": []string{work + ":/work"}, "UsernsMode": "keep-id"},
 	}, &created); err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +172,20 @@ func TestAgainstPodman(t *testing.T) {
 	// With the owner running, a started sibling gets its port forwarded in the owner.
 	if code, obj, _ := do("POST", "/containers/db/start", nil); code/100 != 2 {
 		t.Fatalf("start: %d %v", code, obj)
+	}
+	// A sibling in db's network namespace: possible only within one user namespace, which they share with the owner.
+	code, obj, _ = do("POST", "/containers/create?name=probe", map[string]any{
+		"Image": "docker.io/library/alpine:latest", "Cmd": []string{"cat", "/sys/class/net/eth0/address"},
+		"HostConfig": map[string]any{"NetworkMode": "container:db"},
+	})
+	if code != 201 {
+		t.Fatalf("create in db's network namespace: %d %v", code, obj)
+	}
+	if code, obj, _ := do("POST", "/containers/probe/start", nil); code/100 != 2 {
+		t.Fatalf("start in db's network namespace: %d %v", code, obj)
+	}
+	if code, obj, _ := do("POST", "/containers/probe/wait", nil); code != 200 || obj["StatusCode"] != 0.0 {
+		t.Errorf("in db's network namespace: %d %v", code, obj)
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {

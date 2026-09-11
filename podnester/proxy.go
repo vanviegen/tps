@@ -43,11 +43,8 @@ type Config struct {
 	// client gives, so tasks sharing a host cannot collide, and comes off
 	// again in every answer. Default Owner + "-".
 	Prefix string
-	// UsernsMode is forced on every sibling, so that uids on shared files
-	// line up: the owner's own mode, typically ("keep-id:uid=1000,gid=1000"
-	// for a container running as uid 1000). Empty leaves podman's default.
-	UsernsMode string
-	// SecurityOpt entries are added to every sibling. "label=disable" is
+	// SecurityOpt entries are added to every sibling. (Siblings need no user
+	// namespace setting: they join the owner.s, see createCtx.usernsMode.) "label=disable" is
 	// what an owner running with that needs, so the files it shares stay
 	// readable without relabeling.
 	SecurityOpt []string
@@ -477,11 +474,7 @@ func (c *call) ensureVolume(name string) (string, error) {
 }
 
 // ownerTable is the owner's filesystem view, for resolving bind sources.
-func (c *call) ownerTable() (*mountTable, error) {
-	insp, err := c.p.up.inspectContainer(c.ctx, c.p.cfg.Owner)
-	if err != nil {
-		return nil, fmt.Errorf("inspecting %s: %w", c.p.cfg.Owner, err)
-	}
+func ownerTable(insp *containerInspect) *mountTable {
 	t := &mountTable{Root: insp.GraphDriver.Data["MergedDir"], Mounts: map[string]string{}}
 	for _, m := range insp.Mounts {
 		if m.Type == "bind" && m.Source != "" && m.Destination != "" {
@@ -491,7 +484,7 @@ func (c *call) ownerTable() (*mountTable, error) {
 	if t.Root == "" {
 		t.Root = "/nonexistent/podnester-root" // a storage driver without a merged view: only bind mounts can be shared
 	}
-	return t, nil
+	return t
 }
 
 type httpError struct {

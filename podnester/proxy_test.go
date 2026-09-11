@@ -22,6 +22,7 @@ type fakePodman struct {
 	requests []*http.Request
 	bodies   []map[string]any
 	readlink string        // what the last readlink in the owner answers
+	userns   string        // the owner's UsernsMode as inspected; "private" if empty
 	release  chan struct{} // a wait answers its headers at once and its body when this closes
 }
 
@@ -69,7 +70,12 @@ func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		reply(map[string]any{"ContainerID": "aaaa", "ExitCode": code})
 	case p == "/containers/top/json":
+		userns := f.userns
+		if userns == "" {
+			userns = "private"
+		}
 		reply(map[string]any{"Id": "aaaa", "Name": "/top", "State": map[string]any{"Running": true},
+			"HostConfig":  map[string]any{"UsernsMode": userns},
 			"Config":      map[string]any{"Labels": map[string]any{}},
 			"GraphDriver": map[string]any{"Data": map[string]any{"MergedDir": f.root}},
 			"Mounts":      []any{map[string]any{"Type": "bind", "Source": f.work, "Destination": "/work"}}})
@@ -87,10 +93,6 @@ func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/volumes/create":
 		w.WriteHeader(201)
 		reply(map[string]any{"Name": body["Name"]})
-	case p == "/images/plain/json":
-		reply(map[string]any{"Config": map[string]any{"User": ""}})
-	case p == "/images/withuser/json":
-		reply(map[string]any{"Config": map[string]any{"User": "app"}})
 	case p == "/containers/create":
 		w.WriteHeader(201)
 		reply(map[string]any{"Id": "3333333333333333", "Warnings": []any{}})
@@ -116,8 +118,8 @@ func newTestProxy(t *testing.T) (*Proxy, *fakePodman) {
 	srv.Start()
 	t.Cleanup(srv.Close)
 	p, err := New(Config{Upstream: sock, Owner: "top", Control: t.TempDir(), ControlMount: "/run/podnester",
-		UsernsMode: "keep-id:uid=1000,gid=1000", SecurityOpt: []string{"label=disable"},
-		Forwarder: []string{"/nonexistent"}, Logf: t.Logf})
+		SecurityOpt: []string{"label=disable"},
+		Forwarder:   []string{"/nonexistent"}, Logf: t.Logf})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +177,7 @@ func TestCreatePolicy(t *testing.T) {
 	if m := hc["Mounts"].([]any)[0].(map[string]any); m["Source"] != filepath.Join(f.work, "data") {
 		t.Errorf("mounts: %v", m)
 	}
-	if hc["NetworkMode"] != "top-bridge" || hc["UsernsMode"] != "keep-id:uid=1000,gid=1000" || hc["PidMode"] != "container:1111111111111111" {
+	if hc["NetworkMode"] != "top-bridge" || hc["UsernsMode"] != "container:top" || hc["PidMode"] != "container:1111111111111111" {
 		t.Errorf("modes: %v", hc)
 	}
 	if so := hc["SecurityOpt"].([]any); len(so) != 2 || so[1] != "label=disable" {
@@ -361,26 +363,23 @@ func TestOverlayBind(t *testing.T) {
 	}
 }
 
-// An unset User means the image's user or root, as with docker; podman's
-// keep-id would make it the owner's uid.
-func TestDefaultUser(t *testing.T) {
+// Siblings join the owner's user namespace; an owner without one of its own
+// runs in podman's, as do siblings by default.
+func TestUserns(t *testing.T) {
 	p, f := newTestProxy(t)
-	for _, tc := range []struct{ image, user, want string }{
-		{"plain", "", "0:0"},
-		{"withuser", "", ""},
-		{"plain", "5", "5"},
-		{"notpulled", "", ""}, // podman's 404 has the client pull and come back
-	} {
-		body := map[string]any{"Image": tc.image}
-		if tc.user != "" {
-			body["User"] = tc.user
-		}
-		if rec := do(p, "POST", "/containers/create", body); rec.Code != 201 {
-			t.Fatalf("%v: %d %s", tc, rec.Code, rec.Body)
-		}
-		got, _ := f.bodies[len(f.bodies)-1]["User"].(string)
-		if got != tc.want {
-			t.Errorf("%s with user %q: sent User %q, want %q", tc.image, tc.user, got, tc.want)
-		}
+	f.userns = "host"
+	if rec := do(p, "POST", "/containers/create", map[string]any{"Image": "x"}); rec.Code != 201 {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+	if hc := f.bodies[len(f.bodies)-1]["HostConfig"].(map[string]any); hc["UsernsMode"] != nil {
+		t.Errorf("userns set for an owner without one: %v", hc["UsernsMode"])
+	}
+	f.userns = "private"
+	rec := do(p, "POST", "/containers/create", map[string]any{"Image": "x", "HostConfig": map[string]any{"UsernsMode": "keep-id"}})
+	if rec.Code != 201 || !strings.Contains(rec.Body.String(), "UsernsMode") {
+		t.Fatalf("create with a userns of its own: %d %s", rec.Code, rec.Body)
+	}
+	if hc := f.bodies[len(f.bodies)-1]["HostConfig"].(map[string]any); hc["UsernsMode"] != "container:top" {
+		t.Errorf("userns: %v", hc["UsernsMode"])
 	}
 }

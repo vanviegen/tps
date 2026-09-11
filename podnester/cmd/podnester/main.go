@@ -55,11 +55,11 @@ func usage() {
   podnester run [podman run options] IMAGE [COMMAND...]
       As podman run, plus a docker socket inside (DOCKER_HOST is set): what
       the container starts through it is its own, on a network of its own,
-      and removed when the container exits. --name, --userns and
-      --security-opt are read off the options and applied to what it starts
-      as well. Without --name, one is made up. With -d, podnester keeps
+      and removed when the container exits. --name and --security-opt are read
+      off the options and applied to what it starts as well; what it starts
+      shares its user namespace. Without --name, one is made up. With -d, podnester keeps
       serving the socket in the background for as long as the container exists.
-  podnester serve NAME [--userns MODE] [--security-opt OPT]...
+  podnester serve NAME [--security-opt OPT]...
       Serve the socket for a container run some other way (see the README).
   podnester purge [--volumes] NAME
       Remove what a container made: its sub-containers and networks, and
@@ -92,7 +92,7 @@ func runtimeDir() string {
 }
 
 // config is a proxy for a container, with podman's API made sure of.
-func config(name, userns string, securityOpt []string) (podnester.Config, error) {
+func config(name string, securityOpt []string) (podnester.Config, error) {
 	sock := filepath.Join(filepath.Dir(runtimeDir()), "podman", "podman.sock")
 	if os.Getenv("XDG_RUNTIME_DIR") == "" {
 		sock = filepath.Join(runtimeDir(), "podman.sock")
@@ -101,20 +101,20 @@ func config(name, userns string, securityOpt []string) (podnester.Config, error)
 		return podnester.Config{}, err
 	}
 	return podnester.Config{
-		Upstream: sock, Owner: name, UsernsMode: userns, SecurityOpt: securityOpt,
+		Upstream: sock, Owner: name, SecurityOpt: securityOpt,
 		Control: filepath.Join(runtimeDir(), name), ControlMount: "/run/podnester",
 	}, nil
 }
 
-// run is podman run, with the container's name, user namespace and
-// security options read off the arguments, and the socket added.
+// run is podman run, with the container's name and security options read
+// off the arguments, and the socket added.
 func run(args []string) error {
-	name, userns, securityOpt, detach := scanRun(args)
+	name, securityOpt, detach := scanRun(args)
 	if name == "" {
 		name = fmt.Sprintf("podnester-%d", time.Now().UnixNano()%1000000)
 		args = append([]string{"--name", name}, args...)
 	}
-	cfg, err := config(name, userns, securityOpt)
+	cfg, err := config(name, securityOpt)
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func run(args []string) error {
 			return err
 		}
 		logFile, _ := os.OpenFile(filepath.Join(cfg.Control, "serve.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		bg := exec.Command(self, append([]string{"serve", name, "--userns", userns}, optArgs("--security-opt", securityOpt)...)...)
+		bg := exec.Command(self, append([]string{"serve", name}, optArgs("--security-opt", securityOpt)...)...)
 		bg.Stdout, bg.Stderr = logFile, logFile
 		bg.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if err := bg.Start(); err != nil {
@@ -163,9 +163,9 @@ func run(args []string) error {
 	return runErr
 }
 
-// scanRun reads the container's name, user namespace mode, security options
-// and detachment off podman run arguments.
-func scanRun(args []string) (name, userns string, securityOpt []string, detach bool) {
+// scanRun reads the container's name, security options and detachment off
+// podman run arguments.
+func scanRun(args []string) (name string, securityOpt []string, detach bool) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !strings.HasPrefix(a, "-") {
@@ -185,10 +185,10 @@ func scanRun(args []string) (name, userns string, securityOpt []string, detach b
 		switch opt {
 		case "--name":
 			name = next()
-		case "--userns":
-			userns = next()
 		case "--security-opt":
 			securityOpt = append(securityOpt, next())
+		case "--userns":
+			next() // podman's to read; skipped so its value is not taken for the image
 		case "-d", "--detach":
 			detach = !has || val == "true"
 		default:
@@ -200,7 +200,7 @@ func scanRun(args []string) (name, userns string, securityOpt []string, detach b
 			}
 		}
 	}
-	return name, userns, securityOpt, detach
+	return name, securityOpt, detach
 }
 
 func optArgs(opt string, values []string) []string {
@@ -214,13 +214,9 @@ func optArgs(opt string, values []string) []string {
 // serve serves a container's socket until the container is gone.
 func serve(args []string) error {
 	name, rest := positional(args)
-	var userns string
 	var securityOpt []string
 	for i := 0; i < len(rest); i++ {
 		switch rest[i] {
-		case "--userns":
-			i++
-			userns = rest[i]
 		case "--security-opt":
 			i++
 			securityOpt = append(securityOpt, rest[i])
@@ -228,7 +224,7 @@ func serve(args []string) error {
 			usage()
 		}
 	}
-	cfg, err := config(name, userns, securityOpt)
+	cfg, err := config(name, securityOpt)
 	if err != nil {
 		return err
 	}
@@ -261,7 +257,7 @@ func purge(args []string) error {
 	if len(rest) > 1 || len(rest) == 1 && !volumes {
 		usage()
 	}
-	cfg, err := config(name, "", nil)
+	cfg, err := config(name, nil)
 	if err != nil {
 		return err
 	}

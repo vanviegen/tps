@@ -110,6 +110,9 @@ type containerInspect struct {
 	Config struct {
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
+	HostConfig struct {
+		UsernsMode string `json:"UsernsMode"` // "private" for a user namespace of its own, "host" for none
+	} `json:"HostConfig"`
 	GraphDriver struct {
 		Data map[string]string `json:"Data"`
 	} `json:"GraphDriver"`
