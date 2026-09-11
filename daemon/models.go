@@ -64,7 +64,7 @@ func (m *Manager) refreshModels() {
 		m.setModelsError("claude has not been downloaded on this host yet")
 		return
 	}
-	r, err := runCmd([]string{claudeBin(), "-p", "/model"}, RunOpts{Dir: home(), Timeout: 60 * time.Second})
+	r, err := runCmd(askArgs("/model"), RunOpts{Dir: home(), Env: askEnv, Timeout: 60 * time.Second})
 	models := parseModels(r.Out + "\n" + r.Err)
 	if models == nil {
 		if err == nil {
@@ -100,17 +100,38 @@ func firstLine(s string) string {
 	return line
 }
 
+// askArgs: a one-shot errand for this host's claude. Naming a task and asking
+// which models there are is no conversation, so everything claude sets up for a
+// session it keeps is only in the way. The MCP servers a user has configured
+// are the expensive part — connecting to them takes seconds before the first
+// token is asked for — and a session nothing will resume needs no saving.
+func askArgs(args ...string) []string {
+	argv := append([]string{claudeBin(), "-p"}, args...)
+	return append(argv, "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--no-session-persistence")
+}
+
+// askEnv drops the two model calls such a run makes on the side: claude having
+// a model name the session behind our back, and thinking. The answers wanted
+// here are one line long, and claude spent ten times as many tokens thinking
+// about a title as it did saying it. All together, a title now takes about a
+// second, where the full session took seven to ten.
+var askEnv = []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "MAX_THINKING_TOKENS=0"}
+
 // generateTitle asks this host's claude for a task title: haiku, as naming one
 // is little work, and a one-shot -p run, as there is nothing to discuss. It
 // answers "" when it can't be asked (no toolbox yet, no network) or won't say
 // anything usable; the stand-in title then simply stays.
 func generateTitle(description string) string {
-	r, err := runCmd([]string{claudeBin(), "-p", titlePrompt(description), "--model", "haiku"}, RunOpts{Dir: home(), Timeout: 30 * time.Second})
+	r, err := runCmd(askArgs(titlePrompt(description), "--model", "haiku"), RunOpts{Dir: home(), Env: askEnv, Timeout: 30 * time.Second})
 	if err != nil {
 		logf("asking claude for a task title failed: %v", err)
 		return ""
 	}
-	return head(strings.Trim(strings.TrimSpace(r.Out), `"'`), 60)
+	answer := strings.Trim(strings.TrimSpace(r.Out), `"'`)
+	if strings.Contains(answer, "\n") || len([]rune(answer)) > 80 {
+		return "" // a reply, not a title: its first 60 characters would say nothing
+	}
+	return head(answer, 60)
 }
 
 // draftTitle is what a task is called until claude has thought about it: the
