@@ -236,7 +236,19 @@ func (cc *createCtx) hostConfig(hc map[string]json.RawMessage) (map[string]json.
 			"MemoryReservation", "MemorySwap", "MemorySwappiness", "OomKillDisable", "PidsLimit", "Ulimits",
 			"CpuCount", "CpuPercent", "IOMaximumIOps", "IOMaximumBandwidth", "KernelMemory", "KernelMemoryTCP":
 			out[key] = v
-		case "ContainerIDFile", "Annotations", "Cgroup", "Links", "StorageOpt", "Sysctls", "Runtime", "CgroupParent",
+		case "ContainerIDFile": // the docker CLI writes it itself, after the create; a path is not podman's to write
+		case "Sysctls":
+			var sysctls map[string]string
+			if err := unmarshalNonNull(v, &sysctls); err != nil {
+				return nil, badRequest("Sysctls: %v", err)
+			}
+			for name := range sysctls {
+				if err := sysctl(name, str(hc["NetworkMode"]), str(hc["IpcMode"])); err != nil {
+					return nil, err
+				}
+			}
+			out[key] = v
+		case "Annotations", "Cgroup", "Links", "StorageOpt", "Runtime", "CgroupParent",
 			"Devices", "DeviceCgroupRules", "DeviceRequests", "MaskedPaths", "ReadonlyPaths", "CapAdd",
 			"BlkioWeightDevice", "BlkioDeviceReadBps", "BlkioDeviceWriteBps", "BlkioDeviceReadIOps", "BlkioDeviceWriteIOps",
 			"CpuRealtimePeriod", "CpuRealtimeRuntime":
@@ -412,11 +424,9 @@ func (cc *createCtx) bind(spec string) (string, error) {
 	src, dst := parts[0], parts[1]
 	var opts []string
 	if len(parts) > 2 {
-		opts = strings.Split(parts[2], ",")
-		for _, o := range opts {
-			if err := checkMountOpt(o); err != nil {
-				return "", err
-			}
+		var err error
+		if opts, err = cc.mountOpts(strings.Split(parts[2], ",")); err != nil {
+			return "", err
 		}
 	}
 	var err error
@@ -435,16 +445,48 @@ func (cc *createCtx) bind(spec string) (string, error) {
 	return out, nil
 }
 
-func checkMountOpt(o string) error {
-	switch o {
-	case "", "ro", "rw", "nocopy", "private", "rprivate", "exec", "noexec", "suid", "nosuid", "dev", "nodev":
-		return nil
-	case "O": // podman's overlay mount: a private copy-on-write view of the source, which its writes never reach
-		return nil
-	case "z", "Z":
-		return denied("mount option %q is not allowed: it would relabel the host's files (SELinux labels are off for siblings, so it is not needed)", o)
+// mountOpts checks the options of a bind, and drops those that are not for
+// podman to act on.
+func (cc *createCtx) mountOpts(opts []string) ([]string, error) {
+	var out []string
+	for _, o := range opts {
+		switch o {
+		case "", "ro", "rw", "nocopy", "private", "rprivate", "exec", "noexec", "suid", "nosuid", "dev", "nodev":
+		case "O": // podman's overlay mount: a private copy-on-write view of the source, which its writes never reach
+		case "z", "Z":
+			// A relabel of the source: the owner's files, on the host. Not for a
+			// sibling to do, and pointless where labels are off (nothing changes,
+			// so no word about it then: compose files carry it as a matter of course).
+			if !contains(cc.c.p.cfg.SecurityOpt, "label=disable") {
+				cc.warn("mount option %q ignored: it would relabel this container's files", o)
+			}
+			continue
+		default:
+			return nil, denied("mount option %q is not allowed", o)
+		}
+		out = append(out, o)
 	}
-	return denied("mount option %q is not allowed", o)
+	return out, nil
+}
+
+// sysctl says whether a sysctl is a namespaced one, as docker allows: net.*
+// in a network namespace of the container's own, and the IPC ones in an
+// ipc namespace of its own. In a namespace joined from a sibling they would
+// set it for that sibling too; the host's namespaces are refused anyway.
+func sysctl(name, networkMode, ipcMode string) error {
+	switch {
+	case strings.HasPrefix(name, "net."):
+		if strings.HasPrefix(networkMode, "container:") {
+			return denied("sysctl %s is not allowed in a network namespace joined from another container", name)
+		}
+		return nil
+	case strings.HasPrefix(name, "kernel.shm"), strings.HasPrefix(name, "kernel.msg"), name == "kernel.sem", strings.HasPrefix(name, "fs.mqueue."):
+		if strings.HasPrefix(ipcMode, "container:") {
+			return denied("sysctl %s is not allowed in an ipc namespace joined from another container", name)
+		}
+		return nil
+	}
+	return denied("sysctl %s is not allowed: only namespaced ones are (net.*, kernel.shm*, kernel.msg*, kernel.sem, fs.mqueue.*)", name)
 }
 
 // mount rewrites one entry of Mounts (the --mount form).

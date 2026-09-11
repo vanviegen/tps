@@ -146,10 +146,12 @@ func TestCreatePolicy(t *testing.T) {
 	ok := map[string]any{
 		"Image": "postgres", "Env": []string{"A=b"}, "Labels": map[string]string{"x": "y"},
 		"HostConfig": map[string]any{
-			"Binds":        []string{"/work/data:/data:ro", "pgdata:/var/lib/postgresql"},
-			"Mounts":       []any{map[string]any{"Type": "bind", "Source": "/work/data", "Target": "/d2"}},
-			"PortBindings": map[string]any{"5432/tcp": []any{map[string]any{"HostIp": "", "HostPort": "5432"}}},
-			"Privileged":   false, "CapAdd": nil, "Devices": []any{}, "NetworkMode": "default",
+			"Binds":           []string{"/work/data:/data:ro,Z", "pgdata:/var/lib/postgresql"},
+			"Sysctls":         map[string]string{"net.unix.max_dgram_qlen": "512", "kernel.shmmax": "1"},
+			"ContainerIDFile": "/tmp/cid",
+			"Mounts":          []any{map[string]any{"Type": "bind", "Source": "/work/data", "Target": "/d2"}},
+			"PortBindings":    map[string]any{"5432/tcp": []any{map[string]any{"HostIp": "", "HostPort": "5432"}}},
+			"Privileged":      false, "CapAdd": nil, "Devices": []any{}, "NetworkMode": "default",
 			"UsernsMode": "host", "SecurityOpt": []string{"no-new-privileges"},
 			"PidMode": "container:db", "VolumesFrom": []string{"db:ro"},
 		},
@@ -189,6 +191,12 @@ func TestCreatePolicy(t *testing.T) {
 	if pb := hc["PortBindings"].(map[string]any); len(pb) != 0 {
 		t.Errorf("port bindings passed to podman: %v", pb)
 	}
+	if s := hc["Sysctls"].(map[string]any); s["net.unix.max_dgram_qlen"] != "512" || s["kernel.shmmax"] != "1" {
+		t.Errorf("sysctls: %v", s)
+	}
+	if _, ok := hc["ContainerIDFile"]; ok {
+		t.Errorf("ContainerIDFile passed to podman")
+	}
 	labels := sent["Labels"].(map[string]any)
 	if labels["podnester.owner"] != "top" || labels["x"] != "y" || !strings.Contains(labels["podnester.ports"].(string), "5432") {
 		t.Errorf("labels: %v", labels)
@@ -212,11 +220,14 @@ func TestCreatePolicy(t *testing.T) {
 		{"Image": "x", "HostConfig": map[string]any{"Devices": []any{map[string]any{"PathOnHost": "/dev/fuse"}}}},
 		{"Image": "x", "HostConfig": map[string]any{"NetworkMode": "host"}},
 		{"Image": "x", "HostConfig": map[string]any{"PidMode": "host"}},
-		{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/work/data:/d:z"}}},
+		{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/work/data:/d:upperdir=/tmp"}}},
 		{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/work/missing:/d"}}}, // a mount source must exist in the owner
 		{"Image": "x", "HostConfig": map[string]any{"Mounts": []any{map[string]any{"Type": "bind", "Source": "/work", "Target": "/d", "BindOptions": map[string]any{"Propagation": "rshared"}}}}},
 		{"Image": "x", "HostConfig": map[string]any{"SecurityOpt": []string{"seccomp=unconfined"}}},
-		{"Image": "x", "HostConfig": map[string]any{"Sysctls": map[string]string{"net.ipv4.ip_forward": "1"}}},
+		{"Image": "x", "HostConfig": map[string]any{"Sysctls": map[string]string{"vm.overcommit_memory": "1"}}},
+		{"Image": "x", "HostConfig": map[string]any{"Sysctls": map[string]string{"kernel.domainname": "x"}}},
+		{"Image": "x", "HostConfig": map[string]any{"Sysctls": map[string]string{"net.ipv4.ip_forward": "1"}, "NetworkMode": "container:db"}},
+		{"Image": "x", "HostConfig": map[string]any{"Sysctls": map[string]string{"kernel.shmmax": "1"}, "IpcMode": "container:db"}},
 		{"Image": "x", "HostConfig": map[string]any{"PidMode": "container:other"}},
 		{"Image": "x", "HostConfig": map[string]any{"NewShinyOption": true}},
 		{"Image": "x", "SomethingNew": 1},

@@ -35,7 +35,8 @@ only after holding it to what that container may have:
   the kernel allows that only within one user namespace. A sub-container
   runs as its image's user, or root, as it would under docker.
 - Everything that would reach past the container is refused: privileges,
-  capabilities, devices, sysctls, the host's namespaces, registry logins,
+  capabilities, devices, sysctls other than the namespaced ones (`net.*`
+  and the IPC ones, docker's rule), the host's namespaces, registry logins,
   image removal (images are the host's, shared by all), host paths in volume
   and log drivers, mount propagation into the host, and every endpoint and
   every field of a container spec the proxy does not know. Podman's own
