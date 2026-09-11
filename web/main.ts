@@ -28,8 +28,10 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  * - `ctrl-shift-G` merge the task on screen, while it offers to be merged.
  * - `ctrl-shift-X` close it: VS Code stops and the task is put away.
  * - `ctrl-shift-L` fold the sidebar away, and back out.
- * - `ctrl-L` the palette (see palette.ts), `ctrl-enter` send a message or
- *   assign a plan to the agent.
+ * - `ctrl-L` the palette (see palette.ts), whose top entry on an empty field
+ *   closes what is open — so `ctrl-L enter` is Close from inside VS Code too,
+ *   and the only way out of the project's own checkout without the sidebar.
+ *   `ctrl-enter` sends a message or assigns a plan to the agent.
  *
  * The letters are what the browsers leave: ctrl-shift-N/T/W/Q never arrive at
  * all, A, B, D, O, P and R are bookmarks and windows, C/I/J/K/M open developer

@@ -1,8 +1,12 @@
+import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { claimKeyInCode } from './code.ts';
+import { $state } from './conn.ts';
 import { sortedProjects } from './projects.ts';
-import { branchLabel, isFinished, pathTo, phaseOrder, PHASE_LABELS, taskTitle, type Phase } from './util.ts';
+import { closeBase } from './sidebar.ts';
+import { closeTask } from './task.ts';
+import { branchLabel, isFinished, pathTo, phaseOrder, PHASE_LABELS, selection, taskTitle, type Phase } from './util.ts';
 
 /**
  * Go anywhere without the mouse: a key opens a field, you type a few letters of
@@ -39,6 +43,27 @@ function isPaletteKey(e: KeyboardEvent): boolean {
 interface Destination { value: string; label: string }
 
 /**
+ * The one entry that is not a place to go: closing what is open. Every other
+ * value is a path, and none of those is a bare word.
+ */
+const CLOSE = 'close';
+
+/**
+ * Closing what is on screen, as an entry — the task, or the project's own
+ * checkout. VS Code fills the window while one of those is open, and folds the
+ * sidebar away with it, so the palette is the way back out: this stands at the
+ * top of an untouched list, where ctrl-L enter lands on it, and steps aside the
+ * moment a letter is typed at it.
+ */
+function closeEntry(): { label: string; act: () => void } | undefined {
+	const { pid, tid, base } = selection();
+	const $p = pid ? $state.projects[pid] : undefined;
+	if (!pid || !$p) return;
+	if (tid && $p.tasks?.[tid]) return { label: 'Close task', act: () => closeTask(pid, tid) };
+	if (base) return { label: `Close ${branchLabel($p)}`, act: () => closeBase(pid) };
+}
+
+/**
  * Everywhere the palette can take you, in the order the board would show it:
  * projects with something waiting first, and under each its own checkout —
  * named for its branch, as the sidebar and the tab title name it — and then
@@ -72,11 +97,27 @@ function showPalette(): void {
 	void S.dialog({
 		header: 'Go to', attrs: 'w:32rem',
 		content: close => {
+			// Whether anything is typed: the field keeps its query to itself, so
+			// the input event on its way out of it is what the list hears it on.
+			const $typed = A.proxy({ yes: false });
+			A('input=', (e: Event) => { $typed.yes = !!(e.target as HTMLInputElement).value.trim(); });
 			const bind = {
 				get value(): string { return ''; },
-				set value(path: string) { void route.go(path); close(); },
+				set value(path: string) {
+					const act = path === CLOSE ? A.peek(closeEntry)?.act : undefined;
+					close();
+					if (act) act();
+					else void route.go(path);
+				},
 			};
-			S.autocomplete({ placeholder: 'Type a project or task…', allowCustom: false, options: destinations, bind });
+			S.autocomplete({
+				placeholder: 'Type a project or task…', allowCustom: false, bind,
+				options: () => {
+					const here = $typed.yes ? undefined : closeEntry();
+					const list: Destination[] = destinations();
+					return here ? [{ value: CLOSE, label: here.label }, ...list] : list;
+				},
+			});
 		},
 	});
 }

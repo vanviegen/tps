@@ -1,12 +1,12 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, check, folder, gitBranch, keyRound, plus, settings, trash2, x } from 'staffa/icons.js';
+import { arrowDown, arrowUp, check, folder, gitBranch, keyRound, plus, settings, trash2 } from 'staffa/icons.js';
 import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
-import { hold, release } from './holds.ts';
+import { hold } from './holds.ts';
 import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
 import { branchLabel, cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, projectInitials, selection, shortDir } from './util.ts';
@@ -349,8 +349,9 @@ function drawColorField(pid: string, $p: any): void {
 /**
  * VS Code on the project's own checkout, filling the window beside the
  * sidebar. Arriving here holds the checkout (see holds.ts), which is what
- * starts its code-server; the Close icon lets go of it and returns to the
- * project.
+ * starts its code-server; letting go of it again is the palette's Close (see
+ * palette.ts) or the row's menu in the sidebar. Nothing is drawn over the
+ * frame: whatever corner an icon took, it took from VS Code's own.
  */
 export function drawProjectCode(pid: string, $p: any, left: string): void {
 	hold(pid);
@@ -366,12 +367,6 @@ export function drawProjectCode(pid: string, $p: any, left: string): void {
 				else { A('p#Starting VS Code on the checkout…'); A('progress w:100%'); }
 				S.button({ content: 'Retry', attrs: '.small .neutral', click: () => void cmd('openProjectCode', { pid }) });
 			}});
-		});
-		// Over the frame's top right corner; the frame is fixed under everything
-		// positioned after it, which the z-index sees to.
-		A('div.s-s.neutral.shadow position:absolute top:$3 right:$3 z-index:1 display:flex p:0.15rem r:99em', () => {
-			S.iconButton({ icon: x, ariaLabel: 'Close VS Code', tooltip: 'Close VS Code on the checkout and go back to the project',
-				click: () => { release(pid); void route.go(pathTo(pid)); } });
 		});
 	});
 }
