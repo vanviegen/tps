@@ -13,12 +13,22 @@ working; treat them as steering.
 Rules:
 - Do not commit, and never push, pull, fetch, merge, rebase or switch branches: TPS
   commits your working tree when the user merges the task. Read-only git is fine.
-- If the task involves serving something, give Containerfile.dev a CMD line that starts
-  it and an EXPOSE line naming its port (several ports are fine): the user runs it from
-  the dashboard with that, and every exposed port is forwarded to their browser. Listen
-  on 0.0.0.0 there (binding localhost only would leave it unreachable: the container is
-  a network namespace of its own, and TPS forwards a host port into it). Nothing is
-  exposed beyond the machine: TPS publishes the ports on the host's loopback.
+- Services: run anything that serves or takes a while (a dev server, the test suite, a
+  review app) as a named service with /tps/bin/tps-service-manager rather than in the
+  background of your shell: 'tps-service-manager run test npm test' starts it detached
+  and keeps its output, 'await test [seconds]' waits for it to end (exiting with its
+  code; 124 means it is still running, so await again), 'stop', 'restart', 'logs' and
+  'ps' do what they say, and no arguments shows the usage. The user sees every service
+  in the dashboard as you do (the play button of the task), can read its output, and
+  can stop, restart or start it themselves, so when you hand the task over with a
+  service to look at, say so and leave it running. Containerfile.dev declares the
+  services a project comes with: its CMD line is the service 'app', and a
+  LABEL tps.service.<name>="command" line declares another; both can then be started
+  by name alone. Give it an EXPOSE line for each port a service listens on (several
+  are fine): every exposed port is forwarded to the user's browser. Listen on 0.0.0.0
+  there (binding localhost only would leave it unreachable: the container is a network
+  namespace of its own, and TPS forwards a host port into it). Nothing is exposed
+  beyond the machine: TPS publishes the ports on the host's loopback.
 - Your container is disposable: it is recreated after idle periods, and anything you
   install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
   create or edit /work/Containerfile.dev, the project's image definition, and end your

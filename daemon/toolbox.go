@@ -3,6 +3,8 @@ package daemon
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,8 +18,10 @@ import (
 // The toolbox: code-server, claude and a tiny init, downloaded once per host
 // and mounted read-only into every task container at /tps. Images stay free
 // of anything TPS-specific, and updating the tools (bump the versions here)
-// never needs an image rebuild. Layout: bin/{code-server,claude,tini} and the
-// code-server release under code-server/.
+// never needs an image rebuild. Layout: bin/{code-server,claude,tini}, the
+// code-server release under code-server/, and two things of our own: the
+// default Containerfile.dev, and this binary as bin/tps-service-manager (see
+// servicetool.go), refreshed whenever the daemon is a new build.
 const (
 	codeServerVersion = "4.135.0"
 	claudeVersion     = "2.1.263"
@@ -56,6 +60,9 @@ func ensureToolbox() (string, error) {
 		if err := os.WriteFile(cf, []byte(defaultContainerfile), 0o644); err != nil {
 			return "", err
 		}
+	}
+	if err := installServiceTool(filepath.Join(dir, "bin")); err != nil {
+		return "", err
 	}
 	// Containers are labeled with the key of the toolbox they run on.
 	if ps, err := runCmd([]string{"podman", "ps", "--format", `{{index .Labels "tps.config"}}`}, RunOpts{}); err == nil {
@@ -158,4 +165,40 @@ func untar(r io.Reader, dir string) error {
 			return err
 		}
 	}
+}
+
+// installServiceTool puts this binary in the toolbox as tps-service-manager
+// (see servicetool.go), unless the same build is there already. It goes in
+// under a temporary name and is renamed over the old one: a wrapper still
+// running the old copy keeps its inode, and the file of a running program
+// cannot be written to in place anyway.
+func installServiceTool(bin string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(exe)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	tool := filepath.Join(bin, serviceToolName)
+	if readFile(tool+".sha256") == sum && exists(tool) {
+		return nil
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if err := writeFile(tool+".tmp", f, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(tool+".tmp", tool); err != nil {
+		return err
+	}
+	return os.WriteFile(tool+".sha256", []byte(sum), 0o644)
 }

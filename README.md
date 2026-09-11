@@ -232,17 +232,26 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   "Update daemon" button retries a push that failed. The host's menu on the
   front page holds the rest: stop the daemon (with its workspaces), copy your
   claude login there.
-- A `CMD` line in `Containerfile.dev` says how to run the project, and its
-  `EXPOSE` lines which ports it serves on: each is published on a random
-  localhost port of its host when the container starts (so a change to them
-  takes a rebuild), and tunnelled to the dashboard's machine from an SSH host.
-  The play button in a task's chat runs the CMD in the task's container and
-  shows the console, with a button per port — `8080 → 56123`, the port inside
-  and the one it is on here — that comes alive, and opens the page in a new
-  tab, once something answers HTTP there; the task's card shows a green globe
-  per such port meanwhile. *Background* (or Esc) closes the dialog and leaves
-  the run going: the play button turns red, and brings the console back, output
-  and all. *Stop* ends the run on the way out.
+- Services are the named, long-running commands of a task — the project's dev
+  server, its test suite, a screenshot review app — each run detached in the
+  task's container, with its output kept. `Containerfile.dev` declares the ones
+  a project comes with: its `CMD` line is the service `app`, and a
+  `LABEL tps.service.<name>="command"` line declares another. Agents start
+  services too, declared or ad hoc, with `tps-service-manager` (`run`, `stop`,
+  `restart`, `await`, `logs`, `ps`; it is on their PATH, and in the VS Code
+  terminal), which is also what the dashboard uses, so the two never disagree
+  about what runs. The play button in a task's chat opens the list: a click on
+  a service opens its console (and starts one that never ran), where *Stop*,
+  *Restart* and *Run again* do what they say and *Background* (or Esc) leaves
+  it running behind a closed console; the play button is red while anything
+  runs. A service that ends badly on its own leaves a note in the chat.
+- The `EXPOSE` lines of `Containerfile.dev` say which ports the container
+  forwards: each is published on a random localhost port of its host when the
+  container starts (so a change to them takes a rebuild), and tunnelled to the
+  dashboard's machine from an SSH host. They are listed under the services in
+  the play button's menu — `8080 → 56123`, the port inside and the one it is on
+  here — and open the page in a new tab once something answers HTTP there; the
+  task's card shows a green globe per such port meanwhile.
 - Each task tracks what its agent runs cost; an optional budget limit parks
   the task for you when spending reaches it.
 - Things that happen to a task while no agent is running in it are not shouted

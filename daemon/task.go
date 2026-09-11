@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,7 +107,7 @@ type Task struct {
 	codeSyncing  bool  // a syncCode is under way
 	codeStart    int64 // ms epoch of the code-server start: a new one means VS Code must reload
 	codeError    string
-	live         map[int]bool // by container port: something answers HTTP there (see checkLive)
+	live         map[int]portProbe // by container port: what answers there (see checkLive)
 	checkingLive bool
 	refreshing   bool // a changes overview is being computed
 	autoStarting bool // an auto-start is under way, so it isn't started twice
@@ -124,9 +123,9 @@ type Task struct {
 	chatMu        sync.Mutex
 	cloneMu       sync.Mutex // one workspace at a time: two messages can want one at once
 
-	run     *runSession
-	runCmd  []string // the Containerfile's CMD, known along with the container
-	runCode *int     // the last run's exit code, until the next one starts
+	declared      []declaredService // the services Containerfile.dev names, known along with the container
+	services      []serviceState    // their state and that of the ad hoc ones, as last read (see services.go)
+	logsPublished map[string]bool   // the services whose output tail the dashboard has
 }
 
 func newTask(p *Project, tid string, info *TaskInfo) *Task {
@@ -204,11 +203,7 @@ func (t *Task) publishL() {
 	t.pubL("statusDetail", t.statusDetail)
 	t.pubL("working", t.workingL())
 	t.pubL("ports", t.portsL())
-	if t.status == StatusUp && t.container != nil {
-		t.pubL("runCmd", nonEmpty(cmdDisplay(t.runCmd)))
-	} else {
-		t.pubL("runCmd", nil)
-	}
+	t.pubL("services", t.servicesL())
 	// The port is there while VS Code is: its start time comes along, so a
 	// dashboard can tell a restarted code-server (which needs a reload) from
 	// the one it was talking to.
@@ -220,14 +215,6 @@ func (t *Task) publishL() {
 		t.pubL("codeStart", nil)
 	}
 	t.pubL("codeError", nonEmpty(t.codeError))
-	switch {
-	case t.run != nil:
-		t.pubL("run", map[string]any{"status": "running"})
-	case t.runCode != nil:
-		t.pubL("run", map[string]any{"status": "exited", "code": *t.runCode})
-	default:
-		t.pubL("run", nil)
-	}
 }
 
 // parseBudget reads a spending limit as it arrives from a dashboard: a number
@@ -1114,8 +1101,10 @@ func (t *Task) adoptL() {
 		if _, err := nestFor(t.containerName(), nestDir(t.dir())); err != nil {
 			logf("%s: docker socket: %v", t.key(), err)
 		}
-		t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
+		t.container, t.lastTag = c, tag
+		t.setDeclaredL(containerfileServices(cf))
 		t.status = StatusUp
+		t.syncServicesL(false) // what was left running rides on
 		// A code-server still running in it is kept: the dashboards that held
 		// it are about to reconnect. One nobody comes back for goes in the sweep.
 		if codeAlive(c.CodePort) {
@@ -1219,24 +1208,6 @@ func parseNumstat(out string) []change {
 		changes = append(changes, c)
 	}
 	return changes
-}
-
-// syncRunCmd re-reads the CMD from Containerfile.dev, so the Run button follows
-// what was just written there. The run is an exec in the container that is
-// already up, so a new CMD needs no rebuild to be usable — only the image the
-// file describes does, and that waits for the container to be recreated anyway.
-func (t *Task) syncRunCmd() {
-	if !exists(t.repoDir()) {
-		return
-	}
-	argv := containerfileCmd(t.containerfile())
-	t.lock()
-	defer t.unlock()
-	if t.status != StatusUp || slices.Equal(argv, t.runCmd) {
-		return
-	}
-	t.runCmd = argv
-	t.pubL("runCmd", nonEmpty(cmdDisplay(argv)))
 }
 
 // refreshChanges publishes the changes overview, unless one is being made already.
@@ -1468,8 +1439,8 @@ func (t *Task) doUp() (*Container, error) {
 	cf := t.containerfile()
 	tag := imageTag(cf)
 	t.lock()
-	// Don't recycle a container out from under a live claude session or run.
-	if t.container != nil && t.status == StatusUp && (t.lastTag == tag || t.session != nil || t.run != nil) {
+	// Don't recycle a container out from under a live claude session or service.
+	if t.container != nil && t.status == StatusUp && (t.lastTag == tag || t.session != nil || t.anyRunningL()) {
 		c := t.container
 		t.unlock()
 		return c, nil
@@ -1500,9 +1471,11 @@ func (t *Task) doUp() (*Container, error) {
 		return t.failUp(err)
 	}
 	t.lock()
-	t.container, t.lastTag, t.runCmd = c, tag, containerfileCmd(cf)
+	t.container, t.lastTag = c, tag
+	t.setDeclaredL(containerfileServices(cf))
 	t.codeUp = false // a fresh container has no code-server in it yet
 	t.setStatusL(StatusUp, "")
+	t.syncServicesL(t.viewers > 0)
 	if imageErr != "" {
 		t.queueL("image", fallbackPrompt(imageErr))
 		t.fixImageL()
@@ -1544,7 +1517,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	t.lock()
 	t.setStatusL(StatusStarting, "starting container")
 	t.unlock()
-	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), nestDir: nestDir(t.dir())})
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), servicesDir: t.servicesDir(), nestDir: nestDir(t.dir())})
 }
 
 func (t *Task) down() {
@@ -1554,20 +1527,18 @@ func (t *Task) down() {
 		return
 	}
 	t.setStatusL(StatusStopping, "")
-	s, r, c := t.session, t.run, t.container
+	s, c := t.session, t.container
 	t.unlock()
 	if s != nil {
 		s.Kill()
 	}
-	if r != nil {
-		r.Kill()
-	}
 	if c != nil {
-		c.Rm()
+		c.Rm() // its services go with it
 	}
 	t.lock()
 	t.container = nil
 	t.codeUp = false
+	t.clearServicesL()
 	t.setStatusL(StatusDown, "")
 	t.unlock()
 }
@@ -1798,86 +1769,26 @@ func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
 	}
 }
 
-// --- running the project: the Containerfile's CMD, in the task's container ---
-
-func (t *Task) Run() error {
-	c, err := t.up()
-	if err != nil {
-		return err
-	}
-	t.lock()
-	if t.runCmd == nil {
-		t.unlock()
-		return errors.New("Containerfile.dev has no CMD line saying how to run this project")
-	}
-	if t.run != nil {
-		t.unlock()
-		return errors.New("Already running")
-	}
-	s := newRunSession(c, t.runCmd, func(tail string) {
-		t.lock()
-		t.pubL("runLog", tail)
-		t.unlock()
-	}, t.onRunExit)
-	// Assigned before the spawn, so a second Run meanwhile sees it.
-	t.run, t.runCode = s, nil
-	t.touchL()
-	t.pubL("runLog", "")
-	t.publishL()
-	t.unlock()
-	if err := s.start(); err != nil {
-		t.lock()
-		t.run = nil
-		t.publishL()
-		t.unlock()
-		return err
-	}
-	return nil
-}
-
-func (t *Task) StopRun() error {
-	t.lock()
-	r := t.run
-	t.unlock()
-	if r != nil {
-		r.Stop()
-	}
-	return nil
-}
-
-func (t *Task) onRunExit(s *runSession, code int) {
-	t.lock()
-	if t.run == s {
-		t.run = nil
-		t.runCode = &code
-	}
-	t.publishL()
-	t.unlock()
-	if code != 0 && !s.stopped.Load() {
-		t.note(fmt.Sprintf("run exited (%d)", code))
-	}
-}
-
 // --- the forwarded ports, and whether something answers on them ---
 
 // portsL is what the dashboard shows of the container's published ports:
 // each with the loopback port it is on here (a remote dashboard swaps in a
-// tunnel of its own) and whether HTTP answers on it. nil while there is no
-// container, or it exposes nothing.
+// tunnel of its own), whether something listens there (open) and whether it
+// answers HTTP (live). nil while there is no container, or it exposes nothing.
 func (t *Task) portsL() any {
 	if t.status != StatusUp || t.container == nil || len(t.container.Ports) == 0 {
 		return nil
 	}
 	ports := make([]map[string]any, len(t.container.Ports))
 	for i, m := range t.container.Ports {
-		ports[i] = map[string]any{"port": m.Port, "host": m.Host, "live": t.live[m.Port]}
+		ports[i] = map[string]any{"port": m.Port, "host": m.Host, "live": t.live[m.Port].HTTP, "open": t.live[m.Port].Open}
 	}
 	return ports
 }
 
 // setLiveL records a probe round's findings (the hub drops a publish that
 // changes nothing).
-func (t *Task) setLiveL(live map[int]bool) {
+func (t *Task) setLiveL(live map[int]portProbe) {
 	t.live = live
 	t.pubL("ports", t.portsL())
 }

@@ -115,11 +115,12 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # and claude are mounted in at run time, so nothing here is TPS-specific: use
 # whatever base suits the project, as long as it has bash and git, and a user
 # with uid 1000 who owns a home directory. A CMD line that starts what the
-# project serves gives the dashboard a Run button, and every port an EXPOSE line
-# names is forwarded to the dashboard's machine. Listen on 0.0.0.0 there: the
-# forwarded port arrives on the container's own address, so localhost-only would
-# be unreachable, and TPS publishes it on the host's loopback, so 0.0.0.0 here is
-# not exposure.
+# project serves gives the dashboard a play button that runs it (as the service
+# 'app'; a LABEL tps.service.<name>="command" declares another, say a test
+# suite or a review app), and every port an EXPOSE line names is forwarded to
+# the dashboard's machine. Listen on 0.0.0.0 there: the forwarded port arrives
+# on the container's own address, so localhost-only would be unreachable, and
+# TPS publishes it on the host's loopback, so 0.0.0.0 here is not exposure.
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
@@ -224,6 +225,7 @@ func splitPortSpec(spec string) (port int, proto string) {
 
 type containerOpts struct {
 	name, image, toolbox, repoDir, claudeDir string
+	servicesDir                              string // the task's services (see services.go), mounted at /services
 	nestDir                                  string // the task's control directory for its docker socket, see nest.go
 }
 
@@ -241,6 +243,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		return c, nil
 	}
 	rmContainer(o.name)
+	clearServices(o.servicesDir) // whatever ran in the old one is gone
 	vscode, err := sharedVscodeDir()
 	if err != nil {
 		return nil, err
@@ -267,6 +270,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-v", o.toolbox + ":/tps:ro",
 		"-v", o.repoDir + ":/work",
 		"-v", o.claudeDir + ":/claude",
+		"-v", o.servicesDir + ":" + servicesMount,
 		"-v", vscode + ":/vscode",
 		"-e", "CLAUDE_CONFIG_DIR=/claude",
 		"-e", "DISABLE_AUTOUPDATER=1", // the toolbox is read-only, and versioned by TPS
@@ -318,7 +322,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
 func containerConfig(image, toolbox string) string {
-	config, _ := json.Marshal([]any{11, image, filepath.Base(toolbox)})
+	config, _ := json.Marshal([]any{12, image, filepath.Base(toolbox)})
 	return string(config)
 }
 

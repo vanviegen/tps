@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -129,6 +130,7 @@ func (m *Manager) Start() error {
 	go m.ticker(60*time.Second, m.sweep)
 	go m.ticker(2*time.Second, m.checkLive)
 	go m.ticker(5*time.Second, m.refreshWatched)
+	go m.ticker(time.Second, m.syncServices)
 	go m.inhibitLoop()
 	return nil
 }
@@ -320,9 +322,14 @@ func (m *Manager) sweep() {
 
 var liveClient = &http.Client{Timeout: 1500 * time.Millisecond}
 
-// checkLive probes each running task's published ports; any HTTP response
-// counts, and says the port is worth a browser tab. One round per task at a
-// time, all of its ports at once.
+// portProbe is what a round found on one published port.
+type portProbe struct {
+	Open bool // something listens inside the container
+	HTTP bool // and answers HTTP: the port is worth a browser tab
+}
+
+// checkLive probes each running task's published ports. One round per task
+// at a time, all of its ports at once.
 func (m *Manager) checkLive() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -333,18 +340,17 @@ func (m *Manager) checkLive() {
 		t.checkingLive = true
 		c := t.container
 		go func() {
-			live := make(map[int]bool, len(c.Ports))
+			live := make(map[int]portProbe, len(c.Ports))
 			var mu sync.Mutex
 			var wg sync.WaitGroup
 			for _, p := range c.Ports {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					if answersHTTP(p.Host) {
-						mu.Lock()
-						live[p.Port] = true
-						mu.Unlock()
-					}
+					probe := probePort(p.Host)
+					mu.Lock()
+					live[p.Port] = probe
+					mu.Unlock()
 				}()
 			}
 			wg.Wait()
@@ -358,6 +364,26 @@ func (m *Manager) checkLive() {
 	}
 }
 
+// probePort: does something listen behind this host port, and is it HTTP?
+// Podman's port forwarder accepts every connection itself and only then
+// tries the container, so accepting says nothing; a connection that stays
+// open (or greets us) does, where one closed at once means nothing listened
+// inside.
+func probePort(port int) portProbe {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+	if err != nil {
+		return portProbe{}
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
+	_, err = conn.Read(make([]byte, 1))
+	conn.Close()
+	var nerr net.Error
+	if err != nil && !(errors.As(err, &nerr) && nerr.Timeout()) {
+		return portProbe{}
+	}
+	return portProbe{Open: true, HTTP: answersHTTP(port)}
+}
+
 func answersHTTP(port int) bool {
 	resp, err := liveClient.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
 	if err != nil {
@@ -368,7 +394,7 @@ func answersHTTP(port int) bool {
 }
 
 // refreshWatched keeps what the dashboard has open current: the changed files,
-// and the CMD behind its Run button, which an agent may just have written.
+// and the services Containerfile.dev declares, which an agent may just have written.
 func (m *Manager) refreshWatched() {
 	m.mu.Lock()
 	var watched []*Task
@@ -380,7 +406,7 @@ func (m *Manager) refreshWatched() {
 	m.mu.Unlock()
 	for _, t := range watched {
 		t.refreshChanges()
-		t.syncRunCmd()
+		t.syncDeclared()
 	}
 }
 
@@ -495,17 +521,18 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			tid, err := p.CreateTask(partial)
 			return map[string]any{"tid": tid}, err
 		}),
-		"updateTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Update(partial) }),
-		"openTask":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
-		"chat":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text) }),
-		"stopAgent":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
-		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
-		"rebaseTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
-		"moveTask":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
-		"deleteTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
-		"runTask":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Run() }),
-		"reloadTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
-		"stopRun":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopRun() }),
+		"updateTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Update(partial) }),
+		"openTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
+		"chat":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text) }),
+		"stopAgent":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
+		"mergeTask":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
+		"rebaseTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
+		"moveTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
+		"deleteTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
+		"runService":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
+		"stopService":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
+		"restartService": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
+		"reloadTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
 		// Exit once idle and let the UI start the binary it wants; containers stay up and are reused.
 		"restart": func(raw json.RawMessage) (any, error) {
 			m.scheduleRestart()

@@ -7,7 +7,7 @@ import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { notifies, toggleNotifies } from './notify.ts';
-import { runDialog } from './run.ts';
+import { anyRunning, hasServices, servicesMenu } from './services.ts';
 import { autoStarts, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
@@ -461,12 +461,13 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		// A neutral surface, opaque and rounded, so the log scrolls under them
 		// rather than through them.
 		A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
-			A(() => { // its own scope: the CMD arriving must not redraw the row
-				if (!$t.runCmd) return;
-				// Red while it runs: the run goes on behind a closed dialog, and this is what reopens it.
-				const running = $t.run?.status === 'running';
-				S.iconButton({ icon: play, ariaLabel: running ? 'Running: show the console' : 'Run the project',
-					attrs: running ? 'fg:$s-danger' : '', click: () => runDialog(pid, tid, $t) });
+			A(() => { // its own scope: a service arriving must not redraw the row
+				if (!hasServices($t)) return;
+				// Red while something runs: services go on behind a closed console, and this is what brings it back.
+				const running = anyRunning($t);
+				S.iconButton({ icon: play, ariaLabel: running ? 'Services: something is running' : 'Services and ports',
+					tooltip: 'What runs in the container, and the ports it forwards',
+					attrs: running ? 'fg:$s-danger' : '', click: (e: Event) => servicesMenu(e.currentTarget as HTMLElement, pid, tid, $t) });
 			});
 			// Only while the task is yours: rebasing and rebuilding both move the
 			// ground under a running agent, and both are for the human at the wheel.
