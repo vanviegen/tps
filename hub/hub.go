@@ -310,12 +310,6 @@ func (h *Hub) runCmd(c *Client, msg inMsg) {
 	h.mu.Unlock()
 }
 
-func (h *Hub) ClientCount() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.clients)
-}
-
 // WatchedKeys lists the task keys at least one client is watching.
 func (h *Hub) WatchedKeys() []string {
 	h.mu.Lock()

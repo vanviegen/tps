@@ -158,29 +158,3 @@ A(() => {
 	}
 });
 
-// Keep the computer awake while any agent is working.
-let wantLock = false;
-let wakeLock: any;
-async function syncWakeLock(): Promise<void> {
-	if (wantLock && !wakeLock && !document.hidden) {
-		try {
-			wakeLock = await (navigator as any).wakeLock?.request('screen');
-			wakeLock?.addEventListener('release', () => { wakeLock = undefined; });
-		} catch {}
-	} else if (!wantLock && wakeLock) {
-		const lock = wakeLock;
-		wakeLock = undefined;
-		void lock.release();
-	}
-}
-A(() => {
-	wantLock = false;
-	for (const $p of Object.values($state.projects ?? {}) as any[]) {
-		for (const $t of Object.values($p.tasks ?? {}) as any[]) {
-			if ($t.working) wantLock = true;
-		}
-	}
-	void syncWakeLock();
-});
-// The lock is dropped by the browser when the tab hides; take it back on return.
-document.addEventListener('visibilitychange', () => void syncWakeLock());
