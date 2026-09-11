@@ -5,6 +5,7 @@ import { plus } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
 import { $state } from './conn.ts';
 import './holds.ts';
+import { watchPhases } from './notify.ts';
 import { bindPalette } from './palette.ts';
 import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
@@ -14,6 +15,7 @@ import { hasWorkspace, isFinished, isOpenable, pathTo, selection, taskTitle } fr
 S.setDarkMode(true);
 route.interceptLinks();
 bindPalette(); // the keyboard's way around: go to any project or task by name
+watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
 
 /**
  * KEYS — the shortcuts for the handful of things done often enough to be worth

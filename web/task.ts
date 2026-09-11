@@ -1,11 +1,12 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, bot, check, circleSlash, circleStop, ellipsisVertical, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
+import { arrowDownToLine, bot, check, circleSlash, circleStop, ellipsisVertical, gitMerge, play, refreshCw, sendHorizontal, settings, square, squareCheck, trash2, user, x } from 'staffa/icons.js';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
+import { notifies, toggleNotifies } from './notify.ts';
 import { runDialog } from './run.ts';
 import { autoStarts, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
@@ -62,11 +63,20 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 /**
  * The task's whole menu: where it can go, and what else can be done to it.
  * `extra` slots in behind that, for the callers that have more to offer.
+ *
+ * Ready notifications are a checkbox in all but name — a menu has no such
+ * thing, so the box is the icon — and they are this browser's business rather
+ * than the task's: see notify.ts.
  */
 export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
 	return [
 		...phaseItems(pid, tid, $t),
 		{ separator: true },
+		{
+			label: 'Ready notifications', icon: notifies(pid, tid) ? squareCheck : square,
+			tooltip: 'Have this browser say so — a desktop notification — when an agent hands this task back, or its merge is over',
+			click: () => void toggleNotifies(pid, tid),
+		},
 		...extra,
 		{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) },
 	];

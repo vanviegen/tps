@@ -263,6 +263,24 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   Ctrl-enter sends a chat message, and assigns a plan to the agent. Unlike
   *Go to*, these don't reach into VS Code — while it has the focus it has the
   keyboard.
+- The dashboard installs as an app: the browser's *Install* — Chrome, Edge and
+  Brave put it in the address bar, phones call it *Add to home screen* — gives
+  TPS a window of its own, off the tab strip and with its own icon, which is
+  what a desktop pins and groups separately from the browser. It is the same
+  page from the same localhost, so `tps` still has to be running here, and
+  `http://localhost` counts as a secure page for this; a dashboard reached
+  over the network by name or address does not, and no browser will install it.
+- *Ready notifications*, in a task's menu, is a checkbox that has this browser
+  announce that task the moment an agent hands it back or its merge is over:
+  the desktop's own notification, so a dashboard behind other windows still
+  reaches you, and clicking it brings that window forward on the task.
+  Permission is asked the first time one is switched on, and a notification is
+  sent right away so you can see that it took. The setting is per task and per
+  browser, as the permission is. There is no service worker and no web push
+  behind this: a window on TPS — a tab, or the installed app — has to be open
+  for anything to be sent, and closing it takes its notifications with it.
 - Hacking on TPS: `npm run watch` for the web UI, `go build` and restart
   `tps` for the rest; the boards then offer to update the daemon. `go test
-  ./...` covers the pure parts.
+  ./...` covers the pure parts, and `npm run icons` redraws the app icon (one
+  description of the artwork, written out as the SVG and the PNGs a browser
+  installs it from).

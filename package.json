@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "build": "rm -rf web/dist && esbuild web/main.ts --bundle --format=esm --splitting --minify --sourcemap --outdir=web/dist --entry-names=app",
+    "icons": "node web/icons.mjs",
     "watch": "npm run build -- --watch",
     "typecheck": "tsc -p web"
   },

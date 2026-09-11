@@ -20,7 +20,7 @@ import (
 	"github.com/vanviegen/podnester"
 )
 
-//go:embed web/index.html web/dist
+//go:embed web/index.html web/manifest.webmanifest web/icon.svg web/icon-192.png web/icon-512.png web/dist
 var webFS embed.FS
 
 func main() {

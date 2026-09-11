@@ -249,13 +249,20 @@ func (u *UI) serveCode(w http.ResponseWriter, r *http.Request) {
 	l.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// The files that keep their own name outside /dist/: the manifest and the
+// icons a browser installs the dashboard as an app from.
+var appFiles = map[string]bool{
+	"/manifest.webmanifest": true,
+	"/icon.svg":             true, "/icon-192.png": true, "/icon-512.png": true,
+}
+
 func (u *UI) serveStatic(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
 	if strings.Contains(p, "..") {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if !strings.HasPrefix(p, "/dist/") {
+	if !strings.HasPrefix(p, "/dist/") && !appFiles[p] {
 		p = "/index.html" // every app path, file names in it included, gets the SPA
 	}
 	data, err := fs.ReadFile(u.webFS, "web"+p)
@@ -264,8 +271,16 @@ func (u *UI) serveStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctype := mime.TypeByExtension(path.Ext(p))
-	if path.Ext(p) == ".map" {
+	switch path.Ext(p) {
+	case ".map":
 		ctype = "application/json"
+	case ".webmanifest":
+		ctype = "application/manifest+json"
+	}
+	// The shell is how a running app hears of a new build: it is checked with
+	// the server every time rather than remembered.
+	if p == "/index.html" {
+		w.Header().Set("cache-control", "no-cache")
 	}
 	if ctype == "" {
 		ctype = "application/octet-stream"
