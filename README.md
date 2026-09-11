@@ -133,9 +133,10 @@ without VS Code). Closing the tab does the same for everything it had open:
 the daemon keeps a code-server running for exactly as long as some dashboard
 holds the task, and stops it the moment none does, whether by Close or by a
 connection that went away. A reload finds the sessions where it left them. The
-same goes for VS Code on a project's own checkout, behind *View code*. Views
-you switch between are kept warm for a few minutes, so switching back is
-instant.
+same goes for VS Code on a project's own checkout, behind *Open main branch*
+(named for whatever its default branch is), which the ctrl-L palette lists as
+the project's *main branch* too. Views you switch between are kept warm for a
+few minutes, so switching back is instant.
 
 A project's settings are its name, where it lives, and its *default task
 settings*: the model, the budget limit and the merge behaviour that every new

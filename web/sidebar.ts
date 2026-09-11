@@ -7,7 +7,7 @@ import { $holds, holdKey, isHeld, release } from './holds.ts';
 import { hostIssue, manageHostsDialog } from './hosts.ts';
 import { addProjectDialog, drawProjectChip, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
+import { branchLabel, drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -186,7 +186,7 @@ function drawBase(pid: string, $p: any): void {
 		});
 		A(() => {
 			const branch = $p.defaultBranch ?? 'main';
-			const label = `${branch} branch`;
+			const label = branchLabel($p);
 			// Collapsed there is room for a word: the icon beside it already says
 			// which word it is, so the branch goes without "branch" behind it.
 			if ($ui.collapsed) S.addTooltip({ tip: label, placement: 'right' });

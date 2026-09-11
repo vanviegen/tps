@@ -2,7 +2,7 @@ import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { claimKeyInCode } from './code.ts';
 import { sortedProjects } from './projects.ts';
-import { isFinished, pathTo, phaseOrder, PHASE_LABELS, taskTitle, type Phase } from './util.ts';
+import { branchLabel, isFinished, pathTo, phaseOrder, PHASE_LABELS, taskTitle, type Phase } from './util.ts';
 
 /**
  * Go anywhere without the mouse: a key opens a field, you type a few letters of
@@ -40,14 +40,17 @@ interface Destination { value: string; label: string }
 
 /**
  * Everywhere the palette can take you, in the order the board would show it:
- * projects with something waiting first, and under each its tasks, the done
- * ones last. The label carries the project's name and the task's phase, as
- * matching is on the label alone — so "human" finds what waits for you.
+ * projects with something waiting first, and under each its own checkout —
+ * named for its branch, as the sidebar and the tab title name it — and then
+ * its tasks, the done ones last. The label carries the project's name and the
+ * task's phase, as matching is on the label alone — so "human" finds what
+ * waits for you.
  */
 function destinations(): Destination[] {
 	const out: Destination[] = [];
 	for (const [pid, $p] of sortedProjects()) {
 		out.push({ value: pathTo(pid), label: $p.name });
+		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › ${branchLabel($p)}` });
 		const tasks = Object.entries($p.tasks ?? {}) as [string, any][];
 		tasks.sort((a, b) => {
 			const [ka, kb] = [phaseOrder(a[1], a[0]), phaseOrder(b[1], b[0])];

@@ -11,7 +11,7 @@ import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } fr
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { draftFor, drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
-import { hasWorkspace, isFinished, isOpenable, pathTo, selection, taskTitle } from './util.ts';
+import { branchLabel, hasWorkspace, isFinished, isOpenable, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -71,7 +71,7 @@ A(() => {
 	const { pid, tid, base, draft } = selection();
 	const $p = pid ? $state.projects[pid] : undefined;
 	const $t = tid ? $p?.tasks?.[tid] : undefined;
-	const what = !$p ? '' : $t ? taskTitle($t) : base ? `${$p.defaultBranch ?? 'main'} branch` : draft ? 'New task' : '';
+	const what = !$p ? '' : $t ? taskTitle($t) : base ? branchLabel($p) : draft ? 'New task' : '';
 	document.title = [what, $p?.name, 'TPS'].filter(Boolean).join(' · ');
 });
 

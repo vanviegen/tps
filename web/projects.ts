@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, check, code, folder, gitBranch, keyRound, plus, settings, trash2, x } from 'staffa/icons.js';
+import { arrowDown, arrowUp, check, folder, gitBranch, keyRound, plus, settings, trash2, x } from 'staffa/icons.js';
 import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
@@ -9,7 +9,7 @@ import { $state } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, projectInitials, selection, shortDir } from './util.ts';
+import { branchLabel, cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, projectInitials, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
@@ -88,7 +88,7 @@ async function removeProject(pid: string, $p: any): Promise<boolean> {
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	return [
 		{ label: 'Add task', icon: plus, click: () => addTask(pid) },
-		{ label: 'View code', icon: code, click: () => void route.go(pathTo(pid, 'base')) },
+		{ label: `Open ${branchLabel($p)}`, icon: gitBranch, click: () => void route.go(pathTo(pid, 'base')) },
 		{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
 		{ separator: true },
 		{ label: 'Move up', icon: arrowUp, click: () => moveProject(pid, -1) },
@@ -124,7 +124,7 @@ export function drawProjectPage(pid: string, $p: any): void {
 			// KEYS in main.ts).
 			A('div display:flex gap:$2 flex-wrap:wrap', () => {
 				S.button({ content: 'Add task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: () => addTask(pid) });
-				S.button({ content: 'View code', icon: code, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
+				S.button({ content: `Open ${branchLabel($p)}`, icon: gitBranch, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
 				S.button({ content: 'Settings', icon: settings, attrs: '.small .neutral', click: () => projectSettingsDialog(pid, $p) });
 			});
 		});
