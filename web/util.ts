@@ -15,12 +15,13 @@ export type Phase = typeof PHASES[number];
 
 /**
  * The columns of the board. Three phases have none of their own: Muted sits
- * under the Human column, Done and Closed under the Merge one (see board.ts).
+ * under the Human column, and Merging and Closed share the Done one — merging
+ * is a moment on the way there, closing is arriving without it (see board.ts).
  */
-export const COLUMNS = PHASES.filter(p => p === 'plan' || p === 'agent' || p === 'human' || p === 'merge');
+export const COLUMNS: Phase[] = ['plan', 'agent', 'human', 'done'];
 
 export const PHASE_LABELS: Record<Phase, string> = {
-	plan: 'Plan', agent: 'Agent', human: 'Human', muted: 'Muted', merge: 'Merge', done: 'Done', closed: 'Closed',
+	plan: 'Plan', agent: 'Agent', human: 'Human', muted: 'Muted', merge: 'Merging', done: 'Done', closed: 'Not merged',
 };
 
 export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, muted: bellOff, merge: gitMerge, done: check, closed: circleSlash };
@@ -215,17 +216,22 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 }
 
 /**
- * The task at a glance: its phase as an icon (a spinner while claude works, an
- * hourglass while it waits for the tasks it follows), colored by the container status.
+ * The task at a glance: its phase as an icon (a spinner while claude works or
+ * merges, an hourglass while it waits for the tasks it follows), colored by the
+ * container status.
  */
 export function drawTaskIcon(pid: string, $t: any): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
 		const icon = $t.working ? loaderCircle : autoStarts($t) ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
 		const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
+		// Turning while something is going on: claude at work, or the merge a
+		// task in Merging is in the middle of — which is what tells those apart
+		// from the merged ones they sit above on the board.
+		const busy = $t.working || $t.phase === 'merge';
 		A(`span display:inline-flex flex-shrink:0 fg:$s-${activity.color}`, () => {
 			S.addTooltip({ tip: () => A('text=', `${phase}${$t.working ? ', claude is working' : ''} · ${activity.text}`) });
-			icon({ size: '1.1em', attrs: $t.working ? 'animation: spin 1.2s linear infinite;' : undefined });
+			icon({ size: '1.1em', attrs: busy ? 'animation: spin 1.2s linear infinite;' : undefined });
 		});
 	});
 }

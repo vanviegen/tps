@@ -42,8 +42,8 @@ order you put them in (drag one, or use *Move up* and *Move down* in its
 menu), each wearing a colour of its own and a chip with its initials, made
 from its name — Aberdeen becomes A, ShoTest ST, wild-mail WM — until you
 spell them out yourself. Under each project sit its *open* tasks: the ones
-waiting for you, in warning colour, and the ones you have VS Code open on
-(see below), each with its phase icon. Muted tasks are the ones left out:
+waiting for you, in warning colour, the ones an agent is on, and the ones you
+have VS Code open on (see below), each with its phase icon. Muted tasks are the ones left out:
 muting is how you put a task that waits for you out of sight until you want
 it back. The sidebar folds up into a narrow strip whenever VS Code comes on
 screen, and by the icon beside the logo:
@@ -101,17 +101,21 @@ the task's container.
 A project's page is its board, under a line with its name, where it stands,
 and the buttons that add a task, open its checkout in VS Code, and set its
 default task settings. Seven phases share four columns: *Human* has the muted
-tasks at its foot, under a marker and dimmed, and *Merge* — where a task
-passes through rather than sits — is mostly the *Done* and *Closed* tasks
-under it, so dropping a card on the top merges it and the rest is the archive.
+tasks at its foot, under a marker and dimmed, and *Done* holds the tasks that
+are merging at its top, their icon turning until they are through, with the
+ones closed without merging under a *Not merged* marker at its foot. A marker
+shows only while there is something under it, and a column is one drop target
+whichever part of it you aim at: a card dropped on *Human* waits for you (not
+muted), and one dropped on *Done* asks how the task should end.
 A task's page beside the sidebar is two columns: on the left its settings
 while it is in Plan and its chat with the agent afterwards, the whole height;
 on the right the description while in Plan, VS Code (running in the container)
 on its workspace once it has one, and a note of the merge once it is over.
 The chat's top right corner holds the icons for running the project, rebasing
 onto the latest default branch, rebuilding the container, the task's settings,
-its menu (where it goes next, renaming, deleting — the card's menu, from its
-own page) and *Close*. Rebasing and rebuilding show only while the task is
+its menu (where it goes next, deleting — the card's menu, from its own page)
+and *Close*. The title is a field in the task's settings, beside the model and
+the budget. Rebasing and rebuilding show only while the task is
 yours, and the rebase only when the branch has moved on: both change the
 ground under a
 workspace, which is not something to do to a running agent.
@@ -171,7 +175,9 @@ says what the next tasks start out with and leaves the ones that exist alone.
    it. Conflicts are handed to a fresh agent that resolves the rebase (guided
    by the commit messages on both sides), after which the merge completes; the
    task stays in this column meanwhile. If the agent gives up midway, the task
-   goes back to you with a warning; sending the agent back in resumes the rebase.
+   goes back to you with a warning; sending the agent back in resumes the
+   rebase. Merging is a moment rather than a place, so its cards sit at the top
+   of the *Done* column and say so by turning.
 6. **Done**: Merged. The workspace goes — its work is on the branch, and the
    container with it — but the conversation stays until the task is deleted,
    so the task can be picked up again for follow-up work: a chat message sends
@@ -186,9 +192,11 @@ says what the next tasks start out with and leaves the ones that exist alone.
 7. **Closed**: Over without being merged, for work that should not land: the
    task keeps its worktree, unmerged and off the branch, so it still opens in
    VS Code, can still be merged later, and takes its work with it when it is
-   deleted. Ending a task by hand — dropping it on Done or Closed, or picking
-   either from its menu — asks which of the two is meant, and offers the merge
-   first, that being how a task is normally closed.
+   deleted. Ending a task by hand — dropping it on *Done*, or picking *Done*
+   from its menu — asks which of the two endings is meant: a tab with the
+   commit message to merge (the one it opens on, that being how a task normally
+   ends) and a tab for finishing without merging. A task that is closed already
+   has *Merge* in its menu, for merging it after the fact.
 
 Moving a task back to Plan discards all of its work, after a confirmation.
 
@@ -248,6 +256,13 @@ Moving a task back to Plan discards all of its work, after a confirmation.
   usually is; the only thing it costs you there is "select current line", and
   the address bar keeps it everywhere else. `?` lists every shortcut that works
   where you are.
+- The rest are ctrl-shift (⇧⌘) and work while the button they press is on
+  screen: **S** starts a task and **F** opens the project's files in VS Code,
+  both from a project's page; **G** merges the task you are looking at while it
+  offers to be merged; **X** closes it; **L** folds the sidebar away and back.
+  Ctrl-enter sends a chat message, and assigns a plan to the agent. Unlike
+  *Go to*, these don't reach into VS Code — while it has the focus it has the
+  keyboard.
 - Hacking on TPS: `npm run watch` for the web UI, `go build` and restart
   `tps` for the rest; the boards then offer to update the daemon. `go test
   ./...` covers the pure parts.

@@ -14,8 +14,8 @@ import { drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, se
  *
  * Under the logo, every project in the order the user put them in, wearing
  * its colour; under each, the tasks that are *open*: those waiting for a
- * human (in warning colour), those this dashboard holds VS Code on (see
- * holds.ts), and the one on screen. Then Add project and Manage hosts, and
+ * human (in warning colour), those an agent is working on, those this
+ * dashboard holds VS Code on (see holds.ts), and the one on screen. Then Add project and Manage hosts, and
  * at the bottom only the hosts that want something — a login, an update, a
  * connection — as the ones that work have nothing to say.
  *
@@ -63,13 +63,13 @@ export function drawSidebar(): void {
 function drawHeader(collapsed: boolean): void {
 	if (collapsed) {
 		A('div display:flex justify-content:center pv:$2', () => {
-			S.iconButton({ icon: panelLeftOpen, ariaLabel: 'Expand the sidebar', attrs: '.small', click: () => { $ui.collapsed = false; } });
+			S.iconButton({ icon: panelLeftOpen, ariaLabel: 'Expand the sidebar', key: 'mod+shift+l', attrs: '.small', click: () => { $ui.collapsed = false; } });
 		});
 	} else {
 		A('div display:flex align-items:center gap:$2 pl:$2 pr:$1 pv:$2', () => {
 			bot({ size: '1.4em', color: 'var(--s-accent)' });
 			A('b flex:1 #TPS');
-			S.iconButton({ icon: panelLeftClose, ariaLabel: 'Collapse the sidebar', attrs: '.small', click: () => { $ui.collapsed = true; } });
+			S.iconButton({ icon: panelLeftClose, ariaLabel: 'Collapse the sidebar', key: 'mod+shift+l', attrs: '.small', click: () => { $ui.collapsed = true; } });
 		});
 	}
 }
@@ -125,15 +125,16 @@ function drawProject(pid: string, $p: any): void {
 }
 
 /**
- * A task is listed while it waits for a human, while this dashboard holds it,
- * and while it is on screen. A muted one is none of those: putting it away is
- * what muting is for, and opening it takes it back out (see useTask).
+ * A task is listed while it waits for a human, while an agent is on it, while
+ * this dashboard holds it, and while it is on screen: everything under way, in
+ * other words. A muted one is none of those: putting it away is what muting is
+ * for, and opening it takes it back out (see useTask).
  */
 function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
 	if ($t.phase === 'muted') return false;
-	return $t.phase === 'human' || !!$holds[holdKey(pid, tid)];
+	return $t.phase === 'human' || $t.phase === 'agent' || !!$holds[holdKey(pid, tid)];
 }
 
 function drawTask(pid: string, tid: string, $t: any): void {

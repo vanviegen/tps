@@ -15,6 +15,31 @@ S.setDarkMode(true);
 route.interceptLinks();
 bindPalette(); // the keyboard's way around: go to any project or task by name
 
+/**
+ * KEYS — the shortcuts for the handful of things done often enough to be worth
+ * one. Each is a `key` on the button it presses, so the button's tooltip says
+ * it, `?` lists it, and it works exactly while that button is on screen:
+ *
+ * - `ctrl-shift-S` start a task, `ctrl-shift-F` the project's own files in VS
+ *   Code — both on the project page, beside the board.
+ * - `ctrl-shift-G` merge the task on screen, while it offers to be merged.
+ * - `ctrl-shift-X` close it: VS Code stops and the task is put away.
+ * - `ctrl-shift-L` fold the sidebar away, and back out.
+ * - `ctrl-L` the palette (see palette.ts), `ctrl-enter` send a message or
+ *   assign a plan to the agent.
+ *
+ * The letters are what the browsers leave: ctrl-shift-N/T/W/Q never arrive at
+ * all, A, B, D, O, P and R are bookmarks and windows, C/I/J/K/M open developer
+ * tools, and E and U are the desktop's unicode and emoji input. What is left
+ * has to stand for the action rather than spell it — S for start, F for files,
+ * G for merGe, X for closing, L for the left-hand column.
+ *
+ * A task in Agent or Human is mostly VS Code, which owns the keyboard while it
+ * has focus and never passes a keystroke out: shortcuts are for the pages
+ * around it. Taking one back is possible but costs VS Code the key everywhere
+ * (see claimKeyInCode in code.ts), which only the palette is worth.
+ */
+
 // The sidebar (see sidebar.ts) and, beside it, whatever the address names.
 // Most of those are two columns, edge to edge: the left one holds what to do
 // (a task's chat, a plan's settings), the right one the thing itself (VS

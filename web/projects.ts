@@ -138,7 +138,7 @@ export function drawProjectChip($p: any): void {
 
 /**
  * The project's page: its name and facts, what wants attention, what to do
- * with it, and its board of five columns underneath.
+ * with it, and its board of four columns underneath.
  */
 export function drawProjectPage(pid: string, $p: any): void {
 	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
@@ -149,9 +149,12 @@ export function drawProjectPage(pid: string, $p: any): void {
 			});
 			A(() => drawProjectFacts($p));
 			A('div flex:1');
+			// The keys are on these rather than on the board's ✛ or the menu's
+			// rows, so each is bound once while the project is on screen (see
+			// KEYS in main.ts).
 			A('div display:flex gap:$2 flex-wrap:wrap', () => {
-				S.button({ content: 'Add task', icon: plus, attrs: '.small', click: () => addTask(pid) });
-				S.button({ content: 'View code', icon: code, attrs: '.small .neutral', click: () => void route.go(pathTo(pid, 'base')) });
+				S.button({ content: 'Add task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: () => addTask(pid) });
+				S.button({ content: 'View code', icon: code, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
 				S.button({ content: 'Default task settings', icon: settings, attrs: '.small .neutral', click: () => projectDefaultsDialog(pid, $p) });
 			});
 		});

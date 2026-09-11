@@ -1,13 +1,13 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, bot, circleSlash, circleStop, ellipsisVertical, gitMerge, pencil, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
+import { arrowDownToLine, bot, check, circleSlash, circleStop, ellipsisVertical, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { runDialog } from './run.ts';
-import { autoStarts, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASES, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Keep the task's chat streaming for as long as the calling scope lives, and
@@ -33,71 +33,56 @@ export function closeTask(pid: string, tid: string): void {
 	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
 }
 
-/** The phases the task can be moved to; the one it is in is the disabled one. */
+/**
+ * The phases the task can be moved to; the one it is in is the disabled one.
+ * The three ways a task ends are one entry — Done asks which of them is meant
+ * (see doneDialog) — and the two that are not places to be put but states to
+ * be in only show where they do mean something: Muted is Human with the task
+ * put away, so it is offered while it waits for you, and a task closed without
+ * merging is the one that can still be merged after the fact.
+ */
 function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
-	return PHASES.map(phase => ({
+	const items: S.MenuEntry[] = (['plan', 'agent', 'human'] as Phase[]).map(phase => ({
 		label: PHASE_LABELS[phase],
 		icon: PHASE_ICONS[phase],
-		// A merged task has nothing left to merge: it needs picking up first. A
-		// closed one still has its worktree, and can still go.
-		disabled: phase === $t.phase || (phase === 'merge' && $t.phase === 'done'),
+		disabled: phase === $t.phase,
 		attrs: phase === 'plan' ? 'fg:$s-danger' : '',
 		click: () => void moveTask(pid, tid, $t, phase),
 	}));
+	if ($t.phase === 'human') items.push({ label: PHASE_LABELS.muted, icon: PHASE_ICONS.muted, click: () => void moveTask(pid, tid, $t, 'muted') });
+	items.push({
+		label: 'Done…', icon: check,
+		disabled: isFinished($t) || $t.phase === 'merge',
+		click: () => doneDialog(pid, tid, $t),
+	});
+	if ($t.phase === 'closed' && hasWorkspace($t)) items.push({ label: 'Merge…', icon: gitMerge, click: () => doneDialog(pid, tid, $t) });
+	return items;
 }
 
 /**
  * The task's whole menu: where it can go, and what else can be done to it.
- * `extra` slots in beside Rename, for the callers that have more to offer.
+ * `extra` slots in behind that, for the callers that have more to offer.
  */
 export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
 	return [
 		...phaseItems(pid, tid, $t),
 		{ separator: true },
-		{ label: 'Rename…', icon: pencil, click: () => void renameTask(pid, tid, $t) },
 		...extra,
-		{ separator: true },
 		{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) },
 	];
 }
 
-/** Move a task to a phase, confirming when that discards work, and confirming the commit message when it merges. */
+/** Move a task to a phase, confirming when that discards work, and asking how it should end when it ends. */
 export async function moveTask(pid: string, tid: string, $t: any, phase: string): Promise<void> {
 	if (phase === $t.phase) return;
 	if (phase === 'plan') {
 		const busy = $t.working ? ' The agent is still working; it is stopped.' : '';
 		if (!(await S.confirm(`Move this task back to Plan? All work is discarded: the workspace, the chat, and every unmerged change.${busy}`))) return;
-	} else if (phase === 'done' || phase === 'closed') {
-		return closeDialog(pid, tid, $t);
-	} else if (phase === 'merge' && $t.phase !== 'plan') {
-		return mergeDialog(pid, tid, $t);
+	} else if (phase === 'done' || phase === 'closed' || phase === 'merge') {
+		if ($t.phase === 'merge') return; // already on its way there
+		return doneDialog(pid, tid, $t);
 	}
 	void cmd('moveTask', { pid, tid, phase });
-}
-
-/**
- * The two ways a task ends, asked as one question: Done is merged, Closed is
- * put away with its work left in its own worktree, off the branch. Both ends
- * are reachable from the board and the menu, and both land here, since which
- * one is meant is worth being sure of.
- */
-function closeDialog(pid: string, tid: string, $t: any): void {
-	const mergeable = $t.phase !== 'plan' && hasWorkspace($t);
-	void S.dialog({ header: 'Close this task', attrs: 'w:34rem', content: close => {
-		A('p m:0 #Tasks are normally closed by merging: the work becomes a commit on the main branch, the task’s worktree is cleaned up, and the task is Done.');
-		A('p rich=', mergeable
-			? '*Close* ends it without merging: its worktree is kept as it is, with everything in it unmerged and off the branch. You can still open such a task and merge it later, but nothing else will see the work.'
-			: 'This task has nothing to merge, so *Close* is the only way to end it: it is closed as it stands.');
-		A('div display:flex gap:$2 justify-content:flex-end flex-wrap:wrap mt:$3', () => {
-			S.button({ content: 'Cancel', attrs: '.neutral', click: () => close() });
-			S.button({ content: 'Close', icon: circleSlash, attrs: '.danger .outlined',
-				tooltip: 'End the task without merging, keeping its worktree',
-				// The task is over: its VS Code goes with it, the way Close does
-				// it. Opening the task again brings the session back.
-				click: () => { close(); void cmd('moveTask', { pid, tid, phase: 'closed' }); closeTask(pid, tid); } });
-			if (mergeable) S.button({ content: 'Merge…', icon: gitMerge, click: () => { close(); mergeDialog(pid, tid, $t); } });
-		});
-	}});
 }
 
 /**
@@ -115,26 +100,59 @@ async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
 	void cmd('rebaseTask', { pid, tid });
 }
 
-/** The proposed commit message plus the button that actually merges. */
-export function mergeDialog(pid: string, tid: string, $t: any): void {
+/**
+ * How a task ends, as one dialog with a tab per answer: merged onto the branch
+ * — the usual one, and the one it opens on — or put away without merging, its
+ * work left in its own worktree and off the branch. Everything that ends a
+ * task lands here, since which of the two is meant is worth being sure of.
+ *
+ * A task with nothing to merge (one still in Plan) and one that is closed
+ * already (nothing left to put away) have only one answer between them, and
+ * get that tab's content without the strip above it.
+ */
+export function doneDialog(pid: string, tid: string, $t: any): void {
+	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
+	const mergeable = $t.phase !== 'plan' && hasWorkspace($t);
+	const closable = $t.phase !== 'closed';
+	if (!mergeable && !closable) return;
 	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string });
-	void S.dialog({ header: 'Merge this task', attrs: 'w:44rem', content: close => {
-		S.form({
-			submit: () => {
-				close();
-				// The merge restarts a lot of machinery; the board is the nicer place to wait it out.
-				if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
-				void cmd('mergeTask', { pid, tid, message: $merge.message });
-			},
-			content: () => {
-				A(() => { if ($t.working) A('div.s-s.warning.tonal p:$2 #The agent is still working; merging stops it first.'); });
-				S.textarea({
-					label: 'Commit message', help: 'The whole working tree becomes one commit on the main branch.',
-					rows: 12, autoGrow: false, inputAttrs: 'font-family:monospace', bind: A.ref($merge, 'message'),
-				});
-			},
-			actions: () => S.button({ content: 'Merge', type: 'submit' }),
-		});
+	void S.dialog({ header: mergeable && !closable ? 'Merge this task' : 'Finish this task', attrs: 'w:44rem', content: close => {
+		const drawMerge = (): void => {
+			S.form({
+				submit: () => {
+					close();
+					// The merge restarts a lot of machinery; the board is the nicer place to wait it out.
+					if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
+					void cmd('mergeTask', { pid, tid, message: $merge.message });
+				},
+				content: () => {
+					A(() => { if ($t.working) A('div.s-s.warning.tonal p:$2 #The agent is still working; merging stops it first.'); });
+					S.textarea({
+						label: 'Commit message', help: `The whole working tree becomes one commit on ${branch}, and the task's worktree is cleaned up.`,
+						rows: 12, autoGrow: false, inputAttrs: 'font-family:monospace', bind: A.ref($merge, 'message'),
+					});
+				},
+				actions: () => S.button({ content: 'Merge', icon: gitMerge, type: 'submit' }),
+			});
+		};
+		const drawDontMerge = (): void => {
+			A('p mt:0 rich=', mergeable
+				? `The task ends as it stands: its worktree is kept, with everything in it unmerged and off ${branch}. Nothing else will see the work — but the task can still be opened, and merged after the fact, for as long as it is not deleted.`
+				: `This task has nothing to merge, so this is the only way it ends: it is put away as it stands.`);
+			A('div display:flex gap:$2 justify-content:flex-end', () => {
+				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined',
+					// The task is over: its VS Code goes with it, the way Close does
+					// it. Opening the task again brings the session back.
+					click: () => { close(); void cmd('moveTask', { pid, tid, phase: 'closed' }); closeTask(pid, tid); } });
+			});
+		};
+		if (mergeable && closable) {
+			S.tabs({ contentAttrs: 'pt:$3', tabs: [
+				{ id: 'merge', label: `Merge into ${branch}`, icon: gitMerge, content: drawMerge },
+				{ id: 'closed', label: 'Don’t merge', icon: circleSlash, content: drawDontMerge },
+			]});
+		} else if (mergeable) drawMerge();
+		else drawDontMerge();
 	}});
 }
 
@@ -229,13 +247,6 @@ function saveDraft(pid: string, $d: any): Promise<string | undefined> {
 	return pending;
 }
 
-/** Rename a task, from its menu — the only place a title is ever typed by hand. */
-export async function renameTask(pid: string, tid: string, $t: any): Promise<void> {
-	const name = await S.prompt('Rename task', A.peek($t, 'title') ?? '');
-	const title = name?.trim();
-	if (title) void cmd('updateTask', { pid, tid, title });
-}
-
 /**
  * The models to choose from: what the claude on the project's host offers,
  * plus whatever the task is set to, so a model that host no longer lists
@@ -325,10 +336,21 @@ export async function deleteTask(pid: string, tid: string, $t: any): Promise<voi
 	if (shown.tid === tid || shown.draft) void route.go(pathTo(pid));
 }
 
-/** Task settings behind a dialog: how every phase but Plan offers them. */
+/**
+ * Task settings behind a dialog: how every phase but Plan offers them. The
+ * title leads, this being the only place one is ever typed by hand — claude
+ * writes the first one as the task leaves Plan, and emptying the field hands
+ * that job back to the description's first line.
+ */
 export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
+	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
 	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: () => {
-		drawTaskFields(pid, tid, $t, patch => void cmd('updateTask', { pid, tid, ...patch }));
+		S.textline({
+			label: 'Title', help: 'What the board and the sidebar call this task; empty, its description stands in.',
+			value: A.peek($t, 'title') ?? '',
+			input: debounce(600, (e: Event) => save({ title: (e.target as HTMLInputElement).value.trim() })),
+		});
+		drawTaskFields(pid, tid, $t, save);
 	}});
 }
 
@@ -402,15 +424,22 @@ export function drawPlanEditor(pid: string, tid: string | undefined, $t: any): v
 		if (id) void cmd('updateTask', { pid, tid: id, description });
 		else if (description.trim()) void saveDraft(pid, $t);
 	});
-	S.textarea({
-		attrs: 'h:100%', inputAttrs: 'flex:1 min-height:0', autoGrow: false, resize: 'none',
-		placeholder: 'What should the agent do?', value: A.peek($t, 'description') ?? '',
-		input: (e: Event) => {
-			const description = (e.target as HTMLTextAreaElement).value;
-			$t.description = description;
-			store(description);
-		},
-	});
+	const box = A('div display:flex flex-direction:column h:100%', () => {
+		S.textarea({
+			attrs: 'h:100%', inputAttrs: 'flex:1 min-height:0', autoGrow: false, resize: 'none',
+			placeholder: 'What should the agent do?', value: A.peek($t, 'description') ?? '',
+			input: (e: Event) => {
+				const description = (e.target as HTMLTextAreaElement).value;
+				$t.description = description;
+				store(description);
+			},
+		});
+	}) as HTMLElement;
+	// A task that is being started has nothing on its page but this field, and
+	// writing is the whole of what there is to do: it takes the cursor. One
+	// that exists already is arrived at to be read as often as to be edited, so
+	// that one is left alone. (After the frame, or the field isn't there yet.)
+	if (!tid) requestAnimationFrame(() => (box.querySelector('textarea') as HTMLTextAreaElement | null)?.focus());
 }
 
 /** The chat, what is worth acting on right now, and the input. */
@@ -440,10 +469,10 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 					tooltip: 'Rebuild the container from Containerfile.dev',
 					click: () => void cmd('reloadTask', { pid, tid }) });
 			});
-			S.iconButton({ icon: settings, ariaLabel: 'Task settings', click: () => taskSettingsDialog(pid, tid, $t) });
-			S.iconButton({ icon: ellipsisVertical, ariaLabel: 'Task menu', tooltip: 'Move it to another phase, rename it, delete it',
+			S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
+			S.iconButton({ icon: ellipsisVertical, ariaLabel: 'Task menu', tooltip: 'Move it to another phase, finish it, delete it',
 				click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); } });
-			S.iconButton({ icon: x, ariaLabel: 'Close', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
+			S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
 				click: () => closeTask(pid, tid) });
 		});
 	});
@@ -455,7 +484,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				A('span flex:1 text=', kept
 					? `⚠ closed without merging: this work is not on ${branch}, and its worktree is kept as it was.`
 					: `⚠ closed without merging: nothing of this task is on ${branch}.`);
-				if (kept) S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', click: () => mergeDialog(pid, tid, $t) });
+				if (kept) S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', key: 'mod+shift+g', click: () => doneDialog(pid, tid, $t) });
 			});
 			return;
 		}
@@ -477,7 +506,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		} else if ($t.commitMessage) {
 			A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
 				A('span flex:1 #✔ the agent reports this task ready to merge');
-				S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', click: () => mergeDialog(pid, tid, $t) });
+				S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', key: 'mod+shift+g', click: () => doneDialog(pid, tid, $t) });
 			});
 		}
 	});
@@ -559,7 +588,7 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 export function drawDonePanel(pid: string, tid: string, $t: any): void {
 	const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 	const closed = $t.phase === 'closed'; // and with no worktree either: nothing was ever done in it
-	S.box({ header: closed ? 'Closed' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+	S.box({ header: closed ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
 		A('p m:0 text=', closed
 			? `This task was closed without merging, and has no workspace. The conversation is kept: pick it back up to give it `
 				+ `a fresh clone of ${branch} and carry on.`

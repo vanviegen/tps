@@ -4,18 +4,21 @@ import * as S from 'staffa';
 import { plus, settings } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { addTask, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, COLUMNS, costText, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman } from './util.ts';
+import { autoStarts, COLUMNS, costText, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * The project's board: a box per column, a card dropped anywhere in a box's
  * body. Its notices and settings live in the left column. The width the
  * columns share is defined once, so they can't drift apart.
  *
- * Two phases share their column with a quieter one below a marker: Human has
- * the muted tasks at its foot (still waiting for you, just not out loud), and
- * Merge has the closed ones under it — merging is a moment, being done is
- * where a task stays. Every area keeps some empty room, so there is always
- * somewhere to drop a card.
+ * Two columns hold more than their own phase, the extra one under a marker:
+ * Human has the muted tasks at its foot (still waiting for you, just not out
+ * loud), and Done has the ones closed without merging. Merging is a moment on
+ * the way to Done rather than a place of its own, so those cards simply sit at
+ * the top of the Done column, their icon turning until it is over.
+ *
+ * A column is one drop area, marker and all: which of its parts a card lands
+ * on says nothing, as muting and closing are not things to do by accident.
  */
 const boardWidths = A.insertCss({
 	'&': `--col: clamp(190px, calc((100% - ${COLUMNS.length - 1} * var(--m3)) / ${COLUMNS.length}), 320px);`,
@@ -33,34 +36,21 @@ export function drawBoard(pid: string, $p: any): void {
 					A('text=', PHASE_LABELS[phase]);
 					if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Add task', attrs: '.small ml:auto', click: () => void addTask(pid) });
 				},
-				content: () => {
-					if (phase === 'human') {
-						drawStack(pid, $p, 'human', 'min-height:2.5rem flex: 1 0 auto;');
-						drawStack(pid, $p, 'muted', 'min-height:2.5rem flex: 1 0 auto;', { label: 'Muted tasks', dim: true });
-					} else if (phase === 'merge') {
-						// Merging is over in a minute, so this part is mostly the way in:
-						// it says what dropping a card here does rather than sit empty.
-						drawStack(pid, $p, 'merge', 'flex:none min-height:2.5rem', { placeholder: 'Drag here to merge' });
-						drawStack(pid, $p, 'done', 'flex:1 min-height:2.5rem', { label: 'Done' });
-						drawStack(pid, $p, 'closed', 'flex:1 min-height:2.5rem', { label: 'Closed', dim: true });
-					} else {
-						drawStack(pid, $p, phase, 'flex:1 min-height:2.5rem');
-					}
-				},
+				content: () => drawColumn(pid, $p, phase),
 			});
 		}
 	});
 }
 
 /**
- * The cards of one phase, in an area that takes a card dropped anywhere on it.
- * A `label` heads the area (the marker a shared column is split by, part of
- * the drop area so the line itself takes a card too), `placeholder` is what an
- * empty area says instead of showing nothing, and `dim` is for the half that
- * should not draw the eye.
+ * One column: the cards it holds, and the empty room under them — all of it
+ * taking a card dropped on it, which moves that card's task to the phase the
+ * column is named after.
  */
-function drawStack(pid: string, $p: any, phase: string, attrs: string, opts: { label?: string; placeholder?: string; dim?: boolean } = {}): void {
-	A(`div display:flex flex-direction:column ${attrs}`,
+function drawColumn(pid: string, $p: any, phase: Phase): void {
+	// The gap is the one the box's body would have given the cards, now that
+	// they hang in here rather than directly in it.
+	A('div display:flex flex-direction:column flex:1 gap:$3',
 		'dragover=', (e: DragEvent) => e.preventDefault(),
 		'drop=', (e: DragEvent) => {
 			e.preventDefault();
@@ -68,22 +58,41 @@ function drawStack(pid: string, $p: any, phase: string, attrs: string, opts: { l
 			if (tid && $p.tasks[tid]) void moveTask(pid, tid, $p.tasks[tid], phase);
 		},
 		() => {
-			if (opts.label) A('div display:flex align-items:center gap:$2 mt:$2 mb:$1 fg:$s-muted font-size:0.8em', () => {
-				A('span flex:none text=', opts.label);
-				A('span flex:1 h:1px bg:$s-faint');
-			});
-			A(`div display:flex flex-direction:column flex:1${opts.dim ? ' opacity:0.6' : ''}`, () => {
-				A.onEach($p.tasks, ($t: any, tid: string) => {
-					if ($t.phase !== phase) return; // each card lives in its phase's column
-					drawCard(pid, tid, $t);
-				}, phaseOrder);
-				if (opts.placeholder) A(() => {
-					if (Object.values($p.tasks as Record<string, any>).some($t => $t.phase === phase)) return;
-					A('div flex:1 display:flex align-items:center justify-content:center text-align:center p:$2 r:$s-radius fg:$s-muted font-size:0.85em',
-						'border: 1px dashed $s-faint;', 'text=', opts.placeholder);
-				});
-			});
+			// The ones on their way to Done go above the ones that got there.
+			if (phase === 'done') drawCards(pid, $p, 'merge');
+			drawCards(pid, $p, phase);
+			if (phase === 'human') drawSection(pid, $p, 'muted');
+			if (phase === 'done') drawSection(pid, $p, 'closed');
 		});
+}
+
+/** The cards of one phase, oldest change at the bottom; `dim` is for the half that should not draw the eye. */
+function drawCards(pid: string, $p: any, phase: Phase, dim = false): void {
+	A.onEach($p.tasks, ($t: any, tid: string) => {
+		if ($t.phase !== phase) return; // each card lives in its phase's column
+		drawCard(pid, tid, $t, dim);
+	}, phaseOrder);
+}
+
+/**
+ * The quieter half of a column: its cards under a marker naming them, and
+ * nothing at all while there are none of them — an empty column says enough
+ * by being empty. The marker sits right under the cards above it, in the same
+ * rhythm, so it reads as a line between them rather than as a second column.
+ */
+function drawSection(pid: string, $p: any, phase: Phase): void {
+	// Whether there is anything to head is derived into a flag of its own, so a
+	// task arriving or leaving doesn't rebuild every card below the marker.
+	const $any = A.proxy({ value: false });
+	A(() => { $any.value = Object.values($p.tasks as Record<string, any>).some($t => $t.phase === phase); });
+	A(() => {
+		if (!$any.value) return;
+		A('div display:flex align-items:center gap:$2 fg:$s-muted font-size:0.8em', () => {
+			A('span flex:none text=', PHASE_LABELS[phase]);
+			A('span flex:1 h:1px bg:$s-faint');
+		});
+	});
+	drawCards(pid, $p, phase, true);
 }
 
 // Browsers can fire a click on the card a drag started from once that drag
@@ -91,8 +100,8 @@ function drawStack(pid: string, $p: any, phase: string, attrs: string, opts: { l
 // click starts with a pointerdown, so that is where the flag is cleared.
 let dragged = false;
 
-function drawCard(pid: string, tid: string, $t: any): void {
-	A('div draggable=true',
+function drawCard(pid: string, tid: string, $t: any, dim: boolean): void {
+	A(`div draggable=true${dim ? ' opacity:0.6' : ''}`,
 		'pointerdown=', () => { dragged = false; },
 		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', tid); },
 		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
