@@ -40,16 +40,23 @@ kill -KILL "$p" 2>/dev/null || true
 // ChatEntry is one condensed line of a task's chat log. A tool call and its
 // result share a single entry: the result is merged in later, addressed by ID.
 type ChatEntry struct {
-	K         string `json:"k"`                   // user | text | thinking | tool | note | result
-	ID        string `json:"id,omitempty"`        // tool_use id; an entry re-sent with a known id replaces the original
-	Text      string `json:"text,omitempty"`      // markdown (user/text/note), or a one-line brief (thinking/tool/result)
-	Name      string `json:"name,omitempty"`      // tool name
-	Arg       string `json:"arg,omitempty"`       // tool: the main argument, one line
-	Res       string `json:"res,omitempty"`       // tool: the result, one line
-	Detail    string `json:"detail,omitempty"`    // full request (tool) or full text (thinking/note)
-	ResDetail string `json:"resDetail,omitempty"` // full result text
-	Error     bool   `json:"error,omitempty"`
-	T         int64  `json:"t"`
+	K         string     `json:"k"`                   // user | text | thinking | tool | note | result
+	ID        string     `json:"id,omitempty"`        // tool_use id; an entry re-sent with a known id replaces the original
+	Text      string     `json:"text,omitempty"`      // markdown (user/text/note), or a one-line brief (thinking/tool/result)
+	Name      string     `json:"name,omitempty"`      // tool name
+	Arg       string     `json:"arg,omitempty"`       // tool: the main argument, one line
+	Res       string     `json:"res,omitempty"`       // tool: the result, one line
+	Req       []ReqField `json:"req,omitempty"`       // tool: the full request, field by field
+	Detail    string     `json:"detail,omitempty"`    // full text (thinking/note)
+	ResDetail string     `json:"resDetail,omitempty"` // full result text
+	Error     bool       `json:"error,omitempty"`
+	T         int64      `json:"t"`
+}
+
+// ReqField is one key/value of a tool call's input, as the detail dialog rows it.
+type ReqField struct {
+	K string `json:"k"`
+	V string `json:"v"`
 }
 
 func newEntry(k string) *ChatEntry {
@@ -247,7 +254,7 @@ func (s *ChatSession) onEvent(ev *event) {
 				e := newEntry("tool")
 				e.ID, e.Name = b.ID, b.Name
 				e.Text, e.Arg = toolBits(b.Name, b.Input)
-				e.Detail = clip(prettyInput(b.Input))
+				e.Req = reqFields(b.Input)
 				if b.ID != "" {
 					s.pending[b.ID] = e
 				}
@@ -402,25 +409,19 @@ func toolBits(name string, input map[string]any) (text, arg string) {
 	return text, oneLine(a, 110)
 }
 
-// prettyInput renders tool input as readable 'key: value' blocks (for the detail dialog).
-func prettyInput(input map[string]any) string {
-	var parts []string
+// reqFields renders tool input as the fields the detail dialog tabulates:
+// strings as they are, anything else as indented JSON.
+func reqFields(input map[string]any) []ReqField {
+	fields := make([]ReqField, 0, len(input))
 	for _, k := range sortedKeys(input) {
 		s, ok := input[k].(string)
 		if !ok {
 			raw, _ := json.MarshalIndent(input[k], "", "  ")
 			s = string(raw)
 		}
-		if strings.Contains(s, "\n") || len(s) > 80 {
-			parts = append(parts, k+":\n"+s)
-		} else {
-			parts = append(parts, k+": "+s)
-		}
+		fields = append(fields, ReqField{K: k, V: clip(s)})
 	}
-	if len(parts) == 0 {
-		return "(no input)"
-	}
-	return strings.Join(parts, "\n\n")
+	return fields
 }
 
 func sortedKeys(m map[string]any) []string {

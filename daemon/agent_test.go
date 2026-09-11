@@ -37,7 +37,7 @@ func TestSessionEvents(t *testing.T) {
 	if entries[0].K != "thinking" || entries[0].Text != "let me think about it" || !strings.Contains(entries[0].Detail, "\n") {
 		t.Errorf("thinking entry: %+v", entries[0])
 	}
-	if entries[2].K != "tool" || entries[2].Arg != "/work/a.go: x → y" || entries[2].Text != "Fix a" || !strings.Contains(entries[2].Detail, "file_path: /work/a.go") {
+	if entries[2].K != "tool" || entries[2].Arg != "/work/a.go: x → y" || entries[2].Text != "Fix a" || len(entries[2].Req) != 4 || entries[2].Req[1] != (ReqField{"file_path", "/work/a.go"}) {
 		t.Errorf("tool entry: %+v", entries[2])
 	}
 	if len(updates) != 2 || updates[0] != entries[2] || updates[0].Res != "ok done" || updates[0].ResDetail != "ok\ndone" || updates[0].Error {
