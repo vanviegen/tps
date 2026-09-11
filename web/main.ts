@@ -9,6 +9,7 @@ import { watchPhases } from './notify.ts';
 import { bindPalette } from './palette.ts';
 import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
+import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { draftFor, drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
 import { hasWorkspace, isFinished, isOpenable, pathTo, selection, taskTitle } from './util.ts';
 
@@ -43,20 +44,13 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  */
 
 // The sidebar (see sidebar.ts) and, beside it, whatever the address names.
-// Most of those are two columns, edge to edge: the left one holds what to do
-// (a task's chat, a plan's settings), the right one the thing itself (VS
-// Code, the description). The sidebar's width is a variable, as the frames
-// that VS Code lives in are positioned from it (see code.ts).
+// Most of those are the two columns of split.ts. The sidebar's width is a
+// variable, as the frames that VS Code lives in are positioned from it (see
+// code.ts), just like the split is.
 A.insertGlobalCss({
-	':root': '--leftw: min(33.3vw, 600px)',
 	body: 'p:0 h:100dvh min-height:0 overflow:hidden',
 });
 A(() => { A.cssVars.sidew = $ui.collapsed ? SIDEBAR_CLOSED : SIDEBAR_OPEN; });
-
-/** Where the frame of a task's VS Code starts: after the sidebar and the chat column, and the latter's border. */
-export const TASK_CODE_LEFT = 'calc(var(--sidew) + var(--leftw) + 1px)';
-/** Where a full-width VS Code starts: right after the sidebar. */
-export const WIDE_CODE_LEFT = 'var(--sidew)';
 
 A('div display:flex h:100dvh align-items:stretch', () => {
 	A('div flex:none w:var(--sidew) min-width:0 transition: width 0.15s;', drawSidebar);
@@ -103,12 +97,6 @@ function drawMain(): void {
 /** One column, the width of the window minus the sidebar. */
 function drawWide(content: () => void): void {
 	A('div flex:1 min-width:0 overflow:auto p:$3', content);
-}
-
-/** The two columns: what to do on the left, the thing itself on the right. */
-function drawSplit(left: () => void, right: () => void): void {
-	A('div display:flex flex-direction:column gap:$3 w:var(--leftw) flex:none min-width:0 p:$3 overflow:hidden', left);
-	A('div flex:1 min-width:0 overflow:auto p:$3 border-left: 1px solid $s-faint;', right);
 }
 
 /**

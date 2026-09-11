@@ -11,6 +11,14 @@ import A from 'aberdeen';
  * or after the sidebar alone — is the caller's to say.
  */
 
+A.insertGlobalCss({
+	// An iframe is a replaced element: left and right alone leave it at its
+	// intrinsic 300x150, so its size is spelled out against the viewport. The
+	// easing is what makes it slide over as the columns around it change; a
+	// drag of the split (see split.ts) turns it off, so the frame keeps up.
+	'.tps-code': 'position:fixed top:0 h:100% border:0; transition: left 0.15s, width 0.15s;',
+});
+
 const MAX = 3;
 const TTL = 10 * 60_000;
 
@@ -46,10 +54,9 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 			drop(lru);
 		}
 		const el = document.createElement('iframe');
+		el.className = 'tps-code';
 		el.setAttribute('allow', 'clipboard-read; clipboard-write');
-		// An iframe is a replaced element: left and right alone leave it at its
-		// intrinsic 300x150, so its size is spelled out against the viewport.
-		el.style.cssText = 'position:fixed;top:0;height:100%;border:0;display:none;transition:left 0.15s, width 0.15s';
+		el.style.display = 'none';
 		el.src = src;
 		el.addEventListener('load', () => { el.focus(); shareKeys(el); });
 		document.body.appendChild(el);

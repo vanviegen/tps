@@ -111,6 +111,9 @@ A task's page beside the sidebar is two columns: on the left its settings
 while it is in Plan and its chat with the agent afterwards, the whole height;
 on the right the description while in Plan, VS Code (running in the container)
 on its workspace once it has one, and a note of the merge once it is over.
+The line between the two columns is a handle: drag it to move the split,
+double-click it to put it back where it was, and the arrow keys nudge it while
+it has the focus. Where you leave it is this browser's, for every task.
 The chat's top right corner holds the icons for running the project, rebasing
 onto the latest default branch, rebuilding the container, the task's settings,
 its menu (where it goes next, deleting — the card's menu, from its own page)
