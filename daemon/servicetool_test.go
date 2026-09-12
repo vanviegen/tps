@@ -106,14 +106,18 @@ func TestServiceTool(t *testing.T) {
 	}
 	// The wrapper keeps its own flag to itself: a service that runs a TPS
 	// binary (this project's own does) must not have it take over as wrapper.
-	if err := run("env", `echo "wrap=[$TPS_SERVICE_WRAP]"`); err != nil {
+	if err := run("env", `echo "wrap=[$TPS_SERVICE_WRAP] color=[$FORCE_COLOR]"`); err != nil {
 		t.Fatal(err)
 	}
 	if code := st.await([]string{"env", "5"}); code != 0 {
 		t.Errorf("await env: %d", code)
 	}
-	if log := readFile(filepath.Join(root, "env", "log")); log != "wrap=[]\n" {
-		t.Errorf("the wrapper flag reached the service: %q", log)
+	// ...and asks for colour, which nothing writing to a log file gives by itself.
+	if log := readFile(filepath.Join(root, "env", "log")); log != "wrap=[] color=[1]\n" {
+		t.Errorf("the service's environment: %q", log)
+	}
+	if got := colorEnv([]string{"PATH=/bin", "FORCE_COLOR=0"}); strings.Join(got, " ") != "PATH=/bin FORCE_COLOR=0 CLICOLOR_FORCE=1" {
+		t.Errorf("colorEnv overrode what was set: %q", got)
 	}
 	if err := run("bad name", "x"); err == nil {
 		t.Error("bad name accepted")

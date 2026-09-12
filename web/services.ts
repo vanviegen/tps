@@ -1,6 +1,7 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
 import { check, circleX, globe, loaderCircle, play, square } from 'staffa/icons.js';
+import { ansiToHtml } from './ansi.ts';
 import { cmd, ELLIPSIS, portUrl } from './util.ts';
 
 /**
@@ -132,8 +133,10 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string): 
 }
 
 function drawConsole($t: any, name: string, find: () => Service | undefined): void {
+	// The log is a terminal's output: colours and progress lines are played out
+	// (see ansi.ts) into HTML built here, never anything the log itself wrote.
 	const el = A('pre r:0 flex:1 min-height:0 m:0 overflow:auto white-space:pre-wrap overflow-wrap:anywhere', () => {
-		A('text=', $t.serviceLogs?.[name] || '');
+		A('html=', ansiToHtml($t.serviceLogs?.[name] || ''));
 	}) as HTMLElement;
 	let stick = true;
 	el.addEventListener('scroll', () => {

@@ -197,7 +197,7 @@ func (st *serviceTool) run(args []string) error {
 	}
 	defer ready.Close()
 	wrap := exec.Command(self, argv...)
-	wrap.Env = append(os.Environ(), serviceWrapEnv+"="+dir)
+	wrap.Env = append(colorEnv(os.Environ()), serviceWrapEnv+"="+dir)
 	wrap.Stdout, wrap.Stderr = log, log // stdin: /dev/null
 	wrap.ExtraFiles = []*os.File{readyW}
 	wrap.Dir, _ = os.Getwd()
@@ -215,6 +215,29 @@ func (st *serviceTool) run(args []string) error {
 	fmt.Printf("Started '%s' (pid %d): %s\n", name, pid, display)
 	fmt.Printf("Its output goes to %s/log; '%s await %s' waits for it to end.\n", dir, serviceToolName, name)
 	return nil
+}
+
+// colorEnv asks the command for colour it would otherwise keep to itself: its
+// output goes to a file rather than a terminal, so everything that looks at
+// isatty falls back to plain text — while the dashboard's console does render
+// colours (see web/ansi.ts). The two spellings between them cover most of what
+// a project runs; a service that wants none can set either to 0 itself.
+func colorEnv(env []string) []string {
+	for _, name := range []string{"FORCE_COLOR", "CLICOLOR_FORCE"} {
+		if !hasEnv(env, name) {
+			env = append(env, name+"=1")
+		}
+	}
+	return env
+}
+
+func hasEnv(env []string, name string) bool {
+	for _, e := range env {
+		if strings.HasPrefix(e, name+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // serviceWrap is the wrapper: it runs the command as its child and records
