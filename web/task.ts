@@ -23,6 +23,24 @@ export function useTask(pid: string, tid: string, $t: any): void {
 	watchTask(pid, tid);
 	A(() => { if (isOpenable($t)) hold(pid, tid); });
 	A(() => { if ($t.phase === 'muted') void cmd('moveTask', { pid, tid, phase: 'human' }); });
+	// Closing the page of a task that was never written down throws it away.
+	// This scope is also torn down and built up again while the page stays put
+	// (the task arriving anew from the server does that), so what is checked
+	// for is the page really being gone: something else is showing by then.
+	A.clean(() => { if (A.peek(selection).tid !== tid) dropBlankTask(pid, tid); });
+}
+
+/**
+ * Delete a task nothing was ever said about: still in Plan, its description
+ * empty and no title of its own — all that Start left behind (see addTask).
+ * One that says anything at all, however little, stays.
+ */
+function dropBlankTask(pid: string, tid: string): void {
+	const blank = A.peek(() => {
+		const $t = $state.projects[pid]?.tasks?.[tid];
+		return !!$t && $t.phase === 'plan' && !($t.description ?? '').trim() && !($t.title ?? '').trim();
+	});
+	if (blank) void cmd('deleteTask', { pid, tid });
 }
 
 /**
