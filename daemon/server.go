@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/hub"
 )
 
 // SocketPath is where the daemon listens, on every host.

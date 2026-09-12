@@ -1,4 +1,4 @@
-module github.com/vanviegen/agent-manager
+module github.com/vanviegen/tps
 
 go 1.27.1
 

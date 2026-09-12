@@ -1,0 +1,37 @@
+# Builds the release binaries and attaches them to a GitHub release, whenever a
+# v* tag is pushed: `git tag v0.2.0 && git push origin v0.2.0`. The assets are
+# named after `uname -m`, so the README's curl line picks the right one.
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Bundle the web UI
+        run: npm ci && npm run build
+      - name: Build
+        run: |
+          set -e
+          for target in amd64:x86_64 arm64:aarch64; do
+            GOARCH=${target%%:*} GOOS=linux CGO_ENABLED=0 \
+              go build -trimpath -ldflags='-s -w' -o "dist/tps-linux-${target##*:}" .
+          done
+          ls -l dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" --clobber dist/*

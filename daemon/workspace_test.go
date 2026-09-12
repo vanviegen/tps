@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/hub"
 )
 
 // What a merged task keeps and what it loses: the conversation stays, the

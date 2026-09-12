@@ -1,7 +1,7 @@
 // TPS: a kanban-style manager for AI coding agents working in podman dev
 // containers. One binary, two roles: the UI (default) serves the web app and
 // relays to daemons; --daemon runs the workflow on a host and keeps running
-// without a UI.
+// without a UI. --autostart also has the desktop start it at login.
 package main
 
 import (
@@ -14,10 +14,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vanviegen/agent-manager/daemon"
-	"github.com/vanviegen/agent-manager/sshx"
-	"github.com/vanviegen/agent-manager/ui"
 	"github.com/vanviegen/podnester"
+	"github.com/vanviegen/tps/daemon"
+	"github.com/vanviegen/tps/sshx"
+	"github.com/vanviegen/tps/ui"
 )
 
 //go:embed web/index.html web/manifest.webmanifest web/icon.svg web/icon-192.png web/icon-512.png web/dist
@@ -45,10 +45,11 @@ func main() {
 	flag.IntVar(port, "p", 4820, "port for the web UI (shorthand)")
 	host := flag.String("host", "127.0.0.1", "address to listen on")
 	noOpen := flag.Bool("no-open", false, "don't open the browser")
+	doAutostart := flag.Bool("autostart", false, "also start this binary (with --no-open) at every login, then run as usual")
 	daemonBinary := flag.String("daemon-binary", "", "binary to install on remote hosts of another architecture")
 	relayPath := flag.String("relay", "", "internal: relay stdio to the unix socket at this path")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: tps [--port 4820] [--host 127.0.0.1] [--no-open] [--daemon-binary FILE] | tps --daemon")
+		fmt.Fprintln(os.Stderr, "Usage: tps [--port 4820] [--host 127.0.0.1] [--no-open] [--daemon-binary FILE] [--autostart] | tps --daemon")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -56,6 +57,13 @@ func main() {
 	if *relayPath != "" {
 		relay(*relayPath)
 		return
+	}
+	if *doAutostart {
+		path, err := autostart()
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("TPS starts at login: %s", path)
 	}
 	if *isDaemon {
 		if err := daemon.Serve(ui.BuildID()); err != nil {

@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vanviegen/agent-manager/daemon"
+	"github.com/vanviegen/tps/daemon"
 )
 
 // transport reaches one daemon host: its daemon socket and its loopback ports.

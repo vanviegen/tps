@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/hub"
 )
 
 // A Link is the dashboard's connection to one daemon. It mirrors the daemon's

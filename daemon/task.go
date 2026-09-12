@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/hub"
 )
 
 type Phase string

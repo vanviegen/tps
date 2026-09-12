@@ -3,7 +3,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/hub"
 )
 
 func testManager() *Manager {

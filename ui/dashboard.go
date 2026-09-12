@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vanviegen/agent-manager/daemon"
+	"github.com/vanviegen/tps/daemon"
 )
 
 // The dashboard's own state is the host list — which daemons to connect to —

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vanviegen/agent-manager/sshx"
+	"github.com/vanviegen/tps/sshx"
 )
 
 // sshTransport reaches a daemon on another machine: it checks the host,

@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
-	"github.com/vanviegen/agent-manager/daemon"
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/daemon"
+	"github.com/vanviegen/tps/hub"
 )
 
 type Options struct {

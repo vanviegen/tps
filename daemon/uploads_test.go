@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/hub"
 )
 
 func TestUploadName(t *testing.T) {
