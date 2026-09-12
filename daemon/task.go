@@ -1037,8 +1037,10 @@ func (t *Task) undoTmpCommit(repo string) error {
 // clone, not in it.
 func (t *Task) dropWorkspace() error {
 	t.down()
-	if err := os.RemoveAll(t.repoDir()); err != nil {
-		return err
+	if err := rmTree(t.repoDir()); err != nil {
+		// The clone is out of the way regardless, so the task goes on: what could
+		// not be unlinked costs disk, which only the human can free.
+		t.note("workspace not fully removed: " + err.Error())
 	}
 	_ = os.Remove(filepath.Join(t.dir(), "changes-index")) // it described the clone
 	t.lock()
@@ -1150,8 +1152,8 @@ func (t *Task) Discard() error {
 	t.down()
 	rmContainer(t.containerName()) // also one the daemon never knew about
 	nestPurge(t.containerName(), nestDir(t.dir()))
-	if err := os.RemoveAll(t.dir()); err != nil {
-		return err
+	if err := rmTree(t.dir()); err != nil {
+		logf("%s: discarding the workspace: %v", t.key(), err)
 	}
 	t.lock()
 	defer t.unlock()
@@ -1171,8 +1173,8 @@ func (t *Task) Delete() error {
 	t.down()
 	rmContainer(t.containerName())
 	nestPurge(t.containerName(), nestDir(t.dir()))
-	if err := os.RemoveAll(t.dir()); err != nil {
-		return err
+	if err := rmTree(t.dir()); err != nil {
+		logf("%s: deleting the workspace: %v", t.key(), err)
 	}
 	t.lock()
 	defer t.unlock()

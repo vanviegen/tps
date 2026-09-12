@@ -133,8 +133,12 @@ USER dev
 WORKDIR /work
 `
 
+// imageRepo is the repository every image TPS builds is tagged in, so that
+// they can be told from the user's own (and found, see anyImage).
+const imageRepo = "localhost/tps"
+
 func imageTag(containerfile string) string {
-	return "localhost/tps:" + sha256hex(containerfile)[:12]
+	return imageRepo + ":" + sha256hex(containerfile)[:12]
 }
 
 func imageExists(tag string) bool {

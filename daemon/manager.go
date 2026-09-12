@@ -249,7 +249,9 @@ func (m *Manager) Remove(pid string) error {
 		return err
 	}
 	p.forget()
-	_ = os.RemoveAll(p.tasksDir()) // else a project added later under the same pid inherits it
+	if err := rmTree(p.tasksDir()); err != nil { // else a project added later under the same pid inherits it
+		logf("%s: removing the tasks: %v", pid, err)
+	}
 	m.mu.Lock()
 	delete(m.projects, pid)
 	m.saveL()

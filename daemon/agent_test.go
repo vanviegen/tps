@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vanviegen/agent-manager/hub"
+	"github.com/vanviegen/tps/hub"
 )
 
 // One claude turn, from tool call to result, condensed into chat entries.
