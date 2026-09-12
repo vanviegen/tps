@@ -14,10 +14,11 @@ import (
 
 const inhibitWho = "TPS"
 
-// While an agent works, the daemon holds a logind inhibitor so the machine
-// does not suspend under the running work. An open dashboard is no reason to
-// keep the machine up. Nothing happens on hosts without systemd-inhibit, or
-// where polkit refuses it (a daemon outside a login session).
+// While an agent works — or a task waits out a usage limit, which is a wait
+// only a machine that stays awake can keep — the daemon holds a logind
+// inhibitor so nothing suspends under the running work. An open dashboard is
+// no reason to keep the machine up. Nothing happens on hosts without
+// systemd-inhibit, or where polkit refuses it (a daemon outside a login session).
 //
 // The helper waits on a pipe whose write end only the daemon holds, so the
 // inhibitor is released however the daemon goes away -- a descriptor the
@@ -38,7 +39,7 @@ func (m *Manager) inhibitLoop() {
 			release.Close()
 			release = nil
 		}
-		want := m.anyWorking()
+		want := m.anyAwake()
 		if want && release == nil {
 			r, w, err := os.Pipe()
 			if err != nil {

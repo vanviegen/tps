@@ -205,8 +205,16 @@ export function taskName(pid: string, tid: string): string {
 	return !$t ? '(deleted)' : taskTitle($t);
 }
 
+/** When an agent parked on claude's usage limit goes back in: the clock, with the day if it is not today's. */
+function limitTime(ms: number): string {
+	const at = new Date(ms);
+	const clock = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+	return at.toDateString() === new Date().toDateString() ? clock : `${at.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${clock}`;
+}
+
 /** What the workspace is up to (or what the task waits for), as text plus a color role. */
 export function taskActivity(pid: string, $t: any): { text: string; color: string } {
+	if ($t.limitUntil) return { text: `waits for claude's usage limit, back at ${limitTime($t.limitUntil)}`, color: 'warning' };
 	if (autoStarts($t)) {
 		const pending = waitingFor(pid, $t);
 		if (!pending.length) return { text: 'starts once its plan is closed', color: 'warning' };
@@ -231,8 +239,8 @@ export function taskTip(pid: string, $t: any): string {
 
 /**
  * The task at a glance: its phase as an icon (a spinner while claude works or
- * merges, an hourglass while it waits for the tasks it follows), colored by the
- * container status.
+ * merges, an hourglass while it waits — for the tasks it follows, or for
+ * claude's usage limit to reset), colored by the container status.
  *
  * `tip: false` is for where something around it already tells that story — the
  * collapsed sidebar, whose rows carry it themselves. `color` is for where the
@@ -243,7 +251,7 @@ export function taskTip(pid: string, $t: any): string {
 export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?: boolean; color?: string } = {}): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
-		const icon = $t.working ? loaderCircle : autoStarts($t) ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
+		const icon = $t.working ? loaderCircle : autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
 		// Turning while something is going on: claude at work, or the merge a
 		// task in Merging is in the middle of — which is what tells those apart
 		// from the merged ones they sit above on the board.

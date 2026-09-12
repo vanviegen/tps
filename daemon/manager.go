@@ -300,9 +300,19 @@ func (m *Manager) sweep() {
 	for _, p := range m.projects {
 		p.autoStartL()
 	}
-	var idle, unheld []*Task
+	now := time.Now().UnixMilli()
+	var idle, unheld, overdue []*Task
 	for _, t := range m.allTasksL() {
-		if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown {
+		// A usage-limit wait about to be up is left alone: it starts a turn of
+		// its own in a moment, which a workspace torn down under it would not
+		// survive. One well past its time slept through a suspend — the
+		// monotonic clock its timer runs on stops with the machine — and is
+		// caught up here.
+		if t.info.LimitUntil > 0 && now > t.info.LimitUntil-2*time.Minute.Milliseconds() {
+			if now > t.info.LimitUntil+time.Minute.Milliseconds() {
+				overdue = append(overdue, t)
+			}
+		} else if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown {
 			idle = append(idle, t)
 		} else if t.codeUp && t.viewers == 0 && !t.codeWanted {
 			// A code-server adopted from before a restart that no dashboard came back for.
@@ -310,6 +320,9 @@ func (m *Manager) sweep() {
 		}
 	}
 	m.mu.Unlock()
+	for _, t := range overdue {
+		go t.resumeAfterLimit()
+	}
 	for _, t := range idle {
 		t.note("workspace idle, shutting down (your work is untouched)")
 		t.queue("container", idlePrompt)
@@ -428,6 +441,21 @@ func (m *Manager) anyWorking() bool {
 	defer m.mu.Unlock()
 	for _, t := range m.allTasksL() {
 		if t.workingL() {
+			return true
+		}
+	}
+	return false
+}
+
+// anyAwake: work the machine must not suspend under. A task waiting out a
+// usage limit counts: its timer is hours away and would not fire on a sleeping
+// machine, while a restart may take it (the wait is on disk, and picked back
+// up), which is why this is the inhibitor's question and not anyWorking's.
+func (m *Manager) anyAwake() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.allTasksL() {
+		if t.workingL() || t.info.LimitUntil > 0 {
 			return true
 		}
 	}

@@ -46,6 +46,15 @@ const (
 	containerfile = "Containerfile.dev"
 )
 
+// Waiting out one of claude's usage limits (see armLimitL): the agent goes
+// back in a minute past the reset it named, and a reset further out than a
+// day, or one that keeps coming back, is left to the user instead.
+const (
+	limitSlack    = time.Minute
+	limitMaxWait  = 24 * time.Hour
+	maxLimitWaits = 12
+)
+
 // TaskInfo is the persisted part of a task (in projects.json).
 type TaskInfo struct {
 	Title         string   `json:"title"`
@@ -63,6 +72,7 @@ type TaskInfo struct {
 	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
 	RebaseOnly    bool     `json:"rebaseOnly,omitempty"`    // the agent in the merge phase is resolving a plain rebase, which ends there
 	TmpCommit     bool     `json:"tmpCommit,omitempty"`     // the workspace holds a temporary commit with what was uncommitted (see stashInCommit)
+	LimitUntil    int64    `json:"limitUntil,omitempty"`    // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
 
 	// Pending is what the agent is told the next time it is sent in: things
 	// that happened to its workspace while it wasn't running.
@@ -119,7 +129,9 @@ type Task struct {
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
-	doneNudges    int // turns in a row the agent was sent back in for a missing TPS-DONE line
+	doneNudges    int         // turns in a row the agent was sent back in for a missing TPS-DONE line
+	limitTimer    *time.Timer // running while the task waits out a usage limit (see armLimitL)
+	limitWaits    int         // waits in a row that ran straight into the limit again
 	chatMu        sync.Mutex
 	cloneMu       sync.Mutex // one workspace at a time: two messages can want one at once
 
@@ -199,6 +211,11 @@ func (t *Task) publishL() {
 	} else {
 		t.pubL("behind", nil)
 	}
+	if t.info.LimitUntil > 0 {
+		t.pubL("limitUntil", t.info.LimitUntil)
+	} else {
+		t.pubL("limitUntil", nil)
+	}
 	t.pubL("status", t.status)
 	t.pubL("statusDetail", t.statusDetail)
 	t.pubL("working", t.workingL())
@@ -251,6 +268,9 @@ func (t *Task) setStatusL(status WorkStatus, detail string) {
 }
 
 func (t *Task) setPhaseL(phase Phase) {
+	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent waits for nothing
+		t.clearLimitL()
+	}
 	t.info.Phase = phase
 	t.info.PhaseAt = time.Now().UnixMilli()
 	t.p.touchL()
@@ -592,6 +612,7 @@ func sameBudget(a, b *float64) bool {
 // the branch, and is told as much: what follows becomes a patch of its own.
 func (t *Task) kick(text string, fresh bool) {
 	t.lock()
+	t.clearLimitL() // a turn now is what the wait was for, or what replaces it
 	if t.overBudgetL() {
 		t.noteBudgetL()
 		if t.agentPhaseL() {
@@ -1642,6 +1663,83 @@ func (t *Task) startSession(fresh bool) (*ChatSession, error) {
 	return s, nil
 }
 
+// --- waiting out claude's usage limits ---
+
+// limitWaitL says when a task whose turn ran into a usage limit goes back in,
+// and whether waiting is worth it at all: a limit that names no reset we can
+// read, one more than a day out, or one that keeps coming back however long we
+// wait, is the user's to sort out.
+func (t *Task) limitWaitL(resetAt time.Time) (time.Time, bool) {
+	t.limitWaits++
+	if t.limitWaits > maxLimitWaits || resetAt.IsZero() {
+		return time.Time{}, false
+	}
+	now := time.Now()
+	until := resetAt.Add(limitSlack)
+	if until.After(now.Add(limitMaxWait)) {
+		return time.Time{}, false
+	}
+	if soonest := now.Add(limitSlack); until.Before(soonest) { // a reset already behind us
+		until = soonest
+	}
+	return until, true
+}
+
+// armLimitL parks the task on a usage limit: it stays with the agent, and a
+// timer sends the agent back in once the limit should have reset. The
+// container may be recycled for idling meanwhile — the wait can be hours —
+// and the moment is persisted, so a daemon that restarts picks the wait back
+// up rather than dropping the task on the user. Anything else happening to the
+// task (a message, a stop, a drag) clears it; see clearLimitL.
+func (t *Task) armLimitL(until time.Time) {
+	if t.limitTimer != nil {
+		t.limitTimer.Stop()
+	}
+	t.info.LimitUntil = until.UnixMilli()
+	t.p.m.saveL()
+	t.pubL("limitUntil", t.info.LimitUntil)
+	t.limitTimer = time.AfterFunc(time.Until(until), t.resumeAfterLimit)
+}
+
+// clearLimitL drops a wait that is no longer to be waited out.
+func (t *Task) clearLimitL() {
+	if t.limitTimer != nil {
+		t.limitTimer.Stop()
+		t.limitTimer = nil
+	}
+	if t.info.LimitUntil != 0 {
+		t.info.LimitUntil = 0
+		t.p.m.saveL()
+		t.pubL("limitUntil", nil)
+	}
+}
+
+// limitNote tells the user, in the chat the wait is silent in otherwise, that
+// nothing is expected of them: the task goes on by itself.
+func limitNote(until time.Time) string {
+	when := until.Local().Format("15:04 MST")
+	if time.Until(until) > 12*time.Hour {
+		when = until.Local().Format("Jan 2, 15:04 MST")
+	}
+	return "claude's usage limit is reached, so this turn did not run. The task stays with the " +
+		"agent and goes back in by itself at " + when + "; until the limit resets, a message of " +
+		"your own would only run into it too."
+}
+
+// resumeAfterLimit sends the agent back in once the limit should have reset.
+func (t *Task) resumeAfterLimit() {
+	t.lock()
+	t.limitTimer = nil
+	if t.info.LimitUntil == 0 || !t.agentPhaseL() || t.p.tasks[t.tid] != t {
+		t.unlock()
+		return
+	}
+	t.clearLimitL()
+	t.unlock()
+	t.note("the usage limit should have reset; sending the agent back in")
+	t.kick(limitPrompt, false)
+}
+
 // maxDoneNudges: how often in a row an agent is sent back in for the TPS-DONE
 // line it forgot before the task is handed to the human anyway.
 const maxDoneNudges = 2
@@ -1684,6 +1782,20 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.kick(reloadedPrompt, false)
 		return
 	}
+	// A turn that ran into a usage limit never got to do anything: wait the
+	// limit out and send the agent back in, rather than handing over a task
+	// nobody has to do anything about. A verdict means the message was the
+	// agent talking about limits, not claude reporting one.
+	if end.Failed && end.Limited && next == "" && !t.overBudgetL() {
+		if until, ok := t.limitWaitL(end.LimitAt); ok {
+			t.note(limitNote(until))
+			t.armLimitL(until)
+			t.unlock()
+			return
+		}
+		t.note("claude reports a usage limit that is not one to wait out here; the task is yours")
+	}
+	t.limitWaits = 0
 	// No verdict: send the agent back in for one, unless the turn failed on its
 	// own (asking again would only fail again) or it keeps forgetting.
 	if next == "" && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
@@ -1770,6 +1882,12 @@ func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
 		t.session = nil
 	}
 	t.publishL()
+	if t.info.LimitUntil > 0 {
+		// Waiting out a usage limit: claude's process is not what the task is
+		// waiting for (the container may well be recycled for idling before
+		// the reset), and the resume starts one of its own.
+		return
+	}
 	if t.agentPhaseL() && !t.stopping {
 		if code != 0 {
 			t.note(fmt.Sprintf("claude exited unexpectedly (%d)", code), errTail)

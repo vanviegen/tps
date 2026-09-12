@@ -148,10 +148,19 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 		t.loadChat()
 		p.m.mu.Lock()
-		if info.Phase == PhaseMerge || info.Phase == PhaseAgent { // the daemon restarted mid-turn
+		agentPhase := info.Phase == PhaseMerge || info.Phase == PhaseAgent
+		switch {
+		case agentPhase && info.LimitUntil > 0:
+			// Waiting out a usage limit rather than working: no turn was cut
+			// off, and the wait is the daemon's to take back up.
+			t.note("TPS restarted; the task is still waiting for claude's usage limit to reset")
+			t.armLimitL(time.UnixMilli(info.LimitUntil))
+		case agentPhase: // the daemon restarted mid-turn
 			t.note("TPS restarted while the agent was working; send a message to continue")
 			info.Phase = PhaseHuman
 			t.queueL("restart", restartedPrompt) // saves the phase above with it
+		default:
+			info.LimitUntil = 0 // a wait the phase it was left in outlived
 		}
 		t.adoptL()
 		t.publishL()

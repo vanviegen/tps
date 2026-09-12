@@ -86,6 +86,8 @@ type ChatSession struct {
 	pending      map[string]*ChatEntry // tool calls awaiting their result
 	done         *Done                 // the verdict of the turn under way, from its latest message
 	badDone      string                // why that message's TPS-DONE line was unusable
+	limited      bool                  // that message was claude reporting a usage limit
+	limitAt      time.Time             // and when it says that limit resets
 	opts         SessionOpts
 	exited       chan struct{}
 }
@@ -104,6 +106,7 @@ func newChatSession(opts SessionOpts) (*ChatSession, error) {
 		model = ""
 	}
 	cmd := exec.Command("podman", "exec", "-i",
+		"-e", "TZ=UTC", // the zone claude words its usage-limit resets in; see parseReset
 		"-e", "TPS_MODEL="+model,
 		"-e", "TPS_SYSTEM="+opts.System,
 		"-e", "TPS_EXTRA="+extra,
@@ -170,6 +173,7 @@ func (s *ChatSession) TurnActive() bool { return s.turnActive.Load() }
 
 func (s *ChatSession) Send(text string) {
 	s.turnActive.Store(true)
+	s.limited, s.limitAt = false, time.Time{}
 	s.write(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": text}}}})
 }
 
@@ -239,6 +243,7 @@ func (s *ChatSession) onEvent(ev *event) {
 				// (without a line of its own) drops what an earlier one said.
 				text, done, bad := parseDone(strings.TrimSpace(b.Text))
 				s.done, s.badDone = done, bad
+				s.limited, s.limitAt = limitOf(b.Text)
 				if text = strings.TrimSpace(text); text != "" {
 					e := newEntry("text")
 					e.Text = text
@@ -310,8 +315,8 @@ func (s *ChatSession) onEvent(ev *event) {
 		}
 		e.Text += " · " + secs + cost
 		s.opts.OnEntry(e)
-		end := TurnEnd{Cost: delta, Failed: ev.IsError, Done: s.done, Bad: s.badDone}
-		s.done, s.badDone = nil, ""
+		end := TurnEnd{Cost: delta, Failed: ev.IsError, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt}
+		s.done, s.badDone, s.limited, s.limitAt = nil, "", false, time.Time{}
 		s.opts.OnTurnEnd(end)
 	}
 }
@@ -447,10 +452,12 @@ type Done struct {
 
 // TurnEnd is what a finished claude turn amounts to for the task.
 type TurnEnd struct {
-	Cost   float64 // USD spent since the previous turn
-	Failed bool    // claude reported the turn itself as failed
-	Done   *Done   // the verdict, if the last message carried a usable one
-	Bad    string  // why a TPS-DONE line that was there could not be used
+	Cost    float64   // USD spent since the previous turn
+	Failed  bool      // claude reported the turn itself as failed
+	Done    *Done     // the verdict, if the last message carried a usable one
+	Bad     string    // why a TPS-DONE line that was there could not be used
+	Limited bool      // the last message was claude reporting a usage limit
+	LimitAt time.Time // when that limit resets; zero when it named no time we could read
 }
 
 // parseDone splits a TPS-DONE line off the end of an agent message: the text
@@ -497,4 +504,50 @@ func parseDone(text string) (rest string, done *Done, bad string) {
 func isFence(line string) bool {
 	line = strings.TrimSpace(line)
 	return line == "" || strings.HasPrefix(line, "```")
+}
+
+// --- claude's usage limits ---
+
+// A turn that runs into one of claude's usage limits ends with a message from
+// claude itself — "You've hit your session limit · resets 4:40pm (UTC)" — and
+// a failed result right behind it. TPS reads the reset out of that message and
+// waits for it rather than handing the task to the user (see armLimitL).
+var (
+	limitHit   = regexp.MustCompile(`(?i)you'?ve hit your [a-z' ]*limit\b`)
+	limitReset = regexp.MustCompile(`(?i)\bresets ([^·\n]+)`)
+)
+
+// limitOf reports whether a message is claude saying a usage limit stopped it,
+// and when that limit resets — zero when it names no time, or none we can read.
+func limitOf(text string) (bool, time.Time) {
+	if !limitHit.MatchString(text) {
+		return false, time.Time{}
+	}
+	m := limitReset.FindStringSubmatch(text)
+	if m == nil {
+		return true, time.Time{}
+	}
+	return true, parseReset(strings.TrimSpace(m[1]), time.Now())
+}
+
+// parseReset reads the clock claude names in that message: "4:40pm (UTC)", in
+// UTC because that is the zone the process is given (see newChatSession) —
+// claude words these in its own locale and zone, and only the zone is ours to
+// pin. A reset it dates instead ("Mar 5, 4:40pm") is more than a day out,
+// which is no wait TPS takes on anyway, so the clock is all that is read.
+func parseReset(s string, now time.Time) time.Time {
+	s = strings.TrimSuffix(s, " (UTC)")
+	for _, layout := range []string{"3:04pm", "3pm"} { // "4:40pm", and "4pm" on the hour
+		at, err := time.Parse(layout, s)
+		if err != nil {
+			continue
+		}
+		day := now.UTC()
+		at = time.Date(day.Year(), day.Month(), day.Day(), at.Hour(), at.Minute(), 0, 0, time.UTC)
+		if at.Before(day) { // an hour already gone today is tomorrow's
+			at = at.AddDate(0, 0, 1)
+		}
+		return at
+	}
+	return time.Time{}
 }

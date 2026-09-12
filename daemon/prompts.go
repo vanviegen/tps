@@ -78,6 +78,12 @@ in to supply it, so make it the last thing you write.`
 
 const reloadedPrompt = "The container has been recreated. Please continue."
 
+// limitPrompt sends the agent back in after a turn that claude's usage limit
+// cut short, once that limit has reset (see armLimitL).
+const limitPrompt = `Your previous turn did not run: claude's usage limit was reached, and TPS waited
+for it to reset. Continue the task where it left off — check the state of the
+work before you build on what you remember, and do not redo what is already done.`
+
 // fixImagePrompt is the request under fallbackPrompt when nothing else is pending.
 const fixImagePrompt = "Continue with the task where it left off."
 

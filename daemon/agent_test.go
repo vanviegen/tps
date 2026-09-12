@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/vanviegen/agent-manager/hub"
 )
 
 // One claude turn, from tool call to result, condensed into chat entries.
@@ -133,5 +136,119 @@ func TestDoneLine(t *testing.T) {
 	feed(`{"type":"result","total_cost_usd":0.02,"duration_ms":1000}`)
 	if end.Done != nil || end.Bad != "" {
 		t.Errorf("stale verdict: %+v", end)
+	}
+}
+
+// The usage-limit message claude ends a cut-short turn with, and the reset it names.
+func TestLimitLine(t *testing.T) {
+	now := time.Date(2026, 3, 5, 14, 0, 0, 0, time.UTC)
+	cases := []struct {
+		in    string
+		limit bool
+		at    time.Time
+	}{
+		{in: "You've hit your session limit · resets 4:40pm (UTC)", limit: true, at: time.Date(2026, 3, 5, 16, 40, 0, 0, time.UTC)},
+		{in: "You've hit your weekly limit · resets 9am (UTC) · ask your admin for a higher limit", limit: true, at: time.Date(2026, 3, 6, 9, 0, 0, 0, time.UTC)}, // gone today: tomorrow's
+		{in: "You've hit your session limit", limit: true},                            // no time named
+		{in: "You've hit your Opus limit · resets Mar 12, 4:40pm (UTC)", limit: true}, // dated, so over a day out: not a wait we take
+		{in: "Rate limits reset at 4:40pm; I will explain them.", limit: false},       // the agent talking about limits
+	}
+	for _, c := range cases {
+		limit, _ := limitOf(c.in)
+		if limit != c.limit {
+			t.Errorf("limitOf(%q) = %v, want %v", c.in, limit, c.limit)
+		}
+		// The reset itself, read against a fixed 'now' rather than this minute's.
+		var at time.Time
+		if m := limitReset.FindStringSubmatch(c.in); m != nil && limit {
+			at = parseReset(strings.TrimSpace(m[1]), now)
+		}
+		if !at.Equal(c.at) {
+			t.Errorf("parseReset(%q) = %v, want %v", c.in, at, c.at)
+		}
+	}
+
+	var end TurnEnd
+	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+		OnEntry:   func(*ChatEntry) {},
+		OnUpdate:  func(*ChatEntry) {},
+		OnTurnEnd: func(e TurnEnd) { end = e },
+		OnExit:    func(int, string) {},
+	}}
+	feed := func(line string) {
+		var ev event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatal(err)
+		}
+		s.onEvent(&ev)
+	}
+	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"You've hit your session limit · resets 4:40pm (UTC)"}]}}`)
+	feed(`{"type":"result","is_error":true,"duration_ms":1000}`)
+	if !end.Limited || end.LimitAt.IsZero() || !end.Failed {
+		t.Fatalf("limited turn: %+v", end)
+	}
+	// It does not carry over into the next turn.
+	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Back at it."}]}}`)
+	feed(`{"type":"result","duration_ms":1000}`)
+	if end.Limited || !end.LimitAt.IsZero() {
+		t.Errorf("stale limit: %+v", end)
+	}
+}
+
+// How long a task waits on a usage limit, and when it stops waiting at all.
+func TestLimitWait(t *testing.T) {
+	p := testProject(map[string]*TaskInfo{"1": {Phase: PhaseAgent}})
+	task := p.tasks["1"]
+	now := time.Now()
+
+	until, ok := task.limitWaitL(now.Add(2 * time.Hour))
+	if !ok || until.Sub(now) < 2*time.Hour+limitSlack-time.Second {
+		t.Errorf("a reset two hours out: %v %v", until, ok)
+	}
+	if _, ok := task.limitWaitL(time.Time{}); ok {
+		t.Errorf("a limit naming no reset we can read is not one to wait out")
+	}
+	if until, ok := task.limitWaitL(now.Add(-time.Hour)); !ok || until.Before(now) {
+		t.Errorf("a reset already behind us: %v %v", until, ok)
+	}
+	if _, ok := task.limitWaitL(now.Add(48 * time.Hour)); ok {
+		t.Error("a reset two days out is not worth waiting for")
+	}
+	task.limitWaits = maxLimitWaits
+	if _, ok := task.limitWaitL(now.Add(time.Hour)); ok {
+		t.Error("a limit that keeps coming back is the user's")
+	}
+}
+
+// A turn claude's usage limit cut short parks the task with the agent, keeps
+// the machine awake for the wait, and gives the wait up when the task moves on.
+func TestLimitPark(t *testing.T) {
+	m := &Manager{projects: map[string]*Project{}, hub: hub.New(nil), saveCh: make(chan []byte, 1)}
+	p := &Project{m: m, pid: "p", info: &ProjectInfo{Dir: t.TempDir(), Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}}
+	m.projects["p"] = p
+	info := &TaskInfo{Phase: PhaseAgent}
+	task := newTask(p, "1", info)
+	p.tasks["1"], p.info.Tasks["1"] = task, info
+
+	reset := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	task.onTurnEnd(TurnEnd{Failed: true, Limited: true, LimitAt: reset})
+	if info.Phase != PhaseAgent || info.LimitUntil != reset.Add(limitSlack).UnixMilli() {
+		t.Fatalf("not parked on the limit: %s, until %d", info.Phase, info.LimitUntil)
+	}
+	if !m.anyAwake() || m.anyWorking() {
+		t.Error("the wait should hold the machine awake without counting as work")
+	}
+	if err := task.StopAgent(); err != nil {
+		t.Fatal(err)
+	}
+	if info.Phase != PhaseHuman || info.LimitUntil != 0 || task.limitTimer != nil {
+		t.Errorf("the wait outlived the stop: %s, until %d", info.Phase, info.LimitUntil)
+	}
+
+	// A verdict means the agent was talking about limits, not running into one.
+	info.Phase = PhaseAgent
+	task.onTurnEnd(TurnEnd{Failed: true, Limited: true, Done: &Done{Next: "user"}})
+	if info.Phase != PhaseHuman || info.LimitUntil != 0 {
+		t.Errorf("a turn with a verdict was parked: %s, until %d", info.Phase, info.LimitUntil)
 	}
 }
