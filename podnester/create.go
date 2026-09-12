@@ -559,7 +559,9 @@ func (cc *createCtx) mount(m map[string]json.RawMessage) (map[string]json.RawMes
 
 // portBindings checks what the client wants published. Podman is not asked
 // to publish anything; the bindings go into a label and the proxy's
-// forwarders serve them in the owner.
+// forwarders serve them in the owner, which they do for tcp alone: a
+// binding of any other protocol is dropped with a warning rather than
+// refused, so a compose file that mentions one in passing still runs.
 func (cc *createCtx) portBindings(pb portBindings) error {
 	if len(pb) == 0 {
 		return nil
@@ -568,7 +570,8 @@ func (cc *createCtx) portBindings(pb portBindings) error {
 	for port, bindings := range pb {
 		_, proto := splitPort(port)
 		if proto != "tcp" {
-			return denied("publishing %s: only tcp ports can be published through this socket", port)
+			cc.warn("publishing %s ignored: only tcp ports can be published through this socket", port)
+			continue
 		}
 		var list []portBinding
 		for _, b := range bindings {

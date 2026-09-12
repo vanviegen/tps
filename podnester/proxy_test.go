@@ -231,7 +231,6 @@ func TestCreatePolicy(t *testing.T) {
 		{"Image": "x", "HostConfig": map[string]any{"PidMode": "container:other"}},
 		{"Image": "x", "HostConfig": map[string]any{"NewShinyOption": true}},
 		{"Image": "x", "SomethingNew": 1},
-		{"Image": "x", "HostConfig": map[string]any{"PortBindings": map[string]any{"53/udp": []any{map[string]any{"HostPort": "53"}}}}},
 		{"Image": "x", "HostConfig": map[string]any{"LogConfig": map[string]any{"Type": "k8s-file", "Config": map[string]string{"path": "/etc/shadow"}}}},
 		{"Image": "x", "NetworkingConfig": map[string]any{"EndpointsConfig": map[string]any{"podman": map[string]any{}}}},
 	}
@@ -240,6 +239,19 @@ func TestCreatePolicy(t *testing.T) {
 		if rec.Code/100 == 2 {
 			t.Errorf("accepted: %v", body)
 		}
+	}
+	// A port of a protocol the forwarders do not serve: kept out of the label, with a warning, rather than refused.
+	rec = do(p, "POST", "/containers/create", map[string]any{"Image": "x", "HostConfig": map[string]any{
+		"PortBindings": map[string]any{"53/udp": []any{map[string]any{"HostPort": "53"}}, "80/tcp": []any{map[string]any{"HostPort": "8080"}}}}})
+	if rec.Code != 201 {
+		t.Fatalf("udp binding: %d %s", rec.Code, rec.Body)
+	}
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if w, _ := resp["Warnings"].([]any); len(w) != 1 || !strings.Contains(w[0].(string), "53/udp") {
+		t.Errorf("warnings about the udp binding: %v", resp["Warnings"])
+	}
+	if ports := f.bodies[len(f.bodies)-1]["Labels"].(map[string]any)["podnester.ports"]; ports != `{"80/tcp":[{"HostIp":"","HostPort":"8080"}]}` {
+		t.Errorf("ports label: %v", ports)
 	}
 	// The host's root, through the owner's own root filesystem: allowed, as the owner sees it — mapped under the merged dir.
 	rec = do(p, "POST", "/containers/create", map[string]any{"Image": "x", "HostConfig": map[string]any{"Binds": []string{"/:/hostroot"}}})
