@@ -153,6 +153,14 @@ func (t *Task) containerName() string { return "tps-" + t.p.pid + "-" + t.tid }
 func (t *Task) workingL() bool        { return t.session != nil && t.session.TurnActive() }
 func (t *Task) touchL()               { t.lastActivity = time.Now() }
 
+// hasWorkspace: the task has a clone to work in. A bare directory is not one
+// and must not pass for one: podman makes the mount point back whenever a
+// container starts without one there — after a merge dropped it, above all —
+// and a removal that could not free the path leaves what it did not get to.
+// Either would be taken for a workspace and fail as one, every git command in
+// it reporting that the task's repo is not a repository.
+func (t *Task) hasWorkspace() bool { return exists(filepath.Join(t.repoDir(), ".git")) }
+
 // agentPhaseL: an agent may be at work, on the task itself or on merging it.
 func (t *Task) agentPhaseL() bool { return t.info.Phase == PhaseAgent || t.info.Phase == PhaseMerge }
 
@@ -201,7 +209,7 @@ func (t *Task) publishL() {
 	}
 	// Whether there is a workspace to open at all: a task in Plan has none yet,
 	// a merged one no longer, and one closed without merging kept the one it had.
-	if exists(t.repoDir()) {
+	if t.hasWorkspace() {
 		t.pubL("worktree", true)
 	} else {
 		t.pubL("worktree", nil)
@@ -623,7 +631,6 @@ func (t *Task) kick(text string, fresh bool) {
 	}
 	reopened := t.info.Merged
 	wasDone := t.info.Phase == PhaseDone
-	wasClosed := t.info.Phase == PhaseClosed
 	if t.midRebase() { // the agent's 'merge' verdict then reruns it
 		t.setPhaseL(PhaseMerge)
 	} else if t.info.Phase != PhaseMerge {
@@ -656,9 +663,12 @@ func (t *Task) kick(text string, fresh bool) {
 				t.note("picked up after the merge; the workspace is a fresh clone of " + branch)
 			}
 			text = continuePrompt(branch, text)
-		} else if wasClosed {
-			// Closed without merging: its worktree is normally still there, but
-			// a task closed before it ever started has none.
+		} else {
+			// Anywhere else there is a workspace already — a task closed
+			// without merging kept its one, an agent picked back up is in its
+			// own — and this is a no-op. It is what makes one that is somehow
+			// missing (or not a clone, see hasWorkspace) come back, instead of
+			// every git command the agent runs failing in it.
 			if err := t.ensureClone(); err != nil {
 				t.failKick("workspace failed", err)
 				return
@@ -790,7 +800,7 @@ func (t *Task) MoveTo(phase Phase) error {
 // recommends merging.
 func (t *Task) Close() error {
 	_ = t.StopAgent()
-	if exists(t.repoDir()) {
+	if t.hasWorkspace() {
 		t.note("closed without merging: its work stays in the task's own worktree, off " + t.p.defaultBranch)
 	}
 	t.lock()
@@ -808,7 +818,7 @@ func (t *Task) Close() error {
 func (t *Task) Merge(message string) error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
-	if !exists(repo) {
+	if !t.hasWorkspace() {
 		return errors.New("The task has no workspace to merge: it is still in Plan, or merged already")
 	}
 	if t.midRebase() {
@@ -925,7 +935,7 @@ func (t *Task) rebaseOnto(repo string) (target string, handed bool, err error) {
 func (t *Task) Rebase() error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
-	if !exists(repo) {
+	if !t.hasWorkspace() {
 		return errors.New("The task has no workspace to rebase")
 	}
 	if t.midRebase() {
@@ -1124,7 +1134,7 @@ func (t *Task) containerfile() string {
 // adopt picks up a container still running from before a daemon restart, if
 // it matches what would be started now.
 func (t *Task) adoptL() {
-	if t.info.Phase == PhasePlan || !exists(t.repoDir()) {
+	if t.info.Phase == PhasePlan || !t.hasWorkspace() {
 		return
 	}
 	cf := t.containerfile()
@@ -1245,7 +1255,7 @@ func parseNumstat(out string) []change {
 // refreshChanges publishes the changes overview, unless one is being made already.
 func (t *Task) refreshChanges() {
 	t.lock()
-	if t.refreshing || !exists(t.repoDir()) {
+	if t.refreshing || !t.hasWorkspace() {
 		t.unlock()
 		return
 	}
@@ -1271,7 +1281,7 @@ func (t *Task) refreshChanges() {
 func (t *Task) refreshBehind() {
 	repo := t.repoDir()
 	behind := 0
-	if exists(repo) {
+	if t.hasWorkspace() {
 		branch := t.p.defaultBranch
 		if base, err := git(repo, "merge-base", "HEAD", "origin/"+branch); err == nil {
 			if out, err := git(t.p.dir(), "rev-list", "--count", base+".."+branch); err == nil {
@@ -1302,8 +1312,16 @@ func (t *Task) ensureClone() error {
 
 // clone makes the workspace, unless it is there already. The caller holds cloneMu.
 func (t *Task) clone() error {
-	if exists(t.repoDir()) {
+	if t.hasWorkspace() {
 		return nil
+	}
+	// Something is in its place that is not a clone (see hasWorkspace): it is
+	// no workspace to anyone, and the path has to be free for git.
+	if exists(t.repoDir()) {
+		t.note("the workspace was not a git clone; making a fresh one")
+		if err := rmTree(t.repoDir()); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(t.claudeDir(), 0o755); err != nil {
 		return err
@@ -1337,7 +1355,7 @@ func (t *Task) Open() {
 	t.touchL()
 	phase := t.info.Phase
 	t.unlock()
-	if phase != PhasePlan && exists(t.repoDir()) {
+	if phase != PhasePlan && t.hasWorkspace() {
 		t.bgUp()
 		go t.syncCode()
 	}
@@ -1380,7 +1398,7 @@ func (t *Task) syncCode() {
 		if wanted {
 			// Nothing to show yet, or no longer: a plan has no workspace, a merged
 			// task lost its one. The hold is left standing for when it has one.
-			if phase == PhasePlan || !exists(t.repoDir()) {
+			if phase == PhasePlan || !t.hasWorkspace() {
 				return
 			}
 			if err := t.startCode(); err != nil {
@@ -1465,7 +1483,7 @@ func (t *Task) failUp(err error) (*Container, error) {
 }
 
 func (t *Task) doUp() (*Container, error) {
-	if !exists(t.repoDir()) {
+	if !t.hasWorkspace() {
 		return nil, errors.New("The task has no workspace: it is still in Plan, or merged already")
 	}
 	cf := t.containerfile()
@@ -1501,6 +1519,19 @@ func (t *Task) doUp() (*Container, error) {
 	}
 	if err != nil {
 		return t.failUp(err)
+	}
+	// The workspace can go while the container comes up — a merge dropping it,
+	// say, which takes the container down first and so misses this one. Podman
+	// made the mount point back when it started; both go, and the caller hears
+	// what it would have heard a moment earlier.
+	if !t.hasWorkspace() {
+		rmContainer(t.containerName())
+		_ = os.Remove(t.repoDir()) // only if it is the empty mount point
+		t.lock()
+		t.container = nil
+		t.setStatusL(StatusDown, "")
+		t.unlock()
+		return nil, errors.New("The task has no workspace: it is still in Plan, or merged already")
 	}
 	t.lock()
 	t.container, t.lastTag = c, tag
@@ -1580,7 +1611,7 @@ func (t *Task) down() {
 // who edited the file themselves. A live agent turn is left alone.
 func (t *Task) Reload() error {
 	t.lock()
-	noWorkspace := t.info.Phase == PhasePlan || !exists(t.repoDir())
+	noWorkspace := t.info.Phase == PhasePlan || !t.hasWorkspace()
 	working := t.workingL()
 	t.unlock()
 	if noWorkspace {

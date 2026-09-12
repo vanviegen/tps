@@ -313,7 +313,7 @@ func (t *Task) setDeclaredL(declared []declaredService) {
 // image the file describes does, and that waits for the container to be
 // recreated anyway.
 func (t *Task) syncDeclared() {
-	if !exists(t.repoDir()) {
+	if !t.hasWorkspace() {
 		return
 	}
 	declared := containerfileServices(t.containerfile())
