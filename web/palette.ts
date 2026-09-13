@@ -55,8 +55,8 @@ const CREATE = 'create:';
  * Closing what is on screen, as an entry — the task, or the project's own
  * checkout. VS Code fills the window while one of those is open, and folds the
  * sidebar away with it, so the palette is the way back out: this stands at the
- * top of an untouched list, where ctrl-L enter lands on it, and steps aside the
- * moment a letter is typed at it.
+ * top of an untouched list, where ctrl-L enter lands on it, and is filtered
+ * away by anything typed that isn't the start of its own words.
  */
 function closeEntry(): { label: string; act: () => void } | undefined {
 	const { pid, tid, base } = selection();
@@ -73,7 +73,8 @@ function closeEntry(): { label: string; act: () => void } | undefined {
  * task to start, which is the one entry here that makes its destination
  * rather than going to it, and then its tasks, the done ones last. The label
  * carries the project's name and the task's phase, as matching is on the
- * label alone — so "human" finds what waits for you.
+ * label alone — and it takes a term at a time, from the start of a word, so
+ * "tps hum" finds what waits for you here.
  */
 function destinations(): Destination[] {
 	const out: Destination[] = [];
@@ -102,10 +103,6 @@ function showPalette(): void {
 	void S.dialog({
 		header: 'Go to', attrs: 'w:32rem',
 		content: close => {
-			// Whether anything is typed: the field keeps its query to itself, so
-			// the input event on its way out of it is what the list hears it on.
-			const $typed = A.proxy({ yes: false });
-			A('input=', (e: Event) => { $typed.yes = !!(e.target as HTMLInputElement).value.trim(); });
 			const bind = {
 				get value(): string { return ''; },
 				set value(value: string) {
@@ -119,7 +116,7 @@ function showPalette(): void {
 			S.autocomplete({
 				placeholder: 'Type a project or task…', allowCustom: false, bind,
 				options: () => {
-					const here = $typed.yes ? undefined : closeEntry();
+					const here = closeEntry();
 					const list: Destination[] = destinations();
 					return here ? [{ value: CLOSE, label: here.label }, ...list] : list;
 				},
