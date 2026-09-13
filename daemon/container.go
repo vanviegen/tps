@@ -186,6 +186,10 @@ func buildImage(tag, containerfile, contextDir string, onLog func(string)) error
 
 const codePort = 9000 // code-server inside the container
 
+// authMount is where the daemon's claude directory, the login every task
+// shares, is in a container (see login.go); the task's own claude dir is /claude.
+const authMount = "/claude-auth"
+
 type Container struct {
 	Name     string
 	CodePort int       // code-server's port, published on the host loopback
@@ -304,14 +308,11 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	for _, port := range append([]int{codePort}, exposed...) {
 		args = append(args, "-p", fmt.Sprintf("127.0.0.1::%d", port))
 	}
-	// The host's claude login is shared with every task, read-write. claude
-	// refreshes the OAuth tokens in that file in place, and a refresh revokes
-	// the old refresh token, so private copies would log each other out.
-	if creds := filepath.Join(home(), ".claude", ".credentials.json"); exists(creds) {
-		// The mountpoint, made by us so it is ours; this also blanks any copy from before the file was shared.
-		_ = os.WriteFile(filepath.Join(o.claudeDir, ".credentials.json"), nil, 0o600)
-		args = append(args, "-v", creds+":/claude/.credentials.json")
-	}
+	// The host's claude login, shared with every task (see login.go): the
+	// daemon's claude directory is where claude in the container keeps its
+	// credentials, while its config dir stays the task's own. The directory, not
+	// the one file, as claude writes it by replacing it and locks beside it.
+	args = append(args, "-v", authDir()+":"+authMount, "-e", "CLAUDE_SECURESTORAGE_CONFIG_DIR="+authMount)
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		args = append(args, "-e", "ANTHROPIC_API_KEY")
 	}
@@ -344,7 +345,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
 func containerConfig(image, toolbox string, caches []string) string {
-	config, _ := json.Marshal([]any{14, image, filepath.Base(toolbox), caches})
+	config, _ := json.Marshal([]any{15, image, filepath.Base(toolbox), caches})
 	return string(config)
 }
 

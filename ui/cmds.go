@@ -112,16 +112,6 @@ func (u *UI) connectHost(raw json.RawMessage) (any, error) {
 	return u.hostCmd(raw, func(l *Link) error { l.Wake(); return nil })
 }
 
-func (u *UI) copyCredentials(raw json.RawMessage) (any, error) {
-	return u.hostCmd(raw, func(l *Link) error {
-		t, ok := l.tr.(*sshTransport)
-		if !ok {
-			return errors.New("This machine already has your claude login")
-		}
-		return t.CopyCredentials()
-	})
-}
-
 func (u *UI) updateDaemon(raw json.RawMessage) (any, error) {
 	return u.hostCmd(raw, func(l *Link) error { return l.upgrade() })
 }

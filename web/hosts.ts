@@ -54,6 +54,8 @@ export function hostIssue(hid: string, $h: any): { color: string; text: string; 
 		const quiet = status === 'connecting' || status === 'updating' || status === 'stopped';
 		return { color: quiet ? 'neutral' : 'danger', text: `${status}${$h?.error ? ' · ' + $h.error : ''}`, icon: status === 'stopped' ? serverOff : serverCrash, click: open };
 	}
+	// A login to make, or one being made here (see ui/login.go): the click starts it, or starts it over.
+	if ($h.signin || $h.login) return { color: 'warning', text: $h.signin || $h.login, icon: keyRound, click: () => void cmd('login', { hid }) };
 	if ($h.warning) return { color: 'warning', text: $h.warning, icon: triangleAlert, click: open };
 	if ($h.restarting) return { color: 'neutral', text: 'the daemon restarts into this build once nothing is running', icon: refreshCw, click: open };
 	if ($h.updatable) return { color: 'neutral', text: 'the daemon runs another build of TPS', icon: download, click: () => void cmd('updateDaemon', { hid }) };
@@ -106,7 +108,7 @@ function drawHostFacts(hid: string, $h: any): void {
 export function hostColor(hid: string, $h: any): string {
 	const status = $h?.status ?? 'connecting';
 	if (hostAsk(hid)) return 'warning'; // it is waiting for you, not for the network
-	return status === 'connected' ? (($h.warning || $h.updatable) ? 'warning' : 'success')
+	return status === 'connected' ? (($h.signin || $h.login || $h.warning || $h.updatable) ? 'warning' : 'success')
 		: status === 'connecting' || status === 'updating' ? 'warning'
 			: status === 'stopped' ? 'muted' : 'danger';
 }
@@ -130,6 +132,9 @@ function drawHostState(hid: string, $h: any): void {
 		drawStrip(waiting || $h.status === 'stopped' ? 'neutral' : 'danger',
 			`${$h.status}${$h.error ? ' · ' + $h.error : ''}`,
 			waiting ? undefined : () => S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid }) }));
+	} else if ($h.signin || $h.login) {
+		drawStrip('warning', $h.signin || $h.login,
+			() => S.button({ content: 'Sign in', attrs: '.small', click: () => void cmd('login', { hid }) }));
 	} else if ($h.warning) {
 		drawStrip('warning', $h.warning);
 	} else if ($h.restarting) {
@@ -145,11 +150,7 @@ function hostItems(hid: string, $h: any): S.MenuEntry[] {
 	const items: S.MenuEntry[] = [{ label: 'Add project…', icon: plus, click: () => addProjectDialog(hid) }, { separator: true }];
 	if ($h.status !== 'connected') items.push({ label: 'Connect', icon: plug, click: () => void cmd('connectHost', { hid }) });
 	if ($h.updatable) items.push({ label: 'Update daemon', icon: download, click: () => void cmd('updateDaemon', { hid }) });
-	if (hid !== 'local') {
-		items.push({ label: 'Copy claude login to host', icon: keyRound, click: async () => {
-			if (await cmd('copyCredentials', { hid })) S.toast({ message: `Your claude login is now on ${hostName(hid)}`, type: 'success' });
-		}});
-	}
+	items.push({ label: 'Sign in to claude…', icon: keyRound, click: () => void cmd('login', { hid }) }); // also for a login that stopped working
 	items.push({ label: 'Stop daemon', icon: power, click: async () => {
 		if (await S.confirm(`Stop the TPS daemon on ${hostName(hid)}? Its running workspaces are shut down; Connect starts it again.`)) void cmd('stopDaemon', { hid });
 	}});
@@ -191,3 +192,4 @@ export function addHostDialog(): Promise<string | undefined> {
 		});
 	}}).then(() => hid);
 }
+

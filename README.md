@@ -81,10 +81,12 @@ TPS runs on Linux, any distribution. Every machine that runs projects needs:
 
 - **podman**, 4 or later, set up rootless (the distro package normally does
   that), and **git**;
-- a **Claude login**: the `~/.claude/.credentials.json` that the claude CLI
-  writes when you log in with it, or `ANTHROPIC_API_KEY` in the environment.
-  TPS downloads claude itself, so the CLI is only needed for that one login on
-  your own machine; a host over SSH gets your login copied from its menu.
+- a **Claude login**: a host without one says so at the bottom of the sidebar,
+  and clicking that signs in through your browser, here, and hands the login to
+  that host. Every host gets one of its own this way, over SSH as much as here,
+  and keeps it in `~/.local/share/tps/claude`, shared by all of its tasks;
+  `ANTHROPIC_API_KEY` in the environment does instead. No claude CLI is needed
+  anywhere: TPS brings its own.
 
 A host over SSH works best with lingering on for your user (`loginctl
 enable-linger`): its daemon and containers then carry on while your laptop

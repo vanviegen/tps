@@ -290,11 +290,11 @@ cat >"$CONFIG" <<JSON
 }
 JSON
 
-# The claude login this container shares, where a TPS started in it looks for
-# one: without it the demo dashboard is there, but its agents cannot run.
-if [ -s /claude/.credentials.json ] && [ ! -e "$HOME_DIR/.claude/.credentials.json" ]; then
-	mkdir -p "$HOME_DIR/.claude"
-	ln -s /claude/.credentials.json "$HOME_DIR/.claude/.credentials.json"
+# The claude login this container shares, where a TPS started in it keeps
+# its own: without it the demo dashboard is there, but its agents cannot run.
+if [ -d /claude-auth ] && [ ! -e "$DATA/claude" ]; then
+	mkdir -p "$DATA"
+	ln -s /claude-auth "$DATA/claude"
 fi
 
 echo "demo/seed.sh: seeded $PROJECTS/{snip,standup} and $CONFIG"

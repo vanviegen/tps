@@ -52,6 +52,8 @@ type Link struct {
 	restarting      bool
 	models          []any  // the models this host's claude offers
 	modelsError     string // why they are the built-in fallback instead
+	login           string // what its claude login needs, if anything (see daemon/login.go)
+	signin          string // how a sign-in for it here is going, or failed (see login.go)
 	autoUpgraded    bool   // this UI already asked the daemon to restart into its build
 }
 
@@ -153,6 +155,12 @@ func (l *Link) publishHost() {
 	}
 	if l.modelsError != "" {
 		host["modelsError"] = l.modelsError
+	}
+	if l.login != "" {
+		host["login"] = l.login
+	}
+	if l.signin != "" {
+		host["signin"] = l.signin
 	}
 	if l.status == "connected" {
 		host["updatable"] = l.build != BuildID()
@@ -369,6 +377,7 @@ func (l *Link) onHello(state map[string]any) {
 	l.restarting, _ = state["restarting"].(bool)
 	l.models, _ = state["models"].([]any)
 	l.modelsError, _ = state["modelsError"].(string)
+	l.login, _ = state["login"].(string)
 	l.homeDir, _ = state["home"].(string)
 	stale := map[string]bool{}
 	for pid := range l.mirrored {
@@ -445,6 +454,8 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 			l.models, _ = value.([]any)
 		case "modelsError":
 			l.modelsError, _ = value.(string)
+		case "login":
+			l.login, _ = value.(string)
 		case "restarting":
 			l.restarting, _ = value.(bool)
 		default:

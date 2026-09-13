@@ -167,15 +167,3 @@ func (t *sshTransport) startDaemon() error {
 	_, err := t.c.Output(cmd)
 	return err
 }
-
-// CopyCredentials installs the local claude login on the host.
-func (t *sshTransport) CopyCredentials() error {
-	home, _ := os.UserHomeDir()
-	f, err := os.Open(home + "/.claude/.credentials.json")
-	if err != nil {
-		return errors.New("no claude login found on this machine (~/.claude/.credentials.json)")
-	}
-	defer f.Close()
-	_, err = t.c.Output("mkdir -p ~/.claude && cat >~/.claude/.credentials.json && chmod 600 ~/.claude/.credentials.json")
-	return err
-}

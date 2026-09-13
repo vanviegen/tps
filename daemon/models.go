@@ -64,7 +64,7 @@ func (m *Manager) refreshModels() {
 		m.setModelsError("claude has not been downloaded on this host yet")
 		return
 	}
-	r, err := runCmd(askArgs("/model"), RunOpts{Dir: home(), Env: askEnv, Timeout: 60 * time.Second})
+	r, err := runCmd(askArgs("/model"), RunOpts{Dir: home(), Env: askEnv(), Timeout: 60 * time.Second})
 	models := parseModels(r.Out + "\n" + r.Err)
 	if models == nil {
 		if err == nil {
@@ -110,19 +110,22 @@ func askArgs(args ...string) []string {
 	return append(argv, "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--no-session-persistence")
 }
 
-// askEnv drops the two model calls such a run makes on the side: claude having
-// a model name the session behind our back, and thinking. The answers wanted
-// here are one line long, and claude spent ten times as many tokens thinking
-// about a title as it did saying it. All together, a title now takes about a
-// second, where the full session took seven to ten.
-var askEnv = []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "MAX_THINKING_TOKENS=0"}
+// askEnv gives the run the daemon's claude dir (see login.go) and drops the two model
+// calls it would make on the side: claude having a model name the session
+// behind our back, and thinking. The answers wanted here are one line long,
+// and claude spent ten times as many tokens thinking about a title as it did
+// saying it. All together, a title now takes about a second, where the full
+// session took seven to ten.
+func askEnv() []string {
+	return append(claudeEnv(), "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "MAX_THINKING_TOKENS=0")
+}
 
 // generateTitle asks this host's claude for a task title: haiku, as naming one
 // is little work, and a one-shot -p run, as there is nothing to discuss. It
 // answers "" when it can't be asked (no toolbox yet, no network) or won't say
 // anything usable; the stand-in title then simply stays.
 func generateTitle(description string) string {
-	r, err := runCmd(askArgs(titlePrompt(description), "--model", "haiku"), RunOpts{Dir: home(), Env: askEnv, Timeout: 30 * time.Second})
+	r, err := runCmd(askArgs(titlePrompt(description), "--model", "haiku"), RunOpts{Dir: home(), Env: askEnv(), Timeout: 30 * time.Second})
 	if err != nil {
 		logf("asking claude for a task title failed: %v", err)
 		return ""

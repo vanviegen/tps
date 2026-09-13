@@ -125,6 +125,7 @@ func (m *Manager) Start() error {
 		}
 	}
 	m.hub.Set([]string{"ready"}, true)
+	m.publishLogin()
 	go m.parkFinished()
 	go m.refreshModels()
 	go m.ticker(60*time.Second, m.refreshModels) // until claude answers
@@ -587,6 +588,14 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"stop": func(raw json.RawMessage) (any, error) {
 			go func() { time.Sleep(200 * time.Millisecond); m.Shutdown(); m.exit(0) }()
 			return nil, nil
+		},
+		// A login the dashboard signed in for, as the credentials claude wrote (see login.go).
+		"setLogin": func(raw json.RawMessage) (any, error) {
+			r, _, err := decode(raw)
+			if err != nil {
+				return nil, err
+			}
+			return nil, m.setLogin(r.Text)
 		},
 	}
 }

@@ -37,6 +37,15 @@ func toolboxInstalled() bool { return exists(toolboxDir()) }
 // claudeBin is the claude binary in this host's toolbox.
 func claudeBin() string { return filepath.Join(toolboxDir(), "bin", "claude") }
 
+// ClaudeBin is that binary for the dashboard, which signs hosts in with it
+// (see ui/login.go): the toolbox is fetched for it, as for a task.
+func ClaudeBin() (string, error) {
+	if _, err := ensureToolbox(); err != nil {
+		return "", err
+	}
+	return claudeBin(), nil
+}
+
 var toolboxMu sync.Mutex
 
 // ensureToolbox downloads the toolbox if this host lacks it, and removes
@@ -46,15 +55,22 @@ func ensureToolbox() (string, error) {
 	defer toolboxMu.Unlock()
 	dir := toolboxDir()
 	if !exists(dir) {
-		tmp := dir + ".tmp"
-		os.RemoveAll(tmp)
+		// Into a directory of this download's own: the dashboard and the daemon
+		// share the toolbox and may both be fetching it, and whichever finishes
+		// second finds it there.
+		_ = os.MkdirAll(toolboxRoot(), 0o755)
+		tmp, err := os.MkdirTemp(toolboxRoot(), ".download-")
+		if err != nil {
+			return "", err
+		}
 		if err := downloadToolbox(tmp); err != nil {
 			os.RemoveAll(tmp)
 			return "", fmt.Errorf("downloading the TPS toolbox: %w", err)
 		}
-		if err := os.Rename(tmp, dir); err != nil {
+		if err := os.Rename(tmp, dir); err != nil && !exists(dir) {
 			return "", err
 		}
+		os.RemoveAll(tmp)
 	}
 	if cf := filepath.Join(dir, containerfile); readFile(cf) != defaultContainerfile {
 		if err := os.WriteFile(cf, []byte(defaultContainerfile), 0o644); err != nil {
@@ -68,7 +84,7 @@ func ensureToolbox() (string, error) {
 	if ps, err := runCmd([]string{"podman", "ps", "--format", `{{index .Labels "tps.config"}}`}, RunOpts{}); err == nil {
 		entries, _ := os.ReadDir(toolboxRoot())
 		for _, e := range entries {
-			if e.Name() != toolboxKey && !strings.Contains(ps.Out, `"`+e.Name()+`"`) {
+			if e.Name() != toolboxKey && !strings.HasPrefix(e.Name(), ".") && !strings.Contains(ps.Out, `"`+e.Name()+`"`) { // dot: a download under way
 				os.RemoveAll(filepath.Join(toolboxRoot(), e.Name()))
 			}
 		}
