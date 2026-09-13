@@ -71,10 +71,12 @@ function closeEntry(): { label: string; act: () => void } | undefined {
  * projects with something waiting first, and under each its own checkout —
  * named for its branch, as the sidebar and the tab title name it — then the
  * task to start, which is the one entry here that makes its destination
- * rather than going to it, and then its tasks, the done ones last. The label
- * carries the project's name and the task's phase, as matching is on the
- * label alone — and it takes a term at a time, from the start of a word, so
- * "tps hum" finds what waits for you here.
+ * rather than going to it, and then its tasks. A finished one — merged, or
+ * closed without it — is left out: it is done with, and what the board keeps
+ * of it is a record rather than somewhere to go. The label carries the
+ * project's name and the task's phase, as matching is on the label alone —
+ * and it takes a term at a time, from the start of a word, so "tps hum" finds
+ * what waits for you here.
  */
 function destinations(): Destination[] {
 	const out: Destination[] = [];
@@ -82,10 +84,10 @@ function destinations(): Destination[] {
 		out.push({ value: pathTo(pid), label: $p.name });
 		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › ${branchLabel($p)}` });
 		out.push({ value: CREATE + pid, label: `${$p.name} › Create task` });
-		const tasks = Object.entries($p.tasks ?? {}) as [string, any][];
+		const tasks = (Object.entries($p.tasks ?? {}) as [string, any][]).filter(([, $t]) => !isFinished($t));
 		tasks.sort((a, b) => {
 			const [ka, kb] = [phaseOrder(a[1], a[0]), phaseOrder(b[1], b[0])];
-			return (isFinished(a[1]) ? 1 : 0) - (isFinished(b[1]) ? 1 : 0) || ka[0] - kb[0] || ka[1] - kb[1];
+			return ka[0] - kb[0] || ka[1] - kb[1];
 		});
 		for (const [tid, $t] of tasks) {
 			const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
