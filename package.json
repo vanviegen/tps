@@ -13,7 +13,7 @@
   "dependencies": {
     "aberdeen": "^1.23.0",
     "marked": "^18.0.11",
-    "staffa": "^0.22.0",
+    "staffa": "^0.22.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
