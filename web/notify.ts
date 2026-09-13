@@ -13,7 +13,9 @@ import { pathTo, taskTitle, type Phase } from './util.ts';
  * Which tasks these are asked for is per task and per browser: the permission
  * is the browser's, and so is the window that would show them. The set lives
  * in localStorage beside the holds and the drafts, and the tasks that are gone
- * are swept out of it as they are seen to be gone.
+ * are swept out of it as they are seen to be gone. A project can have them
+ * switched on for the tasks made from now on — its own default, kept the same
+ * way, since what it sets is this browser's business too.
  *
  * These are the page's own notifications rather than a service worker's, which
  * is as far as this goes and no further: nothing is delivered by a push
@@ -23,10 +25,13 @@ import { pathTo, taskTitle, type Phase } from './util.ts';
  * with it.
  */
 const NOTIFY_KEY = 'tps.notify';
+/** The projects whose new tasks are switched on the moment they are made. */
+const DEFAULT_KEY = 'tps.notifyDefaults';
 /** That this browser has been shown what a notification looks like, once. */
 const TESTED_KEY = 'tps.notifyTested';
 
 const $on: Record<string, true> = A.proxy({} as Record<string, true>);
+const $byDefault: Record<string, true> = A.proxy({} as Record<string, true>);
 
 function key(pid: string, tid: string): string {
 	return `${pid}/${tid}`;
@@ -53,6 +58,40 @@ export async function toggleNotifies(pid: string, tid: string): Promise<void> {
 	}
 	if (!(await allowed())) return;
 	$on[k] = true;
+	persist();
+}
+
+/** Whether new tasks of this project start out announcing themselves. Reactive. */
+export function notifiesByDefault(pid: string): boolean {
+	return !!$byDefault[pid];
+}
+
+/**
+ * Turn the project's default on or off. Switching it on asks for permission
+ * here, where every other switch-on does, so that the tasks it is handed to
+ * later have nothing left to ask. Only tasks made from here on get it; the
+ * ones that exist keep what they have, as with every other default.
+ */
+export async function toggleDefaultNotifies(pid: string): Promise<void> {
+	if (A.peek(() => $byDefault[pid])) {
+		delete $byDefault[pid];
+		persist();
+		return;
+	}
+	if (!(await allowed())) return;
+	$byDefault[pid] = true;
+	persist();
+}
+
+/**
+ * Give a task just made here its project's default, without a word: permission
+ * was asked for when the default was switched on, and where it is gone there
+ * is nothing to switch on now.
+ */
+export function applyNotifyDefault(pid: string, tid: string): void {
+	if (!A.peek(() => $byDefault[pid])) return;
+	if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+	$on[key(pid, tid)] = true;
 	persist();
 }
 
@@ -86,12 +125,15 @@ async function allowed(): Promise<boolean> {
 function persist(): void {
 	try {
 		localStorage.setItem(NOTIFY_KEY, JSON.stringify(A.peek(() => Object.keys($on))));
+		localStorage.setItem(DEFAULT_KEY, JSON.stringify(A.peek(() => Object.keys($byDefault))));
 	} catch {} // storage off or full: the setting lasts as long as the tab does
 }
 
 try {
 	const saved = JSON.parse(localStorage.getItem(NOTIFY_KEY) || '[]');
 	if (Array.isArray(saved)) for (const k of saved) if (typeof k === 'string' && k.includes('/')) $on[k] = true;
+	const defaults = JSON.parse(localStorage.getItem(DEFAULT_KEY) || '[]');
+	if (Array.isArray(defaults)) for (const pid of defaults) if (typeof pid === 'string') $byDefault[pid] = true;
 } catch {}
 
 function show(title: string, body: string, url: string): void {
@@ -172,6 +214,14 @@ export function watchPhases(): void {
 				if ($h && $h.status !== 'connected') continue;
 			}
 			delete $on[k];
+			persist();
+		}
+		// A deleted project loses its default on the same terms.
+		for (const pid of A.peek(() => Object.keys($byDefault))) {
+			if (A.peek(() => $state.projects[pid])) continue;
+			const $h = A.peek(() => $state.hosts?.[pid.split(':')[0]]);
+			if ($h && $h.status !== 'connected') continue;
+			delete $byDefault[pid];
 			persist();
 		}
 	});

@@ -116,7 +116,10 @@ export function drawStrip(color: string, text: string, action?: () => void, clic
 		});
 }
 
-A.insertGlobalCss({ '@keyframes spin': { to: 'transform:rotate(360deg)' } });
+// The one thing that says "this is going on right now", wherever it is said:
+// a glyph breathing. Gentler than a turning one, which is what a task's icon
+// needs — some of what it marks lasts a phase long, not the moment of an action.
+A.insertGlobalCss({ '@keyframes pulse': { '50%': 'opacity:0.35' } });
 
 /**
  * What the URL selects: a project, and within it a task, its base worktree, or
@@ -237,9 +240,10 @@ export function taskTip(pid: string, $t: any): string {
 }
 
 /**
- * The task at a glance: its phase as an icon (a spinner while claude works or
- * merges, an hourglass while it waits — for the tasks it follows, or for
- * claude's usage limit to reset), colored by the container status.
+ * The task at a glance: its phase as an icon (a loader while claude works or
+ * merges, breathing to say so, an hourglass while it waits — for the tasks it
+ * follows, or for claude's usage limit to reset), colored by the container
+ * status.
  *
  * `tip: false` is for where something around it already tells that story — the
  * collapsed sidebar, whose rows carry it themselves. `color` is for where the
@@ -251,13 +255,13 @@ export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?
 	A(() => {
 		const activity = taskActivity(pid, $t);
 		const icon = $t.working ? loaderCircle : autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
-		// Turning while something is going on: claude at work, or the merge a
+		// Breathing while something is going on: claude at work, or the merge a
 		// task in Merging is in the middle of — which is what tells those apart
 		// from the merged ones they sit above on the board.
 		const busy = $t.working || $t.phase === 'merge';
 		A(`span display:inline-flex flex-shrink:0 fg:${color && activity.color !== 'danger' ? color : `$s-${activity.color}`}`, () => {
 			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
-			icon({ size: '1.1em', attrs: busy ? 'animation: spin 1.2s linear infinite;' : undefined });
+			icon({ size: '1.1em', attrs: busy ? 'animation: pulse 1.6s ease-in-out infinite;' : undefined });
 		});
 	});
 }

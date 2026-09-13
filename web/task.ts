@@ -1,13 +1,13 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, bot, check, circleSlash, circleStop, ellipsisVertical, gitMerge, play, refreshCw, sendHorizontal, settings, square, squareCheck, trash2, user, x } from 'staffa/icons.js';
+import { arrowDownToLine, bot, check, circleSlash, circleStop, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
 import { addFiles, attachments, dropAttachment, drawAttachments, imageFiles, takeAttachments, uploadPath } from './attach.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
-import { notifies, toggleNotifies } from './notify.ts';
+import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, hasServices, servicesMenu } from './services.ts';
 import { autoStarts, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
@@ -78,22 +78,14 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 }
 
 /**
- * The task's whole menu: where it can go, and what else can be done to it.
- * `extra` slots in behind that, for the callers that have more to offer.
- *
- * Ready notifications are a checkbox in all but name — a menu has no such
- * thing, so the box is the icon — and they are this browser's business rather
- * than the task's: see notify.ts.
+ * The task's whole menu: where it can go, and how it ends — plus the one thing
+ * that is not a phase but belongs with them, throwing it away. `extra` slots
+ * in behind that, for the callers that have more to offer.
  */
 export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
 	return [
 		...phaseItems(pid, tid, $t),
 		{ separator: true },
-		{
-			label: 'Ready notifications', icon: notifies(pid, tid) ? squareCheck : square,
-			tooltip: 'Have this browser say so — a desktop notification — when an agent hands this task back, or its merge is over',
-			click: () => void toggleNotifies(pid, tid),
-		},
 		...extra,
 		{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) },
 	];
@@ -192,9 +184,13 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
  * description's first line names it (see taskTitle).
  */
 export async function addTask(pid: string): Promise<void> {
-	// The server fills in the project's defaults; nothing to send along.
+	// The server fills in the project's defaults; nothing to send along. All
+	// but one, that is: ready notifications are this browser's, so its own
+	// default is applied here (see notify.ts).
 	const created = await cmd('createTask', { pid });
-	if (created) route.go(pathTo(pid, created.tid as string));
+	if (!created) return;
+	applyNotifyDefault(pid, created.tid as string);
+	route.go(pathTo(pid, created.tid as string));
 }
 
 /**
@@ -268,6 +264,21 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		help: 'Merge as soon as the agent reports the task ready, without confirming the commit message.',
 		checked: !!A.peek($t, 'autoMerge'),
 		change: (e: Event) => save({ autoMerge: (e.target as HTMLInputElement).checked }),
+	});
+	// The odd one out: this setting is not the task's but this browser's, so it
+	// goes nowhere near `save` (see notify.ts). Switching it on can be refused —
+	// the browser may not allow notifications — and the box then says so by
+	// going back to where it was.
+	S.checkbox({
+		label: 'Ready notifications',
+		help: tid
+			? 'Have this browser say so — a desktop notification — when an agent hands this task back, or its merge is over. Kept by this browser alone, not by the task.'
+			: 'Switch ready notifications on for the tasks made here from now on. Kept by this browser alone, not by the project.',
+		checked: A.peek(() => tid ? notifies(pid, tid) : notifiesByDefault(pid)),
+		change: async (e: Event) => {
+			await (tid ? toggleNotifies(pid, tid) : toggleDefaultNotifies(pid));
+			(e.target as HTMLInputElement).checked = A.peek(() => tid ? notifies(pid, tid) : notifiesByDefault(pid));
+		},
 	});
 }
 
@@ -407,8 +418,20 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 					click: () => void cmd('reloadTask', { pid, tid }) });
 			});
 			S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
-			S.iconButton({ icon: ellipsisVertical, ariaLabel: 'Task menu', tooltip: 'Move it to another phase, finish it, delete it',
-				click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); } });
+			// The phase, worn as the icon it has on the board and in the sidebar,
+			// is the button for everything that is about the phase: a menu needs
+			// no glyph of its own where the state it acts on is one. It breathes
+			// while the agent has the task — the one phase that moves by itself.
+			A(() => {
+				const phase = $t.phase as Phase;
+				const icon = PHASE_ICONS[phase] ?? bot;
+				S.iconButton({
+					icon: () => icon({ attrs: phase === 'agent' ? 'animation: pulse 1.6s ease-in-out infinite;' : undefined }),
+					ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
+					tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
+					click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
+				});
+			});
 			S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
 				click: () => closeTask(pid, tid) });
 		});
