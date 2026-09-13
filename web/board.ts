@@ -208,7 +208,7 @@ function drawCard(pid: string, tid: string, $t: any, dim: boolean): void {
 					});
 					A(() => {
 						if (autoStarts($t)) A('small text=', '⏳ ' + taskActivity(pid, $t).text);
-						else if (waitsForHuman($t) && $t.rebasing) A('small fg:$s-warning text=', $t.rebaseOnly ? '⚠ rebase paused' : '⚠ merge paused');
+						else if (waitsForHuman($t) && $t.conflicts) A('small fg:$s-warning #⚠ conflicts to resolve');
 						else if (waitsForHuman($t) && $t.commitMessage) A('small fg:$s-success #✔ ready to merge');
 						else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
 					});

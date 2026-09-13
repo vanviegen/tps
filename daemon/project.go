@@ -119,6 +119,7 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 
 func (p *Project) dir() string      { return p.info.Dir }
 func (p *Project) tasksDir() string { return filepath.Join(p.m.dataDir, "tasks", p.pid) }
+func (p *Project) cacheDir() string { return filepath.Join(p.m.dataDir, "cache", p.pid) } // the caches its tasks share (see cacheLabel)
 func (p *Project) pub(field string, value any) {
 	p.m.hub.Set([]string{"projects", p.pid, field}, value)
 }
@@ -161,6 +162,10 @@ func (p *Project) init() error {
 			t.queueL("restart", restartedPrompt) // saves the phase above with it
 		default:
 			info.LimitUntil = 0 // a wait the phase it was left in outlived
+		}
+		if info.Merged { // an older TPS kept it as a flag; it is a note for the agent now (see merge)
+			t.queueL("merged", mergedPrompt(p.defaultBranch))
+			info.Merged = false
 		}
 		t.adoptL()
 		t.publishL()

@@ -25,6 +25,12 @@ func TestContainerfileServices(t *testing.T) {
 	if got := containerfileServices("FROM x\nCMD [\"node\", \"a b.js\", \"it's\"]\n"); !slices.Equal(got, []declaredService{{"app", `node 'a b.js' 'it'\''s'`}}) {
 		t.Errorf("exec form: %v", got)
 	}
+	if _, caches := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a/b, /c\" tps.service.t=x\nLABEL tps.cache=\"rel /d\"\n"); !slices.Equal(caches, []string{"/a/b", "/c", "/d"}) {
+		t.Errorf("caches: %v", caches)
+	}
+	if _, caches := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a /b\"\nFROM y\n"); caches != nil {
+		t.Errorf("caches of an earlier stage: %v", caches)
+	}
 	if containerfileServices(defaultContainerfile) != nil {
 		t.Error("no CMD")
 	}

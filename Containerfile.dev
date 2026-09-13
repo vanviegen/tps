@@ -71,5 +71,7 @@ WORKDIR /work
 # arrives on the container's own address, not its loopback; TPS publishes that
 # port on the host's loopback, so this is not exposure.
 LABEL tps.service.test="npm run typecheck && go test ./..."
+# Go's module and build caches and npm's, shared by this project's tasks.
+LABEL tps.cache="/home/dev/go/pkg/mod /home/dev/.cache/go-build /home/dev/.npm"
 EXPOSE 8080
 CMD ./demo/seed.sh && npm install --silent && npm run build && go run . --host 0.0.0.0 --port 8080 --no-open

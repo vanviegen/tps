@@ -125,6 +125,7 @@ func (m *Manager) Start() error {
 		}
 	}
 	m.hub.Set([]string{"ready"}, true)
+	go m.parkFinished()
 	go m.refreshModels()
 	go m.ticker(60*time.Second, m.refreshModels) // until claude answers
 	go m.ticker(60*time.Second, m.sweep)
@@ -249,8 +250,10 @@ func (m *Manager) Remove(pid string) error {
 		return err
 	}
 	p.forget()
-	if err := rmTree(p.tasksDir()); err != nil { // else a project added later under the same pid inherits it
-		logf("%s: removing the tasks: %v", pid, err)
+	for _, dir := range []string{p.tasksDir(), p.cacheDir()} { // else a project added later under the same pid inherits them
+		if err := rmTree(dir); err != nil {
+			logf("%s: removing %s: %v", pid, dir, err)
+		}
 	}
 	m.mu.Lock()
 	delete(m.projects, pid)
@@ -286,6 +289,17 @@ func (m *Manager) allTasksL() []*Task {
 		out = append(out, p.taskListL()...)
 	}
 	return out
+}
+
+// parkFinished puts away the finished tasks an older TPS left with their
+// workspace in place or their data uncompressed (see park), one at a time.
+func (m *Manager) parkFinished() {
+	m.mu.Lock()
+	tasks := m.allTasksL()
+	m.mu.Unlock()
+	for _, t := range tasks {
+		t.park()
+	}
 }
 
 // sweep is the minute's housekeeping: the 'dirty' flags, the auto-starts no

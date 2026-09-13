@@ -145,7 +145,8 @@ say 6 '"k":"tool","id":"d5","name":"Bash","text":"run the tests","arg":"python3 
 say 4 '"k":"text","text":"`do_POST` now refuses anything that does not start with `http://` or `https://` with a 400 and a short message; the README says so. Checked by hand with a `javascript:` URL, and the suite still passes.\n\nThe scheme list is deliberately a prefix check rather than a urlparse: `urlparse` accepts `javascript:alert(1)` as a scheme too, and the allowlist is what matters here."'
 say 2 '"k":"result","text":"turn finished · 58s · $0.29"'
 
-# snip #7 — closed without merging: its workspace is still there.
+# snip #7 — closed without merging. Its workspace is made the way an older TPS
+# left one, and parked by the daemon at startup.
 workspace snip 7
 chat snip 7 12
 say 0 '"k":"user","text":"Move the links from the JSON file into SQLite, so two processes can serve the same table."'
@@ -154,7 +155,7 @@ say 5 '"k":"tool","id":"e1","name":"Read","text":"store.py","arg":"store.py","re
 say 7 '"k":"text","text":"Before I write a schema: the JSON store is rewritten whole under a lock and renamed into place, which is safe for one process. Two processes would need SQLite (or a real database), but nothing starts a second snip today — the Containerfile runs one.\n\nShall I do it anyway, or leave it until there is a reason to run two?"'
 say 2 '"k":"result","text":"turn finished · 24s · $0.11"'
 say 40 '"k":"user","text":"Fair enough. Parking this until we actually need it."'
-say 1 '"k":"note","text":"task closed without merging; its workspace is kept"'
+say 1 '"k":"note","text":"task closed without merging"'
 
 # standup #1 — merged: the dev container and the first tests.
 chat standup 1 7

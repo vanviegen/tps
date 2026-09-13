@@ -32,6 +32,10 @@ const cmdService = "app"
 
 const serviceLabelPrefix = "tps.service."
 
+// cacheLabel names the directories a project keeps warm across its tasks
+// (see cacheDir): absolute container paths, separated by spaces or commas.
+const cacheLabel = "tps.cache"
+
 var serviceNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$`)
 
 // The last serviceLogMax bytes of a service's output go to the dashboard.
@@ -55,11 +59,17 @@ type serviceState struct {
 
 var instructionRe = regexp.MustCompile(`^(?i)(CMD|FROM|LABEL)\s+(.*)$`)
 
-// containerfileServices reads the services a Containerfile declares: its
-// final stage's CMD (the last one, as in the image) as 'app', and every
-// tps.service.<name> label of that stage, in order. A label named app
-// replaces the CMD's entry.
+// containerfileServices reads the services a Containerfile declares (see containerfileDeclarations).
 func containerfileServices(text string) []declaredService {
+	services, _ := containerfileDeclarations(text)
+	return services
+}
+
+// containerfileDeclarations reads what a Containerfile declares to TPS, all of
+// it in its final stage: the services — its CMD (the last one, as in the
+// image) as 'app', and every tps.service.<name> label, in order; a label named
+// app replaces the CMD's entry — and the cache directories (see cacheLabel).
+func containerfileDeclarations(text string) (services []declaredService, caches []string) {
 	var cmd []string
 	var labels []declaredService
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\\\r\n", ""), "\\\n", "")
@@ -71,7 +81,7 @@ func containerfileServices(text string) []declaredService {
 		arg := strings.TrimSpace(m[2])
 		switch strings.ToUpper(m[1]) {
 		case "FROM":
-			cmd, labels = nil, nil
+			cmd, labels, caches = nil, nil, nil
 		case "CMD":
 			var parsed []string
 			if strings.HasPrefix(arg, "[") && json.Unmarshal([]byte(arg), &parsed) == nil {
@@ -81,6 +91,14 @@ func containerfileServices(text string) []declaredService {
 			}
 		case "LABEL":
 			for _, kv := range parseLabels(arg) {
+				if kv[0] == cacheLabel {
+					for _, path := range strings.FieldsFunc(kv[1], func(r rune) bool { return r == ' ' || r == ',' || r == '\t' }) {
+						if filepath.IsAbs(path) {
+							caches = append(caches, filepath.Clean(path))
+						}
+					}
+					continue
+				}
 				name := strings.TrimPrefix(kv[0], serviceLabelPrefix)
 				if name == kv[0] || !serviceNameRe.MatchString(name) || strings.TrimSpace(kv[1]) == "" {
 					continue
@@ -89,18 +107,17 @@ func containerfileServices(text string) []declaredService {
 			}
 		}
 	}
-	var out []declaredService
 	if line := shellLine(cmd); line != "" {
-		out = append(out, declaredService{cmdService, line})
+		services = append(services, declaredService{cmdService, line})
 	}
 	for _, l := range labels {
-		if i := indexService(out, l.Name); i >= 0 {
-			out[i] = l
+		if i := indexService(services, l.Name); i >= 0 {
+			services[i] = l
 		} else {
-			out = append(out, l)
+			services = append(services, l)
 		}
 	}
-	return out
+	return services, caches
 }
 
 func indexService(list []declaredService, name string) int {

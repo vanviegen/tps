@@ -58,8 +58,7 @@ export function closeTask(pid: string, tid: string): void {
  * The three ways a task ends are one entry — Done asks which of them is meant
  * (see doneDialog) — and the two that are not places to be put but states to
  * be in only show where they do mean something: Muted is Human with the task
- * put away, so it is offered while it waits for you, and a task closed without
- * merging is the one that can still be merged after the fact.
+ * put away, so it is offered while it waits for you.
  */
 function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	const items: S.MenuEntry[] = (['plan', 'agent', 'human'] as Phase[]).map(phase => ({
@@ -75,7 +74,6 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 		disabled: isFinished($t) || $t.phase === 'merge',
 		click: () => doneDialog(pid, tid, $t),
 	});
-	if ($t.phase === 'closed' && hasWorkspace($t)) items.push({ label: 'Merge…', icon: gitMerge, click: () => doneDialog(pid, tid, $t) });
 	return items;
 }
 
@@ -116,24 +114,26 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 
 /**
  * Bring the workspace onto the latest main branch, without merging anything
- * into it. It is the front half of a merge, so it can go the same way: what is
- * in the tree is parked in a temporary commit, replayed on top, and unpacked
- * again — and conflicts are handed to an agent, as a merge's are.
+ * into it. It is the front half of a merge, and goes the same way: the work is
+ * taken off as a patch, the tree reset to the branch, and the work put back on
+ * top — with what does not merge cleanly left in the files, marked, for you or
+ * the agent to resolve.
  */
 async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
 	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
 	const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped first.' : '';
-	if (!(await S.confirm(`Replay this task's work onto the latest ${branch}? Everything in the workspace is committed to a `
-		+ `temporary commit first and unpacked again afterwards, so nothing is lost. Conflicts are handed to a fresh agent to `
-		+ `resolve, and the agent working on the task is told what happened the next time it is sent in.${busy}`))) return;
+	if (!(await S.confirm(`Put this task's work onto the latest ${branch}? The workspace is reset to the branch and the work `
+		+ `— uncommitted changes and untracked files alike — is applied on top of it again, so nothing is lost. What does not `
+		+ `merge cleanly is left in the files with conflict markers, for you or the agent, which is told what happened the `
+		+ `next time it is sent in.${busy}`))) return;
 	void cmd('rebaseTask', { pid, tid });
 }
 
 /**
  * How a task ends, as one dialog with a tab per answer: merged onto the branch
  * — the usual one, and the one it opens on — or put away without merging, its
- * work left in its own worktree and off the branch. Everything that ends a
- * task lands here, since which of the two is meant is worth being sure of.
+ * work kept as a patch, off the branch. Everything that ends a task lands
+ * here, since which of the two is meant is worth being sure of.
  *
  * A task with nothing to merge (one still in Plan) and one that is closed
  * already (nothing left to put away) have only one answer between them, and
@@ -157,7 +157,7 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 				content: () => {
 					A(() => { if ($t.working) A('div.s-s.warning.tonal p:$2 #The agent is still working; merging stops it first.'); });
 					S.textarea({
-						label: 'Commit message', help: `The whole working tree becomes one commit on ${branch}, and the task's worktree is cleaned up.`,
+						label: 'Commit message', help: `The whole working tree becomes one commit on ${branch}, and the task's workspace is cleaned up.`,
 						rows: 12, autoGrow: false, inputAttrs: 'font-family:monospace', bind: A.ref($merge, 'message'),
 					});
 				},
@@ -166,7 +166,7 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 		};
 		const drawDontMerge = (): void => {
 			A('p mt:0 rich=', mergeable
-				? `The task ends as it stands: its worktree is kept, with everything in it unmerged and off ${branch}. Nothing else will see the work — but the task can still be opened, and merged after the fact, for as long as it is not deleted.`
+				? `The task ends as it stands: its work is kept as a patch, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work onto the latest ${branch}, where it can still be merged.`
 				: `This task has nothing to merge, so this is the only way it ends: it is put away as it stands.`);
 			A('div display:flex gap:$2 justify-content:flex-end', () => {
 				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined',
@@ -416,13 +416,9 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	A(() => {
 		if ($t.phase === 'closed') {
 			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-			const kept = hasWorkspace($t);
-			A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
-				A('span flex:1 text=', kept
-					? `⚠ closed without merging: this work is not on ${branch}, and its worktree is kept as it was.`
-					: `⚠ closed without merging: nothing of this task is on ${branch}.`);
-				if (kept) S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', key: 'mod+shift+g', click: () => doneDialog(pid, tid, $t) });
-			});
+			A('div.s-s.warning.tonal p:$2 text=', $t.changes?.length
+				? `⚠ closed without merging: nothing of this task is on ${branch}; its work is kept as a patch.`
+				: `⚠ closed without merging: nothing of this task is on ${branch}.`);
 			return;
 		}
 		if ($t.phase === 'done') {
@@ -433,11 +429,11 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			return;
 		}
 		if (!waitsForHuman($t)) return;
-		if ($t.rebasing) {
+		if ($t.conflicts?.length) {
+			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 			A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
-				A('span flex:1 text=', $t.rebaseOnly
-					? '⚠ rebase paused: the replay onto the latest default branch is unfinished. Send the agent back in, or finish it in VS Code.'
-					: '⚠ merge paused: the rebase onto the latest default branch is unfinished. Send the agent back in, or finish it in VS Code and merge again.');
+				A('span flex:1 text=', `⚠ conflicts in ${$t.conflicts.join(', ')}: putting this task's work onto the latest ${branch} did not merge cleanly there. `
+					+ 'Resolve the markers in VS Code, or send in the agent, which is told about them.');
 				S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void cmd('moveTask', { pid, tid, phase: 'agent' }) });
 			});
 		} else if ($t.commitMessage) {
@@ -565,19 +561,21 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 }
 
 /**
- * The right column for a closed task with nothing to open: one that merged
- * (its workspace is gone, its work being on the branch) or one closed with
- * nothing in it at all. It keeps its conversation either way, so picking it
- * back up — by a message to the agent, or by hand here — clones the branch
- * again and carries on.
+ * The right column for a finished task, which has nothing to open: one that
+ * merged (its work being on the branch) or one closed without merging (its
+ * work kept as a patch). Its workspace is gone either way, and its
+ * conversation kept, so picking it back up — by a message to the agent, or by
+ * hand here — clones the branch again, puts the patch on top if there is one,
+ * and carries on.
  */
 export function drawDonePanel(pid: string, tid: string, $t: any): void {
 	const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-	const closed = $t.phase === 'closed'; // and with no worktree either: nothing was ever done in it
+	const closed = $t.phase === 'closed';
 	S.box({ header: closed ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
 		A('p m:0 text=', closed
-			? `This task was closed without merging, and has no workspace. The conversation is kept: pick it back up to give it `
-				+ `a fresh clone of ${branch} and carry on.`
+			? `This task was closed without merging. ${$t.changes?.length
+				? `Its work is kept as a patch of ${$t.changes.length} file${$t.changes.length === 1 ? '' : 's'}, off ${branch}, and its conversation with it: pick it back up to put the work onto the latest ${branch} and carry on.`
+				: `It had no work to keep; its conversation is kept. Pick it back up to give it a fresh clone of ${branch} and carry on.`}`
 			: `This task's work is on ${branch}, and its workspace is gone. The conversation is kept: message the agent `
 				+ `to pick the task back up in a fresh clone of ${branch}, or take it on yourself.`);
 		A('div display:flex gap:$2 flex-wrap:wrap', () => {

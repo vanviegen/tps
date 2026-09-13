@@ -121,6 +121,9 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # the dashboard's machine. Listen on 0.0.0.0 there: the forwarded port arrives
 # on the container's own address, so localhost-only would be unreachable, and
 # TPS publishes it on the host's loopback, so 0.0.0.0 here is not exposure.
+# A LABEL tps.cache="/path /other/path" line names directories TPS keeps per
+# project and mounts into every task's container, so package and build caches
+# (npm's, pip's, Go's, cargo's) carry over from one task to the next.
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
@@ -229,9 +232,11 @@ func splitPortSpec(spec string) (port int, proto string) {
 
 type containerOpts struct {
 	name, image, toolbox, repoDir, claudeDir string
-	servicesDir                              string // the task's services (see services.go), mounted at /services
-	uploadsDir                               string // what the user attached to its messages (see uploads.go), mounted read-only at /uploads
-	nestDir                                  string // the task's control directory for its docker socket, see nest.go
+	servicesDir                              string   // the task's services (see services.go), mounted at /services
+	uploadsDir                               string   // what the user attached to its messages (see uploads.go), mounted read-only at /uploads
+	nestDir                                  string   // the task's control directory for its docker socket, see nest.go
+	cacheDir                                 string   // the project's cache directories live in here (see caches)
+	caches                                   []string // container paths the Containerfile declares as caches (see cacheLabel): package and build caches, kept per project on the host and mounted into every task's container, so a task starts warm
 }
 
 // ensureContainer makes sure a container by this name, based on this image
@@ -243,7 +248,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	config := containerConfig(o.image, o.toolbox)
+	config := containerConfig(o.image, o.toolbox, o.caches)
 	if c := runningContainer(o.name, config); c != nil {
 		return c, nil
 	}
@@ -283,6 +288,15 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-e", "CLAUDE_CONFIG_DIR=/claude",
 		"-e", "DISABLE_AUTOUPDATER=1", // the toolbox is read-only, and versioned by TPS
 		"-w", "/work",
+	}
+	// Each cache directory is one of the project's, named after its path in
+	// the container, and ours to make: uid 1000 in there is us.
+	for _, path := range o.caches {
+		dir := filepath.Join(o.cacheDir, Slugify(path))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+		args = append(args, "-v", dir+":"+path)
 	}
 	// Every port the image exposes goes on a loopback port of the host's
 	// choosing, like code-server's: nothing of a task is reachable beyond the
@@ -329,8 +343,8 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // containerConfig is the label value recording what a container was started
 // with. Bump the version when ensureContainer's run command/args change, so
 // existing containers are recycled instead of reused.
-func containerConfig(image, toolbox string) string {
-	config, _ := json.Marshal([]any{13, image, filepath.Base(toolbox)})
+func containerConfig(image, toolbox string, caches []string) string {
+	config, _ := json.Marshal([]any{14, image, filepath.Base(toolbox), caches})
 	return string(config)
 }
 

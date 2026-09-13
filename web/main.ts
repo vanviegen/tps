@@ -114,8 +114,8 @@ function drawTaskView(pid: string, tid: string, $t: any): void {
 	}, () => {
 		A(() => {
 			if ($t.phase === 'plan') return drawPlanEditor(pid, tid, $t);
-			// Done and merged, there is nothing left to open; done without
-			// merging, the worktree is still there and still worth showing.
+			// Finished, there is nothing left to open — once the workspace is
+			// gone, which takes a moment; until then it is still worth showing.
 			if (isFinished($t) && !hasWorkspace($t)) return drawDonePanel(pid, tid, $t);
 			drawTaskCode(pid, tid, $t, TASK_CODE_LEFT);
 		});

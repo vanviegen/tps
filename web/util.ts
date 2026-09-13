@@ -8,7 +8,7 @@ import { $state, send } from './conn.ts';
  * The phases a task can be in. Muted is Human with the task put away: it waits
  * for you too, but quietly — at the foot of the Human column, and out of the
  * sidebar. Closed is Done without the merge: the task is over, but its work
- * stayed in its own worktree rather than landing on the branch.
+ * is kept as a patch rather than landing on the branch.
  */
 export const PHASES = ['plan', 'agent', 'human', 'muted', 'merge', 'done', 'closed'] as const;
 export type Phase = typeof PHASES[number];
@@ -33,12 +33,11 @@ export function hasWorkspace($t: any): boolean {
 
 /**
  * Whether the task is one to keep open: it has a workspace, or is about to get
- * one. A task in Plan has none yet and a merged one no longer, while a Closed
- * one kept the worktree it had. This goes by the phase rather than by the
- * workspace, which lags a moment behind it.
+ * one. A task in Plan has none yet and a finished one no longer. This goes by
+ * the phase rather than by the workspace, which lags a moment behind it.
  */
 export function isOpenable($t: any): boolean {
-	return $t.phase !== 'plan' && $t.phase !== 'done';
+	return $t.phase !== 'plan' && !isFinished($t);
 }
 
 /** Whether the task is over: merged, or closed without merging. Nothing waits for it. */

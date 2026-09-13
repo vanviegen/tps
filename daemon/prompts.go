@@ -1,6 +1,9 @@
 package daemon
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // systemPrompt is appended to every agent turn.
 const systemPrompt = `You are the coding agent of one task in TPS, a kanban manager for AI coding work.
@@ -37,6 +40,9 @@ Rules:
   create or edit /work/Containerfile.dev, the project's image definition, and end your
   turn with next 'reload' (see below). A repository without one runs the default image;
   its definition is at /tps/Containerfile.dev, so copy that as your starting point.
+- Caches: a LABEL tps.cache="/abs/path /other/path" line in Containerfile.dev names
+  directories TPS keeps per project and mounts into every task's container, so package
+  and build caches (npm's, pip's, Go's, cargo's) carry over from one task to the next.
 - Containers of your own: a docker socket is served at $DOCKER_HOST, backed by the host's
   podman and limited to what you can already see. The image must bring the client:
   install the static docker CLI (and the compose plugin under
@@ -103,10 +109,10 @@ the user, {"next": "merge", "message": "..."} if the work is ready to be committ
 {"next": "reload"} if the container must be rebuilt. Pick 'user' if you are unsure.`
 }
 
-// continuePrompt wraps the request that reopens a task which was merged
-// already: its work is a commit now, /work is a new clone of the branch, and
-// what the agent does from here becomes a commit of its own.
-func continuePrompt(branch, request string) string {
+// mergedPrompt waits for the agent of a task that was merged (see queueL): its
+// work is a commit now, /work a new clone of the branch, and what it does from
+// here becomes a commit of its own.
+func mergedPrompt(branch string) string {
 	return fmt.Sprintf(`This task was merged and closed since your last turn: what you had in the working tree
 became a commit on '%[1]s'. Nothing was lost — it is in the history now (git log).
 
@@ -116,9 +122,7 @@ The old workspace is gone with everything that was only in it: files you never c
 and tools you installed by hand rather than through Containerfile.dev. Everything you know
 about the task itself still holds — carry on from where you left off. What you change from
 here becomes a separate commit when the user merges the task again, under the usual rules:
-do not commit or rebase yourself, and end your turn with a TPS-DONE line.
-
-%[2]s`, branch, request)
+do not commit or rebase yourself, and end your turn with a TPS-DONE line.`, branch)
 }
 
 // fallbackPrompt says the task runs in the default image because its own
@@ -172,32 +176,38 @@ your work on it stopped where it did. The user has let it go on. Take stock of w
 the task stands before continuing, and keep the remaining room in mind.`, budget, spent)
 }
 
-// rebasedPrompt tells the agent that its workspace was replayed onto the latest
-// default branch while it wasn't running.
-func rebasedPrompt(branch string) string {
-	return fmt.Sprintf(`Your workspace was rebased while you were not running: what you had in /work has been
-replayed on top of the latest '%[1]s', which had moved on since this task started.
-Uncommitted work was kept — it is uncommitted again now — but the files around it may
-have changed, so re-read what you are about to rely on rather than trusting your notes
-on it. Nothing else about the task changed.`, branch)
+// replantedPrompt tells the agent that its workspace was brought onto the
+// latest default branch while it wasn't running.
+func replantedPrompt(branch string) string {
+	return fmt.Sprintf(`Your workspace was brought up to date while you were not running: what you had in /work
+has been put back on top of the latest '%[1]s', which had moved on since this task started.
+Your work is all there, uncommitted as before, but the files around it may have changed,
+so re-read what you are about to rely on rather than trusting your notes on it.`, branch)
 }
 
-// rebaseConflictPrompt sends a fresh agent in to finish a rebase that was not a
-// merge: the workspace is being brought up to date, and stays a workspace after.
-func rebaseConflictPrompt(branch string) string {
-	return fmt.Sprintf(`This task's workspace is being brought up to date with '%[1]s', and the rebase hit
-conflicts. /work is mid-rebase: the task's work — uncommitted changes included, which
-were parked in a temporary commit for this — is being replayed onto the latest %[1]s.
-In the conflict markers, 'ours'/HEAD is the latest %[1]s; 'theirs' is this task's work.
-The commit messages on both sides (git log) explain the intent.
+// reopenedPrompt tells the agent that the task it works on was closed without
+// merging, and picked back up: its work went onto a fresh clone.
+func reopenedPrompt(branch string) string {
+	return fmt.Sprintf(`This task was closed without merging since your last turn, and has now been picked back
+up. /work is a new clone of the latest '%[1]s' with the task's work put back on top of it,
+uncommitted: everything the old workspace differed from the branch in, untracked files
+included. The old workspace itself is gone, with anything only it had — ignored files such
+as build output or dependencies, and tools installed by hand rather than through
+Containerfile.dev — and '%[1]s' may have moved on meanwhile, so re-read what you are about
+to rely on. Everything you know about the task itself still holds.`, branch)
+}
 
-Resolve every conflict so the result honors BOTH sides. Just for this job, the no-rebase
-rule is lifted: stage the resolved files and run GIT_EDITOR=true git rebase --continue,
-repeating if more conflicts appear. Do not abort or skip, do not push, do not create
-commits of your own — the temporary commit is undone for you once the rebase completes,
-leaving that work uncommitted in the tree again. Nothing is merged at the end of this:
-the task returns to where it was, on newer ground. Verify what you can, then end your
-turn with TPS-DONE: {"next": "user"}.`, branch)
+// conflictsPrompt names the files a replay onto the branch could not merge
+// cleanly (see plant); it goes ahead of whatever sends the agent in next.
+func conflictsPrompt(files []string) string {
+	return fmt.Sprintf(`Putting this task's work onto the latest default branch did not merge cleanly in:
+
+%s
+
+Those files hold conflict markers ('ours'/HEAD is the branch; 'theirs' is this task's work),
+or — for a file the branch deleted and this task changed — this task's version of it. The
+commit messages on the branch (git log) explain the intent of its side. Before anything else,
+resolve every conflict so the result honors BOTH sides, and remove the markers. Do not commit.`, "- "+strings.Join(files, "\n- "))
 }
 
 // titlePrompt asks for a title of the form "subject: change to make". The
@@ -217,18 +227,20 @@ func titlePrompt(description string) string {
 		"--- description ---\n" + description + "\n--- end of description ---"
 }
 
-func conflictPrompt(defaultBranch, message string) string {
-	return fmt.Sprintf(`Merging this task hit conflicts. /work is now mid-rebase: the task's commit is being
-replayed onto the latest '%[1]s', which received other changes since this task
-started. In the conflict markers, 'ours'/HEAD is the latest %[1]s; 'theirs' is
-this task's work. The commit messages on both sides (git log) explain the intent.
+func conflictPrompt(defaultBranch, message string, files []string) string {
+	return fmt.Sprintf(`Merging this task hit conflicts. Its work was put onto the latest '%[1]s', which received
+other changes since this task started, and these files did not merge cleanly:
 
-Resolve every conflict so the result honors BOTH sides. Just for this job, the no-rebase
-rule is lifted: stage the resolved files and run GIT_EDITOR=true git rebase --continue,
-repeating if more conflicts appear. Do not abort or skip, do not push, do not create
-commits yourself. When the rebase has completed, verify the result still works, then end
-your turn as usual: TPS-DONE with next 'merge' and the commit message below (amend it
-only if the resolution changed what the task does).
+%[2]s
 
-%s`, defaultBranch, message)
+They hold conflict markers ('ours'/HEAD is the latest %[1]s; 'theirs' is this task's work),
+or — for a file %[1]s deleted and this task changed — this task's version of it. You know
+what this task's side is for; the commit messages on %[1]s (git log) explain the other.
+
+Resolve every conflict so the result honors BOTH sides, and remove the markers. Do not
+commit, do not push. When that is done, verify the result still works, then end your turn
+as usual: TPS-DONE with next 'merge' and the commit message below (amend it only if the
+resolution changed what the task does).
+
+%[3]s`, defaultBranch, "- "+strings.Join(files, "\n- "), message)
 }

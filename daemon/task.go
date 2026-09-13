@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -23,9 +24,9 @@ const (
 	PhaseAgent  Phase = "agent"
 	PhaseHuman  Phase = "human"
 	PhaseMuted  Phase = "muted"  // waiting for a human too, but parked: out of the sidebar and at the foot of its column
-	PhaseMerge  Phase = "merge"  // TPS is merging: committing, rebasing, or an agent resolving conflicts
+	PhaseMerge  Phase = "merge"  // TPS is merging: replaying the work onto the branch, or an agent resolving conflicts in it
 	PhaseDone   Phase = "done"   // merged: its work is on the branch and its workspace is gone
-	PhaseClosed Phase = "closed" // closed without merging: its work stays in its own worktree, off the branch
+	PhaseClosed Phase = "closed" // closed without merging: its work is kept as a patch, off the branch, and its workspace is gone
 )
 
 var phases = []Phase{PhasePlan, PhaseAgent, PhaseHuman, PhaseMuted, PhaseMerge, PhaseDone, PhaseClosed}
@@ -63,15 +64,14 @@ type TaskInfo struct {
 	Phase         Phase    `json:"phase"`
 	Started       bool     `json:"started,omitempty"`       // a claude session exists in the task's claude dir
 	CommitMessage string   `json:"commitMessage,omitempty"` // proposed by the agent, awaiting the user's merge
-	Merged        bool     `json:"merged,omitempty"`        // the work was committed since the agent's last turn; it is told so when it is sent back in
+	Merged        bool     `json:"merged,omitempty"`        // older TPS: the work was committed since the agent's last turn; a pending note says so now (see init)
 	Spent         float64  `json:"spent,omitempty"`         // USD spent on agent runs so far
 	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
 	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // merge without confirmation; copied from the project's defaults at creation
 	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
 	PhaseAt       int64    `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
-	RebaseOnly    bool     `json:"rebaseOnly,omitempty"`    // the agent in the merge phase is resolving a plain rebase, which ends there
-	TmpCommit     bool     `json:"tmpCommit,omitempty"`     // the workspace holds a temporary commit with what was uncommitted (see stashInCommit)
+	Conflicts     []string `json:"conflicts,omitempty"`     // files the last replay onto the branch could not merge cleanly (see plant); until a clean one, or the merge
 	LimitUntil    int64    `json:"limitUntil,omitempty"`    // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
 
 	// Pending is what the agent is told the next time it is sent in: things
@@ -98,8 +98,10 @@ type flight[T any] struct {
 // Task: its workspace is a plain clone of the project repo (git hardlinks the
 // object store, so cloning is nearly free and safe: object files are never
 // modified in place), created when the task leaves the plan phase and kept
-// until the task is deleted or discarded back to plan. A sibling dir holds
-// the claude conversation state, another file the condensed chat log.
+// until the task finishes or is discarded back to plan. A sibling dir holds
+// the claude conversation state, another file the condensed chat log; a
+// finished task has those compressed into one archive, and a closed one its
+// work as a patch beside it (see park).
 //
 // Methods with an L suffix expect the manager lock to be held; the others
 // take it themselves and never hold it across I/O.
@@ -149,6 +151,8 @@ func (t *Task) dir() string           { return filepath.Join(t.p.tasksDir(), t.t
 func (t *Task) repoDir() string       { return filepath.Join(t.dir(), "repo") }
 func (t *Task) claudeDir() string     { return filepath.Join(t.dir(), "claude") }
 func (t *Task) chatFile() string      { return filepath.Join(t.dir(), "chat.jsonl") }
+func (t *Task) patchFile() string     { return filepath.Join(t.dir(), "work.patch") }
+func (t *Task) archiveFile() string   { return filepath.Join(t.dir(), "archive.tar.gz") }
 func (t *Task) containerName() string { return "tps-" + t.p.pid + "-" + t.tid }
 func (t *Task) workingL() bool        { return t.session != nil && t.session.TurnActive() }
 func (t *Task) touchL()               { t.lastActivity = time.Now() }
@@ -197,18 +201,13 @@ func (t *Task) publishL() {
 	} else {
 		t.pubL("startAfter", nil)
 	}
-	if t.midRebase() {
-		t.pubL("rebasing", true)
+	if len(t.info.Conflicts) > 0 {
+		t.pubL("conflicts", t.info.Conflicts)
 	} else {
-		t.pubL("rebasing", nil)
-	}
-	if t.info.RebaseOnly {
-		t.pubL("rebaseOnly", true)
-	} else {
-		t.pubL("rebaseOnly", nil)
+		t.pubL("conflicts", nil)
 	}
 	// Whether there is a workspace to open at all: a task in Plan has none yet,
-	// a merged one no longer, and one closed without merging kept the one it had.
+	// a finished one no longer.
 	if t.hasWorkspace() {
 		t.pubL("worktree", true)
 	} else {
@@ -386,15 +385,30 @@ func (t *Task) takePendingL(text string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func (t *Task) loadChat() {
-	f, err := os.Open(t.chatFile())
-	if err != nil {
-		return
+// loadChat publishes the chat log.
+func (t *Task) loadChat() { t.p.m.hub.SetChat(t.key(), t.readChat()) }
+
+// readChat reads the chat log, the last version of each entry: the file, or —
+// for a finished task, whose data is compressed — the copy in its archive,
+// followed by whatever was said since (a note made then is appended beside
+// the archive; see unarchive).
+func (t *Task) readChat() []hub.Entry {
+	var readers []io.Reader
+	if exists(t.archiveFile()) {
+		if r, err := runCmd([]string{"tar", "-xOzf", t.archiveFile(), "chat.jsonl"}, RunOpts{}); err == nil {
+			readers = append(readers, strings.NewReader(r.Out))
+		}
 	}
-	defer f.Close()
+	if f, err := os.Open(t.chatFile()); err == nil {
+		defer f.Close()
+		readers = append(readers, f)
+	}
+	if len(readers) == 0 {
+		return nil
+	}
 	var entries []hub.Entry
 	byID := map[string]int{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(io.MultiReader(readers...))
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
 		line := sc.Bytes()
@@ -414,7 +428,7 @@ func (t *Task) loadChat() {
 			entries = append(entries, e)
 		}
 	}
-	t.p.m.hub.SetChat(t.key(), entries)
+	return entries
 }
 
 // --- settings ---
@@ -560,14 +574,14 @@ func (t *Task) Assign(to string) error {
 	desc := t.info.Description
 	t.unlock()
 	defer t.p.m.work()()
-	if err := t.ensureClone(); err != nil {
+	if err := t.ensureWorkspace(); err != nil {
 		return err
 	}
 	if to == "agent" {
 		e := newEntry("user")
 		e.Text = desc
 		t.addEntry(e)
-		t.kick(desc, false)
+		t.kick(desc)
 	} else {
 		t.lock()
 		t.setPhaseL(PhaseHuman)
@@ -604,7 +618,7 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	e := newEntry("user")
 	e.Text = text
 	t.addEntry(e)
-	t.kick(text, false)
+	t.kick(text)
 	return nil
 }
 
@@ -613,12 +627,11 @@ func sameBudget(a, b *float64) bool {
 }
 
 // kick makes sure a claude session is running and feeds it text, in the
-// background. With fresh, any current session is stopped and a new context
-// is started. A task being merged stays in that phase: the agent then works
-// on the merge. An agent sent back in after its work was merged (info.Merged)
-// picks the conversation up where it ended, in a workspace freshly cloned from
-// the branch, and is told as much: what follows becomes a patch of its own.
-func (t *Task) kick(text string, fresh bool) {
+// background. A task being merged stays in that phase: the agent then works
+// on the merge. A finished task picks the conversation up where it ended, in a
+// workspace freshly made from the branch (see ensureWorkspace); the notes
+// waiting for the agent tell it what happened meanwhile.
+func (t *Task) kick(text string) {
 	t.lock()
 	t.clearLimitL() // a turn now is what the wait was for, or what replaces it
 	if t.overBudgetL() {
@@ -629,52 +642,32 @@ func (t *Task) kick(text string, fresh bool) {
 		t.unlock()
 		return
 	}
-	reopened := t.info.Merged
-	wasDone := t.info.Phase == PhaseDone
-	if t.midRebase() { // the agent's 'merge' verdict then reruns it
-		t.setPhaseL(PhaseMerge)
-	} else if t.info.Phase != PhaseMerge {
+	pickedUp := t.finishedL()
+	if t.info.Phase != PhaseMerge {
 		t.setPhaseL(PhaseAgent)
 	}
 	// A running claude has its spending cap fixed at start; a changed budget needs a new process.
 	old := t.session
-	restart := old != nil && (fresh || !sameBudget(t.sessionBudget, t.info.Budget))
+	restart := old != nil && !sameBudget(t.sessionBudget, t.info.Budget)
 	branch := t.p.defaultBranch
 	t.unlock()
 	go func() {
 		if restart {
 			t.stopSession(old)
 		}
-		if reopened {
-			// The workspace is made before the container comes up on it. Straight
-			// out of Done that is a clone of the branch as it is now; a task a
-			// human picked up first has one already, with their work in it.
-			var err error
-			if wasDone {
-				err = t.freshClone()
-			} else {
-				err = t.ensureClone()
-			}
-			if err != nil {
-				t.failKick("workspace failed", err)
-				return
-			}
-			if wasDone {
-				t.note("picked up after the merge; the workspace is a fresh clone of " + branch)
-			}
-			text = continuePrompt(branch, text)
-		} else {
-			// Anywhere else there is a workspace already — a task closed
-			// without merging kept its one, an agent picked back up is in its
-			// own — and this is a no-op. It is what makes one that is somehow
-			// missing (or not a clone, see hasWorkspace) come back, instead of
-			// every git command the agent runs failing in it.
-			if err := t.ensureClone(); err != nil {
-				t.failKick("workspace failed", err)
-				return
-			}
+		if pickedUp {
+			t.note("picked up again: the workspace is a fresh clone of " + branch)
 		}
-		s, err := t.ensureSession(fresh)
+		// The workspace is made before the container comes up on it. Anywhere
+		// but out of a finished task there is one already, and this is a
+		// no-op; it is what makes one that is somehow missing (or not a clone,
+		// see hasWorkspace) come back, instead of every git command the agent
+		// runs failing in it.
+		if err := t.ensureWorkspace(); err != nil {
+			t.failKick("workspace failed", err)
+			return
+		}
+		s, err := t.ensureSession()
 		if err != nil {
 			t.failKick("agent start failed", err)
 			return
@@ -686,10 +679,6 @@ func (t *Task) kick(text string, fresh bool) {
 		t.unlock()
 		s.Send(text)
 		t.lock()
-		if reopened { // told only now: a kick that never got this far leaves it to be said
-			t.info.Merged = false
-			t.p.m.saveL()
-		}
 		t.publishL()
 		t.unlock()
 	}()
@@ -757,10 +746,6 @@ func (t *Task) MoveTo(phase Phase) error {
 		if current == PhasePlan {
 			return t.Assign("agent")
 		}
-		if t.midRebase() {
-			t.kickRebase(false)
-			return nil
-		}
 		return t.SendChat("Please continue working on the task.", nil)
 	case PhaseHuman, PhaseMuted:
 		// Both wait for a human; muting is that with the task put away. Getting
@@ -794,35 +779,32 @@ func (t *Task) MoveTo(phase Phase) error {
 	}
 }
 
-// Close puts a task away without merging it: its work stays in its own
-// worktree, off the default branch, and can still be opened, merged, or
-// thrown out with the task. The dashboard offers this beside merging, and
-// recommends merging.
+// Close puts a task away without merging it: its work is kept as a patch,
+// off the default branch (see park), and comes back when the task is picked
+// up again — or is thrown out with the task. The dashboard offers this
+// beside merging, and recommends merging.
 func (t *Task) Close() error {
+	defer t.p.m.work()()
 	_ = t.StopAgent()
-	if t.hasWorkspace() {
-		t.note("closed without merging: its work stays in the task's own worktree, off " + t.p.defaultBranch)
-	}
 	t.lock()
-	defer t.unlock()
 	t.info.CommitMessage = ""
 	t.setPhaseL(PhaseClosed)
+	t.unlock()
+	t.park()
 	return nil
 }
 
-// Merge commits the working tree as one commit, rebases it onto the latest
-// default branch if that moved, and fast-forwards the project repo. The task
-// sits in the merge phase meanwhile: rebase conflicts are handed to a fresh
-// agent there, whose 'merge' verdict runs it again. A failure puts the task
+// Merge replays the workspace's work onto the latest default branch (see
+// replant), commits it as one commit, and fast-forwards the project repo. The
+// task sits in the merge phase meanwhile: conflicts are handed to the task's
+// agent there — it knows what its side of them is for — whose 'merge' verdict
+// runs it again. A failure puts the task
 // back with the human.
 func (t *Task) Merge(message string) error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
 	if !t.hasWorkspace() {
-		return errors.New("The task has no workspace to merge: it is still in Plan, or merged already")
-	}
-	if t.midRebase() {
-		return errors.New("A rebase is still in progress in the workspace; let the agent finish it (or resolve it in VS Code) first")
+		return errors.New("The task has no workspace to merge: it is still in Plan, or finished already")
 	}
 	_ = t.StopAgent()
 	t.lock()
@@ -851,10 +833,25 @@ func (t *Task) Merge(message string) error {
 
 func (t *Task) merge(repo, message string) error {
 	branch := t.p.defaultBranch
-	// A temporary commit from a rebase is not a commit of its own: it holds
-	// what the working tree had, and goes back into it before this one is made.
-	if err := t.undoTmpCommit(repo); err != nil {
+	conflicts, err := t.replant(repo)
+	if err != nil {
 		return err
+	}
+	if len(conflicts) > 0 {
+		t.note(fmt.Sprintf("merging onto the latest %s hit conflicts in %s; sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
+		t.lock()
+		t.dropPendingL("conflicts") // the prompt says it
+		prompt := conflictPrompt(branch, t.info.CommitMessage, conflicts)
+		t.unlock()
+		t.kick(prompt) // it comes back through onTurnEnd
+		return nil
+	}
+	// Whatever a replay left in the files — or an agent that reported 'merge'
+	// without resolving — must not land on the branch.
+	if marked, err := t.markedFiles(repo); err != nil {
+		return err
+	} else if len(marked) > 0 {
+		return fmt.Errorf("conflict markers are left in %s", strings.Join(marked, ", "))
 	}
 	if _, err := git(repo, "add", "-A"); err != nil {
 		return err
@@ -864,13 +861,7 @@ func (t *Task) merge(repo, message string) error {
 			return err
 		}
 	}
-	target, handed, err := t.rebaseOnto(repo)
-	if err != nil {
-		return err
-	}
-	if handed { // an agent is resolving the conflicts; it comes back through onTurnEnd
-		return nil
-	}
+	target, _ := git(repo, "rev-parse", "origin/"+branch) // what replant fetched
 	if head, _ := git(repo, "rev-parse", "HEAD"); head != target {
 		if err := t.p.fastForward(repo); err != nil {
 			return err
@@ -886,165 +877,404 @@ func (t *Task) merge(repo, message string) error {
 	}
 	t.lock()
 	t.info.CommitMessage = ""
-	t.info.Merged = true // the agent's tree is clean because of this, not because it did nothing
-	t.info.RebaseOnly = false
+	t.info.Conflicts = nil
 	// The workspace these were about is gone; a task picked up after the merge
-	// gets a fresh clone, and hears about that instead (see continuePrompt).
-	for _, key := range []string{"rebase", "container", "stopped", "restart"} {
+	// gets a fresh clone, and hears about that instead.
+	for _, key := range []string{"rebase", "conflicts", "reopened", "container", "stopped", "restart"} {
 		t.dropPendingL(key)
 	}
+	t.queueL("merged", mergedPrompt(branch))
 	t.setPhaseL(PhaseDone)
 	t.unlock()
+	t.park()
 	return nil
 }
 
-// rebaseOnto brings the workspace up to date with the default branch: it
-// fetches, and replays whatever the workspace has on top of it. Conflicts are
-// handed to a fresh agent (see kickRebase), which the `handed` return says —
-// the caller is then done, and the work continues in onTurnEnd. Shared by the
-// merge, which rebases before it fast-forwards, and by Rebase, which stops here.
-func (t *Task) rebaseOnto(repo string) (target string, handed bool, err error) {
-	branch := t.p.defaultBranch
-	if _, err = git(repo, "fetch", "--quiet", "origin"); err != nil {
-		return "", false, err
-	}
-	if target, err = git(repo, "rev-parse", "origin/"+branch); err != nil {
-		return "", false, err
-	}
-	if gitOK(repo, "merge-base", "--is-ancestor", target, "HEAD") {
-		return target, false, nil // the branch has nothing this workspace lacks
-	}
-	if _, err := git(repo, "rebase", target); err != nil {
-		if !t.midRebase() {
-			return "", false, fmt.Errorf("rebase onto %s failed", branch)
-		}
-		t.note(fmt.Sprintf("rebasing onto the latest %s hit conflicts; sending in a fresh agent to resolve them", branch))
-		t.kickRebase(true)
-		return target, true, nil
-	}
-	return target, false, nil
-}
-
 // Rebase brings the workspace onto the latest default branch without merging
-// anything into it: the same replay a merge does first, and nothing after it.
-// What the working tree has is put in a temporary commit so the rebase has
-// something to move, and taken back out of it when the replay lands. Conflicts
-// go the way a merge's do — a fresh agent resolves them, with the task in the
-// merge phase meanwhile — and the agent is told what happened to its workspace
-// the next time it is sent in (see queueL).
+// anything into it: the replay a merge starts with (see replant), and nothing
+// after it. Conflicts are left in the files for whoever comes next — the user
+// in VS Code, or the agent, which is told what happened to its workspace the
+// next time it is sent in (see queueL).
 func (t *Task) Rebase() error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
 	if !t.hasWorkspace() {
 		return errors.New("The task has no workspace to rebase")
 	}
-	if t.midRebase() {
-		return errors.New("A rebase is still in progress in the workspace; let the agent finish it (or resolve it in VS Code) first")
-	}
 	_ = t.StopAgent()
-	t.lock()
-	t.info.RebaseOnly = true
-	t.setPhaseL(PhaseMerge)
-	t.unlock()
-	err := t.rebase(repo)
+	branch := t.p.defaultBranch
+	conflicts, err := t.replant(repo)
 	if err != nil {
 		t.noteErr("rebase failed", err)
-		t.lock()
-		t.info.RebaseOnly = false
-		if t.info.Phase == PhaseMerge {
-			t.setPhaseL(PhaseHuman)
-		}
-		t.unlock()
-	}
-	go t.refreshChanges()
-	return err
-}
-
-func (t *Task) rebase(repo string) error {
-	if err := t.stashInCommit(repo); err != nil {
 		return err
 	}
-	_, handed, err := t.rebaseOnto(repo)
-	if err != nil {
-		return err
+	if len(conflicts) > 0 {
+		t.note(fmt.Sprintf("rebased onto the latest %s; conflicts in %s are left to resolve", branch, strings.Join(conflicts, ", ")))
+	} else {
+		t.note("rebased onto the latest " + branch + " ✔")
 	}
-	if handed { // the agent has it; finishRebase runs when its turn ends
-		return nil
-	}
-	return t.finishRebase(repo)
-}
-
-// finishRebase takes the working tree back out of its temporary commit and
-// hands the task back to the human, with a note for the agent's next turn:
-// the ground under its workspace moved while it wasn't running.
-func (t *Task) finishRebase(repo string) error {
-	if err := t.undoTmpCommit(repo); err != nil {
-		return err
-	}
-	branch := t.p.defaultBranch
-	t.note("rebased onto the latest " + branch + " ✔")
-	t.lock()
-	t.info.RebaseOnly = false
-	t.queueL("rebase", rebasedPrompt(branch))
-	if t.info.Phase == PhaseMerge {
-		t.setPhaseL(PhaseHuman)
-	}
-	t.unlock()
+	t.queue("rebase", replantedPrompt(branch))
 	go t.refreshChanges()
 	return nil
 }
 
-// tmpCommitSubject marks the commit a rebase parks the working tree in, so it
-// can be told from the task's own work — and undone — later on.
-const tmpCommitSubject = "TPS: work in progress (temporary commit for a rebase)"
+// --- the work as a patch ---
+//
+// A task's work is what its tree differs from the branch in: from the commit
+// it was cloned at, uncommitted changes and untracked files included. Taken
+// off as a patch, that can be put back on top of any later commit with git's
+// merge machinery — by making a commit of it on its base, and cherry-picking
+// that without committing — which is how a workspace is brought up to date
+// (replant) and how a closed task, which keeps nothing but the patch, gets a
+// workspace back (ensureWorkspace). No git operation stays in progress
+// afterwards: conflicts are markers in the files, and the work is uncommitted
+// again, whatever the outcome.
 
-// stashInCommit puts everything the workspace has in a commit of its own: a
-// rebase moves commits, not working trees. Nothing to commit, nothing to do.
-func (t *Task) stashInCommit(repo string) error {
-	if _, err := git(repo, "add", "-A"); err != nil {
+// workSubject is the throwaway commit's message; the conflict markers name it
+// (see markedFiles).
+const workSubject = "TPS task work"
+
+// tmpIndex is a place for a throwaway index, so the real one stays untouched;
+// the environment makes git use it (and make it: git wants none or a whole one).
+func (t *Task) tmpIndex() (env []string, cleanup func(), err error) {
+	f, err := os.CreateTemp(t.dir(), "index-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return []string{"GIT_INDEX_FILE=" + f.Name()}, func() { os.Remove(f.Name()) }, nil
+}
+
+// stageAll stages the whole tree in a copy of the index (unchanged files then
+// need no rehashing): the tree's every difference from a commit, untracked
+// files included, is a `diff --cached` away.
+func (t *Task) stageAll(repo string) (env []string, cleanup func(), err error) {
+	env, cleanup, err = t.tmpIndex()
+	if err != nil {
+		return nil, nil, err
+	}
+	if data, err := os.ReadFile(filepath.Join(repo, ".git", "index")); err == nil {
+		_ = os.WriteFile(strings.TrimPrefix(env[0], "GIT_INDEX_FILE="), data, 0o644)
+	}
+	if _, err := runCmd([]string{"git", "-C", repo, "add", "-A"}, RunOpts{Env: env}); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return env, cleanup, nil
+}
+
+// savePatch writes the tree's work since base to the patch file, headed by the
+// commit it is against (git skips the line). No work, no patch.
+func (t *Task) savePatch(repo, base string) error {
+	env, cleanup, err := t.stageAll(repo)
+	if err != nil {
 		return err
 	}
-	if gitOK(repo, "diff", "--cached", "--quiet") {
+	defer cleanup()
+	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--binary", "--full-index", "--no-renames", base}, RunOpts{Env: env})
+	if err != nil {
+		return err
+	}
+	if r.Out == "" {
+		os.Remove(t.patchFile())
 		return nil
 	}
-	if _, err := git(repo, "commit", "--no-verify", "-m", tmpCommitSubject); err != nil {
-		return err
+	return os.WriteFile(t.patchFile(), []byte("base "+base+"\n\n"+r.Out), 0o644)
+}
+
+// workCommit makes a commit of the patch's work on top of its base, in the
+// clone's object store — the patch applied to the base's tree in an index of
+// its own, never the working tree — for plant to replay.
+func (t *Task) workCommit(repo string) (string, error) {
+	head, _, _ := strings.Cut(readFile(t.patchFile()), "\n")
+	base, ok := strings.CutPrefix(head, "base ")
+	if !ok {
+		return "", errors.New("the patch names no base commit")
+	}
+	env, cleanup, err := t.tmpIndex()
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	for _, args := range [][]string{{"read-tree", base}, {"apply", "--cached", "--binary", t.patchFile()}} {
+		if _, err := runCmd(append([]string{"git", "-C", repo}, args...), RunOpts{Env: env}); err != nil {
+			return "", err
+		}
+	}
+	r, err := runCmd([]string{"git", "-C", repo, "write-tree"}, RunOpts{Env: env})
+	if err != nil {
+		return "", err
+	}
+	return git(repo, "commit-tree", strings.TrimSpace(r.Out), "-p", base, "-m", workSubject)
+}
+
+// plant replays the work commit onto the working tree, which is clean at the
+// branch's tip, and leaves it uncommitted work again: nothing staged, no
+// cherry-pick in progress. Returned are the files that did not merge cleanly:
+// left with conflict markers, or — deleted on the branch and changed by the
+// task — as the task had them.
+func plant(repo, work string) ([]string, error) {
+	var conflicts []string
+	if _, err := git(repo, "cherry-pick", "--no-commit", work); err != nil {
+		if out, _ := git(repo, "diff", "--name-only", "-z", "--diff-filter=U"); out != "" {
+			conflicts = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+		}
+		if len(conflicts) == 0 {
+			return nil, err
+		}
+		if _, err := git(repo, "cherry-pick", "--quit"); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := git(repo, "reset", "--quiet"); err != nil {
+		return nil, err
+	}
+	return conflicts, nil
+}
+
+// replant brings the workspace onto the latest default branch: its work comes
+// off as a patch, the tree is reset to the branch's tip, and the work goes
+// back on top (see plant), what did not merge cleanly being remembered in
+// Conflicts. Commits the agent made despite the rules are folded into the
+// work. Shared by the merge, which commits afterwards, and by Rebase, which
+// stops here.
+func (t *Task) replant(repo string) ([]string, error) {
+	branch := t.p.defaultBranch
+	if _, err := git(repo, "fetch", "--quiet", "origin"); err != nil {
+		return nil, err
+	}
+	target, err := git(repo, "rev-parse", "origin/"+branch)
+	if err != nil {
+		return nil, err
+	}
+	if head, _ := git(repo, "rev-parse", "HEAD"); head == target {
+		return nil, nil // the branch has nothing this workspace lacks
+	}
+	base, err := git(repo, "merge-base", "HEAD", target)
+	if err != nil {
+		return nil, err
+	}
+	if err := t.savePatch(repo, base); err != nil {
+		return nil, err
+	}
+	if _, err := git(repo, "reset", "--quiet", "--hard", target); err != nil {
+		return nil, err
+	}
+	if _, err := git(repo, "clean", "--quiet", "-fd"); err != nil { // the patch has the untracked files; ignored ones stay
+		return nil, err
+	}
+	return t.plantPatch(repo)
+}
+
+// plantPatch puts the patch file's work onto the workspace and removes it: a
+// patch beside a workspace is work the workspace lacks (see ensureWorkspace).
+func (t *Task) plantPatch(repo string) ([]string, error) {
+	if !exists(t.patchFile()) {
+		return nil, nil
+	}
+	work, err := t.workCommit(repo)
+	if err != nil {
+		return nil, err
+	}
+	conflicts, err := plant(repo, work)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Remove(t.patchFile()); err != nil {
+		return nil, err
 	}
 	t.lock()
 	defer t.unlock()
-	t.info.TmpCommit = true
-	t.p.m.saveL()
-	return nil
+	t.setConflictsL(conflicts)
+	return conflicts, nil
 }
 
-// undoTmpCommit puts that commit back where it came from: the working tree it
-// was made of, files untracked as it found them (a mixed reset, so nothing is
-// left staged that wasn't). The subject is checked, so a commit the agent made
-// on top of it (it is asked not to, but still) is left alone.
-func (t *Task) undoTmpCommit(repo string) error {
+// setConflictsL records what the last replay could not merge, for the
+// dashboard and — as a note for its next turn — the agent.
+func (t *Task) setConflictsL(files []string) {
+	t.info.Conflicts = files
+	if len(files) > 0 {
+		t.queueL("conflicts", conflictsPrompt(files))
+	} else {
+		t.dropPendingL("conflicts")
+	}
+	t.p.m.saveL()
+	t.publishL()
+}
+
+// markerRe matches the closing marker plant leaves: git names the commit in
+// it, and the commit is ours.
+var markerRe = `^>>>>>>> [0-9a-f]+ \(` + workSubject + `\)`
+
+// markedFiles are the files in the workspace that still hold conflict markers
+// from a replay: what a merge stops on.
+func (t *Task) markedFiles(repo string) ([]string, error) {
+	base, err := git(repo, "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
+	if err != nil {
+		return nil, err
+	}
+	env, cleanup, err := t.stageAll(repo)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--name-only", "-z", "-E", "-G" + markerRe, base}, RunOpts{Env: env})
+	if err != nil || r.Out == "" {
+		return nil, err
+	}
+	return strings.Split(strings.TrimSuffix(r.Out, "\x00"), "\x00"), nil
+}
+
+// --- finished tasks: parked, and picked up again ---
+
+// archived is what a finished task keeps besides its patch, compressed into
+// one archive: claude's state, the chat log, the files the user attached, and
+// the services' last output.
+var archived = []string{"claude", "chat.jsonl", "uploads", "services"}
+
+// park puts a finished task's data away, so that a task nobody looks at costs
+// as little disk as it can: the workspace goes — with its work kept as a
+// patch if the task was closed without merging; a merged one's is on the
+// branch — and what the task keeps is compressed (see archived). Picking the
+// task up undoes it (see ensureWorkspace). Done when a task finishes, and at
+// startup for those an older TPS left as they were.
+func (t *Task) park() {
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
 	t.lock()
-	parked := t.info.TmpCommit
+	finished, closed := t.finishedL(), t.info.Phase == PhaseClosed
 	t.unlock()
-	if !parked {
+	if !finished {
+		return
+	}
+	if t.hasWorkspace() {
+		if closed {
+			repo := t.repoDir()
+			_, err := git(repo, "fetch", "--quiet", "origin")
+			var base string
+			if err == nil {
+				base, err = git(repo, "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
+			}
+			if err == nil {
+				err = t.savePatch(repo, base)
+			}
+			if err != nil {
+				t.noteErr("keeping the work as a patch failed", err) // the workspace stays: it is all there is of the work
+				return
+			}
+			if exists(t.patchFile()) {
+				t.note(fmt.Sprintf("closed without merging: the work is kept as a patch, off %[1]s; picking the task up applies it onto the latest %[1]s", t.p.defaultBranch))
+			} else {
+				t.note("closed without merging; there was no work to keep")
+			}
+		}
+		if err := t.dropWorkspace(); err != nil {
+			logf("%s: dropping the workspace: %v", t.key(), err)
+		}
+	}
+	if err := t.archive(); err != nil {
+		logf("%s: compressing the task's data: %v", t.key(), err)
+	}
+	go t.refreshChanges() // the patch, from here on
+}
+
+// archive compresses what a finished task keeps (see archived) into one
+// tarball and removes the originals; nothing to do when that is done already.
+// A note arriving meanwhile waits, and goes to a chat log beside the archive.
+func (t *Task) archive() error {
+	if exists(t.archiveFile()) {
 		return nil
 	}
-	if subject, _ := git(repo, "log", "-1", "--format=%s"); subject == tmpCommitSubject {
-		if _, err := git(repo, "reset", "--quiet", "HEAD~1"); err != nil {
+	t.chatMu.Lock()
+	defer t.chatMu.Unlock()
+	var names []string
+	for _, name := range archived {
+		if exists(filepath.Join(t.dir(), name)) {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	tmp := t.archiveFile() + ".tmp"
+	if _, err := runCmd(append([]string{"tar", "-C", t.dir(), "-czf", tmp}, names...), RunOpts{}); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, t.archiveFile()); err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := rmTree(filepath.Join(t.dir(), name)); err != nil {
 			return err
 		}
 	}
-	t.lock()
-	defer t.unlock()
-	t.info.TmpCommit = false
-	t.p.m.saveL()
 	return nil
 }
 
-// dropWorkspace throws the clone away, container first: once its work is on
-// the branch there is nothing in it the project repo doesn't have, and picking
-// the task up again clones the branch afresh, the way leaving Plan does. What
-// the task knows stays: claude's own state and the chat log live beside the
-// clone, not in it.
+// unarchive is archive undone. A note made meanwhile went to a chat log of
+// its own beside the archive (see appendChat); it follows the archived one.
+func (t *Task) unarchive() error {
+	if !exists(t.archiveFile()) {
+		return nil
+	}
+	t.chatMu.Lock()
+	defer t.chatMu.Unlock()
+	since, _ := os.ReadFile(t.chatFile())
+	if _, err := runCmd([]string{"tar", "-C", t.dir(), "-xzf", t.archiveFile()}, RunOpts{}); err != nil {
+		return err
+	}
+	if len(since) > 0 {
+		f, err := os.OpenFile(t.chatFile(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(since)
+		f.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return os.Remove(t.archiveFile())
+}
+
+// ensureWorkspace gives the task a workspace with its work in it, if it has
+// none: a finished task's data comes out of its archive, the branch is cloned
+// afresh, and the patch a closed task kept goes on top — onto the branch as it
+// is now, so the work meets what landed since (see plant). A task that has a
+// workspace already is left alone, except for a patch waiting beside it (a
+// replay the daemon died in the middle of), which is planted.
+func (t *Task) ensureWorkspace() error {
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
+	if err := t.unarchive(); err != nil {
+		return err
+	}
+	if err := t.clone(); err != nil {
+		return err
+	}
+	if !exists(t.patchFile()) {
+		return nil
+	}
+	branch := t.p.defaultBranch
+	conflicts, err := t.plantPatch(t.repoDir())
+	if err != nil {
+		return err
+	}
+	if len(conflicts) > 0 {
+		t.note(fmt.Sprintf("the task's work was applied onto the latest %s; conflicts in %s are left to resolve", branch, strings.Join(conflicts, ", ")))
+	} else {
+		t.note("the task's work was applied onto the latest " + branch + " ✔")
+	}
+	t.queue("reopened", reopenedPrompt(branch))
+	return nil
+}
+
+// dropWorkspace throws the clone away, container first: what the task knows
+// stays — claude's own state and the chat log live beside the clone, not in
+// it — and picking the task up again clones the branch afresh, the way
+// leaving Plan does.
 func (t *Task) dropWorkspace() error {
 	t.down()
 	if err := rmTree(t.repoDir()); err != nil {
@@ -1052,71 +1282,30 @@ func (t *Task) dropWorkspace() error {
 		// not be unlinked costs disk, which only the human can free.
 		t.note("workspace not fully removed: " + err.Error())
 	}
-	_ = os.Remove(filepath.Join(t.dir(), "changes-index")) // it described the clone
 	t.lock()
 	defer t.unlock()
 	t.pubL("changes", nil)
 	return nil
 }
 
-// freshClone gives a task that was merged its workspace back: the branch as it
-// stands now. Whatever is left of the old one goes first — the merge normally
-// threw it away already, but one merged by an older TPS is still there, and it
-// is not what the task is about to be picked up with.
-func (t *Task) freshClone() error {
-	t.cloneMu.Lock()
-	defer t.cloneMu.Unlock()
-	if err := t.dropWorkspace(); err != nil {
-		return err
-	}
-	return t.clone()
-}
-
-// kickRebase sends the agent in to finish the rebase a merge — or a plain
-// rebase, which ends as soon as the replay lands — got stuck in.
-func (t *Task) kickRebase(fresh bool) {
-	t.lock()
-	prompt := conflictPrompt(t.p.defaultBranch, t.info.CommitMessage)
-	if t.info.RebaseOnly {
-		prompt = rebaseConflictPrompt(t.p.defaultBranch)
-	}
-	t.unlock()
-	t.kick(prompt, fresh)
-}
-
-func (t *Task) midRebase() bool {
-	return exists(filepath.Join(t.repoDir(), ".git", "rebase-merge")) || exists(filepath.Join(t.repoDir(), ".git", "rebase-apply"))
-}
-
-// reopen picks a closed task back up. One that was merged has no workspace
-// left, and gets a clone of the branch as it is now — its own work included,
-// and everything that landed since; one that was closed without merging kept
-// its worktree, unmerged work and all, and that is what it comes back with.
-// The conversation was kept beside it either way. The workspace is made here
-// for a human to work in; the agent gets the same through kick. The 'merged'
-// mark stays: it is the agent that has yet to hear of the merge.
+// reopen picks a finished task back up, for a human to work in: a workspace
+// from the branch as it is now — a closed task's work put back on top of it
+// (see ensureWorkspace) — with the conversation it kept. The agent gets the
+// same through kick.
 func (t *Task) reopen() error {
 	defer t.p.m.work()()
 	t.lock()
-	merged := t.info.Phase == PhaseDone
+	from := t.info.Phase
+	t.setPhaseL(PhaseHuman) // first, so that park (which runs at startup too) leaves the task alone
 	t.unlock()
-	// Merged, whatever is left of the old workspace is not what the task should
-	// come back with (the merge threw it away; one merged by an older TPS did
-	// not). Closed, it is exactly that.
-	clone := t.ensureClone
-	if merged {
-		clone = t.freshClone
-	}
-	if err := clone(); err != nil {
+	t.note("picked up again: the workspace is a fresh clone of " + t.p.defaultBranch)
+	if err := t.ensureWorkspace(); err != nil {
 		t.noteErr("workspace failed", err)
+		t.lock()
+		t.setPhaseL(from)
+		t.unlock()
 		return err
 	}
-	if merged {
-		t.note("picked up after the merge; the workspace is a fresh clone of " + t.p.defaultBranch)
-	}
-	t.lock()
-	t.setPhaseL(PhaseHuman)
-	t.unlock()
 	t.bgUp()
 	go t.refreshChanges()
 	return nil
@@ -1139,12 +1328,13 @@ func (t *Task) adoptL() {
 	}
 	cf := t.containerfile()
 	tag := imageTag(cf)
-	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir())); c != nil {
+	services, caches := containerfileDeclarations(cf)
+	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir(), caches)); c != nil {
 		if _, err := nestFor(t.containerName(), nestDir(t.dir())); err != nil {
 			logf("%s: docker socket: %v", t.key(), err)
 		}
 		t.container, t.lastTag = c, tag
-		t.setDeclaredL(containerfileServices(cf))
+		t.setDeclaredL(services)
 		t.status = StatusUp
 		t.syncServicesL(false) // what was left running rides on
 		// A code-server still running in it is kept: the dashboards that held
@@ -1169,8 +1359,7 @@ func (t *Task) Discard() error {
 	defer t.unlock()
 	t.info.Started = false
 	t.info.CommitMessage = ""
-	t.info.Merged = false
-	t.info.RebaseOnly, t.info.TmpCommit, t.info.Pending = false, false, nil // nothing of the old workspace is left to tell
+	t.info.Conflicts, t.info.Pending = nil, nil // nothing of the old workspace is left to tell
 	t.p.m.hub.SetChat(t.key(), nil)
 	t.pubL("changes", nil)
 	t.setPhaseL(PhasePlan)
@@ -1208,24 +1397,29 @@ type change struct {
 }
 
 // changes lists what the working tree changed since the commit the task
-// started from (or, mid-rebase, since the branch it is being replayed onto),
-// untracked files included. A throwaway copy of the index (so the real one
-// stays untouched, and unchanged files need no rehashing) makes git see the
-// whole tree as staged.
+// started from, untracked files included (see stageAll) — or, for a closed
+// task, what its patch holds.
 func (t *Task) changes() ([]change, error) {
 	repo := t.repoDir()
+	if !t.hasWorkspace() {
+		if !exists(t.patchFile()) {
+			return nil, nil
+		}
+		r, err := runCmd([]string{"git", "apply", "--numstat", "-z", t.patchFile()}, RunOpts{Dir: t.p.dir()})
+		if err != nil {
+			return nil, err
+		}
+		return parseNumstat(r.Out), nil
+	}
 	base, err := git(repo, "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
 	if err != nil {
 		return nil, err
 	}
-	index := filepath.Join(t.dir(), "changes-index")
-	if data, err := os.ReadFile(filepath.Join(repo, ".git", "index")); err == nil {
-		_ = os.WriteFile(index, data, 0o644)
-	}
-	env := []string{"GIT_INDEX_FILE=" + index}
-	if _, err := runCmd([]string{"git", "-C", repo, "add", "-A"}, RunOpts{Env: env}); err != nil {
+	env, cleanup, err := t.stageAll(repo)
+	if err != nil {
 		return nil, err
 	}
+	defer cleanup()
 	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--numstat", "--no-renames", "-z", base}, RunOpts{Env: env})
 	if err != nil {
 		return nil, err
@@ -1255,7 +1449,7 @@ func parseNumstat(out string) []change {
 // refreshChanges publishes the changes overview, unless one is being made already.
 func (t *Task) refreshChanges() {
 	t.lock()
-	if t.refreshing || !t.hasWorkspace() {
+	if t.refreshing {
 		t.unlock()
 		return
 	}
@@ -1269,7 +1463,11 @@ func (t *Task) refreshChanges() {
 		logf("%s: changes: %v", t.key(), err)
 		return
 	}
-	t.pubL("changes", changes)
+	if changes == nil {
+		t.pubL("changes", nil)
+	} else {
+		t.pubL("changes", changes)
+	}
 	go t.refreshBehind()
 }
 
@@ -1303,12 +1501,6 @@ func (t *Task) refreshBehind() {
 }
 
 // --- workspace (clone + container) ---
-
-func (t *Task) ensureClone() error {
-	t.cloneMu.Lock()
-	defer t.cloneMu.Unlock()
-	return t.clone()
-}
 
 // clone makes the workspace, unless it is there already. The caller holds cloneMu.
 func (t *Task) clone() error {
@@ -1348,7 +1540,7 @@ func (t *Task) clone() error {
 }
 
 // Open is a dashboard's retry after a workspace failure: bring the workspace
-// up, if there is one — a task in Plan has none yet, a merged one no longer —
+// up, if there is one — a task in Plan has none yet, a finished one no longer —
 // and VS Code with it, if the dashboard holds the task.
 func (t *Task) Open() {
 	t.lock()
@@ -1396,7 +1588,7 @@ func (t *Task) syncCode() {
 			return
 		}
 		if wanted {
-			// Nothing to show yet, or no longer: a plan has no workspace, a merged
+			// Nothing to show yet, or no longer: a plan has no workspace, a finished
 			// task lost its one. The hold is left standing for when it has one.
 			if phase == PhasePlan || !t.hasWorkspace() {
 				return
@@ -1484,7 +1676,7 @@ func (t *Task) failUp(err error) (*Container, error) {
 
 func (t *Task) doUp() (*Container, error) {
 	if !t.hasWorkspace() {
-		return nil, errors.New("The task has no workspace: it is still in Plan, or merged already")
+		return nil, errors.New("The task has no workspace: it is still in Plan, or finished already")
 	}
 	cf := t.containerfile()
 	tag := imageTag(cf)
@@ -1531,7 +1723,7 @@ func (t *Task) doUp() (*Container, error) {
 		t.container = nil
 		t.setStatusL(StatusDown, "")
 		t.unlock()
-		return nil, errors.New("The task has no workspace: it is still in Plan, or merged already")
+		return nil, errors.New("The task has no workspace: it is still in Plan, or finished already")
 	}
 	t.lock()
 	t.container, t.lastTag = c, tag
@@ -1551,20 +1743,14 @@ func (t *Task) doUp() (*Container, error) {
 }
 
 // fixImageL sends the agent in to repair Containerfile.dev, unless a kick is
-// underway already (it then carries the message, see kick). Mid-rebase, the
-// conflict resolution the merge was waiting for is resumed.
+// underway already (it then carries the message, see kick).
 func (t *Task) fixImageL() {
 	if t.sessionFlight != nil || t.finishedL() {
 		return
 	}
-	rebase := t.midRebase()
 	go func() {
 		t.note("sending in the agent to fix Containerfile.dev")
-		if rebase {
-			t.kickRebase(true)
-		} else {
-			t.kick(fixImagePrompt, false)
-		}
+		t.kick(fixImagePrompt)
 	}()
 }
 
@@ -1580,7 +1766,8 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	t.lock()
 	t.setStatusL(StatusStarting, "starting container")
 	t.unlock()
-	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir())})
+	_, caches := containerfileDeclarations(cf)
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir()), cacheDir: t.p.cacheDir(), caches: caches})
 }
 
 func (t *Task) down() {
@@ -1615,7 +1802,7 @@ func (t *Task) Reload() error {
 	working := t.workingL()
 	t.unlock()
 	if noWorkspace {
-		return errors.New("The task has no workspace: it is still in Plan, or merged already")
+		return errors.New("The task has no workspace: it is still in Plan, or finished already")
 	}
 	if working {
 		return errors.New("The agent is working; stop it before rebuilding the container")
@@ -1634,7 +1821,7 @@ func (t *Task) Reload() error {
 
 // --- the claude session ---
 
-func (t *Task) ensureSession(fresh bool) (*ChatSession, error) {
+func (t *Task) ensureSession() (*ChatSession, error) {
 	t.lock()
 	if s := t.session; s != nil {
 		t.unlock()
@@ -1645,7 +1832,7 @@ func (t *Task) ensureSession(fresh bool) (*ChatSession, error) {
 		f = &flight[*ChatSession]{done: make(chan struct{})}
 		t.sessionFlight = f
 		go func() {
-			f.val, f.err = t.startSession(fresh)
+			f.val, f.err = t.startSession()
 			t.lock()
 			t.sessionFlight = nil
 			t.unlock()
@@ -1657,7 +1844,7 @@ func (t *Task) ensureSession(fresh bool) (*ChatSession, error) {
 	return f.val, f.err
 }
 
-func (t *Task) startSession(fresh bool) (*ChatSession, error) {
+func (t *Task) startSession() (*ChatSession, error) {
 	c, err := t.up()
 	if err != nil {
 		return nil, err
@@ -1665,7 +1852,7 @@ func (t *Task) startSession(fresh bool) (*ChatSession, error) {
 	t.lock()
 	t.sessionBudget = t.info.Budget
 	opts := SessionOpts{
-		Container: c, Model: t.info.Model, System: systemPrompt, Resume: t.info.Started && !fresh,
+		Container: c, Model: t.info.Model, System: systemPrompt, Resume: t.info.Started,
 		OnEntry:   t.addEntry,
 		OnUpdate:  t.updateEntry,
 		OnTurnEnd: func(end TurnEnd) { go t.onTurnEnd(end) },
@@ -1770,7 +1957,7 @@ func (t *Task) resumeAfterLimit() {
 	t.clearLimitL()
 	t.unlock()
 	t.note("the usage limit should have reset; sending the agent back in")
-	t.kick(limitPrompt, false)
+	t.kick(limitPrompt)
 }
 
 // maxDoneNudges: how often in a row an agent is sent back in for the TPS-DONE
@@ -1812,7 +1999,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			t.stopSession(s)
 		}
 		t.down()
-		t.kick(reloadedPrompt, false)
+		t.kick(reloadedPrompt)
 		return
 	}
 	// A turn that ran into a usage limit never got to do anything: wait the
@@ -1835,45 +2022,20 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.doneNudges++
 		t.unlock()
 		t.note("the agent's turn ended without a TPS-DONE line; asking it where the task goes next")
-		t.kick(donePrompt(end.Bad), false)
+		t.kick(donePrompt(end.Bad))
 		return
 	}
 	t.doneNudges = 0
-	if t.info.Phase == PhaseMerge && t.info.RebaseOnly {
-		// A plain rebase: nothing is merged at the end of it, so any verdict
-		// will do — what counts is whether the replay landed.
-		if t.overBudgetL() {
-			t.noteBudgetL()
-		}
-		t.unlock()
-		if t.midRebase() {
-			t.note("rebase paused: it is unfinished")
-			t.lock()
-			t.info.RebaseOnly = false
-			if t.info.Phase == PhaseMerge {
-				t.setPhaseL(PhaseHuman)
-			}
-			t.unlock()
-			return
-		}
-		if err := t.finishRebase(t.repoDir()); err != nil {
-			t.noteErr("rebase failed", err)
-			t.lock()
-			t.info.RebaseOnly = false
-			if t.info.Phase == PhaseMerge {
-				t.setPhaseL(PhaseHuman)
-			}
-			t.unlock()
-		}
-		return
-	}
-	if t.info.Phase == PhaseMerge { // the agent was resolving rebase conflicts
+	if t.info.Phase == PhaseMerge { // the agent was resolving conflicts
 		msg := t.info.CommitMessage
 		if next != "merge" {
 			if t.overBudgetL() {
 				t.noteBudgetL()
 			}
-			t.note("merge paused: the rebase is unfinished")
+			t.note("merge paused: the agent did not report the conflicts resolved")
+			if len(t.info.Conflicts) > 0 { // the prompt said it; the next turn is told again
+				t.queueL("conflicts", conflictsPrompt(t.info.Conflicts))
+			}
 			t.setPhaseL(PhaseHuman)
 			t.unlock()
 			return

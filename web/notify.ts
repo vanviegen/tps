@@ -120,9 +120,9 @@ function announcement($t: any, from: Phase): string | undefined {
 		case 'done': return 'merged ✔';
 		case 'closed': return 'closed without merging';
 		case 'plan': return 'put back in Plan';
-		case 'agent': return from === 'merge' ? 'an agent is resolving the merge conflicts' : undefined;
+		case 'agent': return from === 'merge' ? 'the agent is resolving the merge conflicts' : undefined;
 		default: // human, muted: the ones worth having asked for
-			if ($t.rebasing) return $t.rebaseOnly ? 'the rebase stopped at conflicts and needs you' : 'the merge stopped at conflicts and needs you';
+			if ($t.conflicts) return 'conflicts are left to resolve and need you';
 			if ($t.commitMessage) return 'the agent reports it ready to merge';
 			return from === 'merge' ? 'back with you' : 'the agent is done; it is yours';
 	}

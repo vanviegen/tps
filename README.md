@@ -33,8 +33,8 @@ big desktop while you steer from the laptop.
 
 **Merges that land themselves.** A task becomes one commit on the default
 branch, with a merge message proposed by the agent. If the branch moved on, the work
-is rebased first, and a conflict is handed to a fresh agent to resolve. Tasks
-can also be configured to auto-merge when the agent is done.
+is put on top of it first, as a patch, and a conflict is handed to the task's agent
+to resolve. Tasks can also be configured to auto-merge when the agent is done.
 
 **An environment you define and the agent extends.** A `Containerfile.dev` in
 your repository is the image tasks run in, with nothing TPS-specific in it.
@@ -58,13 +58,18 @@ opens the app the agent is working on.
 message later and the agent continues in a new clone, knowing what it did the
 first time.
 
+**Finished tasks weigh little.** A task that is done keeps its conversation
+compressed, and one closed without merging keeps its work as a patch rather
+than a checkout; picking it up again puts the work onto the branch as it is
+then, conflicts marked in the files.
+
 **It keeps going.** The remote daemons continue work while your laptop sleeps.
 It will drive agents forward, do auto-merges, initiate tasks queued with
 dependencies, auto-resuming after hitting a 5H session limit, and keep a 
 wake-lock on the system while doing so.
 
 **Clean linear history.** Your repository only ever receives the squashed
-rebased commits.
+commits, each on top of the branch as it stands.
 
 And of course TPS also handles the usual: an agent chat that allow mid-run steering
 and pasting screenshots and other files, a choice of model per task, cost tracking with a
