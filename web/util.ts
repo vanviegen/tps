@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bellOff, bot, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, loaderCircle, monitor, server, user } from 'staffa/icons.js';
+import { bellOff, bot, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, monitor, server, user } from 'staffa/icons.js';
 import { $state, send } from './conn.ts';
 
 /**
@@ -240,10 +240,9 @@ export function taskTip(pid: string, $t: any): string {
 }
 
 /**
- * The task at a glance: its phase as an icon (a loader while claude works or
- * merges, breathing to say so, an hourglass while it waits — for the tasks it
- * follows, or for claude's usage limit to reset), colored by the container
- * status.
+ * The task at a glance: its phase as an icon — breathing while claude works or
+ * a merge runs, an hourglass while it waits (for the tasks it follows, or for
+ * claude's usage limit to reset) — colored by the container status.
  *
  * `tip: false` is for where something around it already tells that story — the
  * collapsed sidebar, whose rows carry it themselves. `color` is for where the
@@ -254,10 +253,11 @@ export function taskTip(pid: string, $t: any): string {
 export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?: boolean; color?: string } = {}): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
-		const icon = $t.working ? loaderCircle : autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
-		// Breathing while something is going on: claude at work, or the merge a
-		// task in Merging is in the middle of — which is what tells those apart
-		// from the merged ones they sit above on the board.
+		const icon = autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
+		// The phase's own icon throughout, breathing while something is going on:
+		// claude at work, or the merge a task in Merging is in the middle of —
+		// which is what tells those apart from the merged ones they sit above on
+		// the board. A spinner's glyph is for a spinner; this one does not turn.
 		const busy = $t.working || $t.phase === 'merge';
 		A(`span display:inline-flex flex-shrink:0 fg:${color && activity.color !== 'danger' ? color : `$s-${activity.color}`}`, () => {
 			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
