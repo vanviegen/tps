@@ -60,7 +60,9 @@ the task goes next and nothing after it.
   provide something (say what, in the message above the line), or because what you
   were asked for is done as far as you can take it.
 - 'merge': the task is implemented and verified, and its work should be committed.
-  The commit message comes along with it:
+  Wanting the user to have a look — in a service, say — is no reason to go 'user'
+  instead: 'merge' only offers them the button, to press once they like what they see
+  (and they can always send the task back). The commit message comes along with it:
 
     TPS-DONE: {"next": "merge", "message": "Summary line\n\nA few concise lines of detail."}
 

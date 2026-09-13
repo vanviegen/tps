@@ -483,23 +483,24 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 			dropAttachment(pid, tid, name);
 			removeRef(area(), uploadPath(name));
 		});
-		A('div display:flex align-items:flex-end gap:$2', () => {
-			S.textarea({
-				placeholder: 'Message the agent…', attrs: 'flex:1', inputAttrs: 'max-height:40dvh overflow-y:auto',
-				value: draft,
-				input: (e: Event) => {
-					const text = (e.target as HTMLTextAreaElement).value;
-					$has.text = !!text.trim();
-					setChatDraft(pid, tid, text);
-				},
-			});
-			// One button beside the field: send while there is something to send,
-			// else stop while claude works.
-			A(() => {
-				if ($has.text || $atts.length) S.button({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', click: sendMsg });
-				else if ($t.working) S.button({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: '.danger',
+		S.textarea({
+			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh overflow-y:auto',
+			value: draft,
+			// One glyph in the field's own bottom-right corner, beside the caret:
+			// send while there is something to send, else stop while claude works.
+			// An inset sizes what it holds `.small`; this is the one thing in the
+			// composer to aim at, so it takes its size back.
+			suffix: () => A(() => {
+				const size = 'w:2.2rem h:2.2rem font-size:1.1rem ';
+				if ($has.text || $atts.length) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
+				else if ($t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
 					click: () => void cmd('stopAgent', { pid, tid }) });
-			});
+			}),
+			input: (e: Event) => {
+				const text = (e.target as HTMLTextAreaElement).value;
+				$has.text = !!text.trim();
+				setChatDraft(pid, tid, text);
+			},
 		});
 	}) as HTMLElement;
 	area().addEventListener('paste', (e: ClipboardEvent) => {
