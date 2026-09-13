@@ -5,7 +5,7 @@ trap 'kill $pid 2>/dev/null; exit' INT TERM
 
 while true; do
   pid=
-  npm run build
+  npm install && npm run build
   if CGO_ENABLED=0 go build -o tps .; then
     ./tps -no-open &
     pid=$!
