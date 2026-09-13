@@ -126,4 +126,12 @@ podman build -t tps-dev -f Containerfile.dev . && podman run --rm --userns=keep-
 `./dev.sh` rebuilds and restarts on every change, and `go test ./...` runs the
 tests. Pushing a `v*` tag has GitHub Actions build the release binaries.
 
+`demo/seed.sh` fills a home directory with two small projects and a board's
+worth of tasks around them, to have something to click through: a merged task
+whose commit is in the log, one waiting to be merged with its work in a
+workspace, a plan waiting on another plan, a parked one and a closed one. The
+project's own dev container runs it before starting TPS, so the task's play
+button gives a dashboard with a board on it; `TPS_DEMO_HOME` points it at a
+directory of its own.
+
 ![Yeah, if you could go ahead and finish those TPS reports, that'd be great](doc/tps-reports.jpg)

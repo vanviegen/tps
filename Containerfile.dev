@@ -64,11 +64,12 @@ RUN useradd -m -u 1000 -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >/e
 USER dev
 WORKDIR /work
 
-# Run TPS itself, so the dashboard's Run button previews this project: the web
-# bundle first, then the binary on the exposed port. It listens on 0.0.0.0
-# because the forwarded port arrives on the container's own address, not its
-# loopback; TPS publishes that port on the host's loopback, so this is not
-# exposure.
+# Run TPS itself, so the dashboard's Run button previews this project: a home
+# with two demo projects and a board's worth of tasks in it first (demo/seed.sh,
+# which leaves an already seeded home alone), then the web bundle, then the
+# binary on the exposed port. It listens on 0.0.0.0 because the forwarded port
+# arrives on the container's own address, not its loopback; TPS publishes that
+# port on the host's loopback, so this is not exposure.
 LABEL tps.service.test="npm run typecheck && go test ./..."
 EXPOSE 8080
-CMD npm install --silent && npm run build && go run . --host 0.0.0.0 --port 8080 --no-open
+CMD ./demo/seed.sh && npm install --silent && npm run build && go run . --host 0.0.0.0 --port 8080 --no-open

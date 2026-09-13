@@ -1,0 +1,10 @@
+{
+	"name": "standup",
+	"version": "0.1.0",
+	"description": "The three lines you say every morning, kept in a file",
+	"bin": { "standup": "standup.js" },
+	"scripts": {
+		"test": "node --test"
+	},
+	"license": "MIT"
+}
