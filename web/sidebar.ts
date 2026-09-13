@@ -1,7 +1,8 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bot, gitBranch, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
+import { gitBranch, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
+import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { $holds, holdKey, isHeld, release } from './holds.ts';
 import { hostIssue, manageHostsDialog } from './hosts.ts';
@@ -168,7 +169,7 @@ function drawTask(pid: string, tid: string, $t: any): void {
 					A('div font-size:0.85em fg:$s-muted text=', taskTip(pid, $t));
 				} });
 			}
-			drawTaskIcon(pid, $t, { tip: !collapsed, color: 'var(--tps-color)' });
+			drawTaskIcon(pid, $t, { tip: !collapsed, color: '$s-text' });
 		});
 		A('span.tps-clip', () => A('text=', taskTitle($t)));
 	});

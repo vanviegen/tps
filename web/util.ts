@@ -1,7 +1,8 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bellOff, bot, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, monitor, server, user } from 'staffa/icons.js';
+import { bellOff, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, monitor, server, user } from 'staffa/icons.js';
+import { bot } from './bot.ts';
 import { $state, send } from './conn.ts';
 
 /**
@@ -122,6 +123,15 @@ export function drawStrip(color: string, text: string, action?: () => void, clic
 A.insertGlobalCss({ '@keyframes pulse': { '50%': 'opacity:0.35' } });
 
 /**
+ * The attrs that make an icon say it: the robot has a better way than
+ * breathing — it types and thinks (see bot.ts), in the primary colour so that
+ * it stands out from whatever is around it — and every other glyph breathes.
+ */
+export function busyAttrs(icon: typeof bot): string {
+	return icon === bot ? '.tps-busy fg:$s-primary' : 'animation: pulse 1.6s ease-in-out infinite;';
+}
+
+/**
  * What the URL selects: a project, and within it a task, its base worktree, or
  * neither. Everything on screen follows from this, so navigating is a link.
  */
@@ -240,28 +250,31 @@ export function taskTip(pid: string, $t: any): string {
 }
 
 /**
- * The task at a glance: its phase as an icon — breathing while claude works or
- * a merge runs, an hourglass while it waits (for the tasks it follows, or for
- * claude's usage limit to reset) — colored by the container status.
+ * The task at a glance: its phase as an icon — the robot at work while claude
+ * is, the merge icon breathing while a merge runs, an hourglass while it waits
+ * (for the tasks it follows, or for claude's usage limit to reset) — colored
+ * by the container status.
  *
  * `tip: false` is for where something around it already tells that story — the
  * collapsed sidebar, whose rows carry it themselves. `color` is for where the
  * icon belongs to something it should look part of — the sidebar again, where
- * a task wears its project's colour — and gives way to the status colour when
- * the workspace is in trouble, which no cohesion is worth hiding.
+ * it sits in the row's text — and gives way to the status colour when the
+ * workspace is in trouble, which no cohesion is worth hiding. A working robot
+ * wears the primary colour wherever it is (see busyAttrs).
  */
 export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?: boolean; color?: string } = {}): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
 		const icon = autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
-		// The phase's own icon throughout, breathing while something is going on:
-		// claude at work, or the merge a task in Merging is in the middle of —
-		// which is what tells those apart from the merged ones they sit above on
-		// the board. A spinner's glyph is for a spinner; this one does not turn.
+		// The phase's own icon throughout, at work while something is going on:
+		// the robot typing while claude does, the merge icon breathing during the
+		// merge a task in Merging is in the middle of — which is what tells those
+		// apart from the merged ones they sit above on the board. A spinner's
+		// glyph is for a spinner; this one does not turn.
 		const busy = $t.working || $t.phase === 'merge';
 		A(`span display:inline-flex flex-shrink:0 fg:${color && activity.color !== 'danger' ? color : `$s-${activity.color}`}`, () => {
 			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
-			icon({ size: '1.1em', attrs: busy ? 'animation: pulse 1.6s ease-in-out infinite;' : undefined });
+			icon({ size: '1.1em', attrs: busy ? busyAttrs(icon) : undefined });
 		});
 	});
 }

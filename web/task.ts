@@ -1,15 +1,16 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, bot, check, circleSlash, circleStop, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
 import { addFiles, attachments, dropAttachment, drawAttachments, imageFiles, takeAttachments, uploadPath } from './attach.ts';
+import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Keep the task's chat streaming for as long as the calling scope lives, and
@@ -420,13 +421,13 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
 			// The phase, worn as the icon it has on the board and in the sidebar,
 			// is the button for everything that is about the phase: a menu needs
-			// no glyph of its own where the state it acts on is one. It breathes
+			// no glyph of its own where the state it acts on is one. It works away
 			// while the agent has the task — the one phase that moves by itself.
 			A(() => {
 				const phase = $t.phase as Phase;
 				const icon = PHASE_ICONS[phase] ?? bot;
 				S.iconButton({
-					icon: () => icon({ attrs: phase === 'agent' ? 'animation: pulse 1.6s ease-in-out infinite;' : undefined }),
+					icon: () => icon({ attrs: phase === 'agent' ? busyAttrs(icon) : undefined }),
 					ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
 					tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
 					click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
