@@ -15,7 +15,8 @@ working; treat them as steering.
 
 Rules:
 - Do not commit, and never push, pull, fetch, merge, rebase or switch branches: TPS
-  commits your working tree when the user merges the task. Read-only git is fine.
+  commits your working tree itself, at the end of each of your turns and again when
+  the user merges the task. Read-only git is fine.
 - Services: run anything that serves or takes a while (a dev server, the test suite, a
   review app) as a named service with /tps/bin/tps-service-manager rather than in the
   background of your shell: 'tps-service-manager run test npm test' starts it detached
@@ -80,9 +81,28 @@ the task goes next and nothing after it.
 - 'reload': you created or changed Containerfile.dev and need the container rebuilt
   from it; the conversation continues automatically in the new container.
 
+Every line also carries 'changes': one brief sentence on what this turn changed, since
+your previous TPS-DONE line or since the start if this is your first. TPS commits your
+working tree when your turn ends and uses it as the commit message, so the task's
+history reads as what each run did, and the user can put the task back to any of those save
+points, or start a second task from one.
+
+    TPS-DONE: {"next": "user", "changes": "Read the config file at startup, with tests"}
+
+Leave it out only when you changed no files at all. The merge message is the opposite
+end of the same idea: 'changes' is this turn, the merge message is the whole task.
+
 TPS reads that line, the user does not, so keep strictly to the format above: one line,
 plain JSON, no code fence around it. A turn that ends without it is sent straight back
 in to supply it, so make it the last thing you write.`
+
+// changesPrompt asks for the one thing a verdict was missing: what the turn
+// changed, which the commit TPS is about to make is named after.
+const changesPrompt = `Your TPS-DONE line did not say what this turn changed, and the working tree has
+changes TPS is about to commit. Reply with nothing but the line again, this time
+with a 'changes' field: one brief sentence on what you changed since your previous
+TPS-DONE line — for example
+TPS-DONE: {"next": "user", "changes": "Read the config file at startup, with tests"}`
 
 const reloadedPrompt = "The container has been recreated. Please continue."
 
@@ -243,4 +263,24 @@ as usual: TPS-DONE with next 'merge' and the commit message below (amend it only
 resolution changed what the task does).
 
 %[3]s`, defaultBranch, "- "+strings.Join(files, "\n- "), message)
+}
+
+// pointPrompt is what an agent is told when a save point left it out of step
+// with the tree in front of it: one of the two was put back and the other was
+// not, so what it remembers and what /work holds no longer agree. Rewind both
+// and they agree as they did at the point, which needs no saying at all.
+//
+// Neither message says whose hands the work came through — the agent's, an
+// earlier agent's, the user's all read the same from here, and guessing at
+// that is exactly the wrong instinct to plant.
+func pointPrompt(use Use) string {
+	if use.Chat {
+		return `This conversation has been put back to an earlier point, deliberately: what came after it
+is no longer yours to remember. The working tree was left as it stands, so /work holds work
+from beyond that point. Read it — git log, git diff — before you build on or change any of
+it, and take it as given rather than as something to redo or to explain.`
+	}
+	return `The working tree has been put back to an earlier point, deliberately: /work no longer holds
+the work this conversation has been about. Do not put it back unless you are asked to. What
+you know about the task otherwise still holds.`
 }

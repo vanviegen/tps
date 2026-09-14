@@ -10,7 +10,7 @@ import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, busyAttrs, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Keep the task's chat streaming for as long as the calling scope lives, and
@@ -391,7 +391,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	// The log fills the column, with the icons floating over its top right
 	// corner: chrome that would otherwise cost the conversation a row.
 	A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
-		drawChat(pid, tid);
+		drawChat(pid, tid, $t);
 		// A neutral surface, opaque and rounded, so the log scrolls under them
 		// rather than through them.
 		A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
@@ -523,6 +523,14 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 			},
 		});
 	}) as HTMLElement;
+	// A message handed back by a revert or a fork lands here, in the field as
+	// it stands on screen.
+	onComposer(pid, tid, text => {
+		const el = area();
+		el.value = text;
+		el.dispatchEvent(new Event('input')); // grow it, and light the send button
+		el.focus();
+	});
 	area().addEventListener('paste', (e: ClipboardEvent) => {
 		const files = imageFiles(e.clipboardData);
 		if (!files.length) return; // a plain paste is the browser's to handle

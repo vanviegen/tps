@@ -40,7 +40,7 @@ kill -KILL "$p" 2>/dev/null || true
 // ChatEntry is one condensed line of a task's chat log. A tool call and its
 // result share a single entry: the result is merged in later, addressed by ID.
 type ChatEntry struct {
-	K         string     `json:"k"`                   // user | text | thinking | tool | note | result
+	K         string     `json:"k"`                   // user | text | thinking | tool | note | result | mark
 	ID        string     `json:"id,omitempty"`        // tool_use id; an entry re-sent with a known id replaces the original
 	Text      string     `json:"text,omitempty"`      // markdown (user/text/note), or a one-line brief (thinking/tool/result)
 	Name      string     `json:"name,omitempty"`      // tool name
@@ -50,6 +50,7 @@ type ChatEntry struct {
 	Detail    string     `json:"detail,omitempty"`    // full text (thinking/note)
 	ResDetail string     `json:"resDetail,omitempty"` // full result text
 	Error     bool       `json:"error,omitempty"`
+	Mark      *Mark      `json:"mark,omitempty"` // mark: the save point this entry is (see mark.go)
 	T         int64      `json:"t"`
 }
 
@@ -448,6 +449,7 @@ const doneMarker = "TPS-DONE:"
 type Done struct {
 	Next    string `json:"next"`              // user | merge | reload
 	Message string `json:"message,omitempty"` // the commit message, with next=merge
+	Changes string `json:"changes,omitempty"` // what this turn changed, for the save point's commit (see mark)
 }
 
 // TurnEnd is what a finished claude turn amounts to for the task.

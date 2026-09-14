@@ -577,6 +577,11 @@ func (t *Task) Assign(to string) error {
 	if err := t.ensureWorkspace(); err != nil {
 		return err
 	}
+	// A point before the first word is said, so that the first word can be
+	// taken back like any other: rewinding to it empties the log and hands the
+	// description back to the composer, the description being a message like
+	// any other once the task has left Plan.
+	t.mark("Start", "")
 	if to == "agent" {
 		e := newEntry("user")
 		e.Text = desc
@@ -643,6 +648,10 @@ func (t *Task) kick(text string) {
 		return
 	}
 	pickedUp := t.finishedL()
+	// The agent is being sent in, rather than carrying on: whatever is in the
+	// tree is not its doing, and becomes a commit of its own before it starts
+	// (see mark), so the point at the end of its run holds its work alone.
+	sendingIn := !t.agentPhaseL()
 	if t.info.Phase != PhaseMerge {
 		t.setPhaseL(PhaseAgent)
 	}
@@ -666,6 +675,9 @@ func (t *Task) kick(text string) {
 		if err := t.ensureWorkspace(); err != nil {
 			t.failKick("workspace failed", err)
 			return
+		}
+		if sendingIn {
+			t.mark("Human", "")
 		}
 		s, err := t.ensureSession()
 		if err != nil {
@@ -705,11 +717,24 @@ func (t *Task) stopSession(s *ChatSession) {
 	t.unlock()
 }
 
-// StopAgent hands the task to the human, interrupting any agent turn (or merge).
+// StopAgent is the user stopping the agent: the task goes to them, and what it
+// had got to becomes a save point to come back to.
 func (t *Task) StopAgent() error {
+	if t.stopAgent() {
+		t.mark("Agent", "stopped part-way")
+	}
+	return nil
+}
+
+// stopAgent hands the task to the human, interrupting any agent turn (or
+// merge), and reports whether it cut a turn short. No save point: the callers
+// here are clearing the way for something else — a merge, a close, a revert —
+// whose own work is what comes next.
+func (t *Task) stopAgent() bool {
 	t.lock()
 	s := t.session
-	if t.workingL() {
+	cutOff := t.workingL()
+	if cutOff {
 		// Its turn is about to be cut off mid-thought; whatever it was doing
 		// was left half done, which it has no other way of finding out.
 		t.queueL("stopped", stoppedPrompt)
@@ -723,7 +748,7 @@ func (t *Task) StopAgent() error {
 		t.setPhaseL(PhaseHuman)
 	}
 	t.unlock()
-	return nil
+	return cutOff
 }
 
 // MoveTo maps board drags onto the real actions. Dropped on Done, a task is
@@ -785,7 +810,7 @@ func (t *Task) MoveTo(phase Phase) error {
 // beside merging, and recommends merging.
 func (t *Task) Close() error {
 	defer t.p.m.work()()
-	_ = t.StopAgent()
+	t.stopAgent()
 	t.lock()
 	t.info.CommitMessage = ""
 	t.setPhaseL(PhaseClosed)
@@ -806,7 +831,7 @@ func (t *Task) Merge(message string) error {
 	if !t.hasWorkspace() {
 		return errors.New("The task has no workspace to merge: it is still in Plan, or finished already")
 	}
-	_ = t.StopAgent()
+	t.stopAgent()
 	t.lock()
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -937,7 +962,12 @@ const workSubject = "TPS task work"
 // tmpIndex is a place for a throwaway index, so the real one stays untouched;
 // the environment makes git use it (and make it: git wants none or a whole one).
 func (t *Task) tmpIndex() (env []string, cleanup func(), err error) {
-	f, err := os.CreateTemp(t.dir(), "index-*")
+	// Outside the task's own directory: a changes overview runs in the
+	// background (see refreshChanges) and can still be writing this while the
+	// task is being parked or thrown away, which would put a file back in a
+	// directory something else is busy emptying. Git wants no particular
+	// place for an index it is handed.
+	f, err := os.CreateTemp("", "tps-index-*")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1348,7 +1378,7 @@ func (t *Task) adoptL() {
 // Discard: back to plan, all work is thrown away (the UI asks for confirmation).
 func (t *Task) Discard() error {
 	defer t.p.m.work()()
-	_ = t.StopAgent()
+	t.stopAgent()
 	t.down()
 	rmContainer(t.containerName()) // also one the daemon never knew about
 	nestPurge(t.containerName(), nestDir(t.dir()))
@@ -1368,7 +1398,7 @@ func (t *Task) Discard() error {
 
 func (t *Task) Delete() error {
 	defer t.p.m.work()()
-	_ = t.StopAgent()
+	t.stopAgent()
 	t.down()
 	rmContainer(t.containerName())
 	nestPurge(t.containerName(), nestDir(t.dir()))
@@ -1981,14 +2011,20 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	}
 	t.unlock()
 	go t.refreshChanges()
+	// Whether the turn left anything behind, for the save point it is about
+	// to become and for the summary that point is labelled with.
+	dirty := false
+	if t.hasWorkspace() {
+		dirty, _ = dirtyTree(t.repoDir())
+	}
 	t.lock()
 	if !t.agentPhaseL() { // stopped or dragged elsewhere meanwhile
 		t.unlock()
 		return
 	}
-	next := ""
+	next, changes := "", ""
 	if end.Done != nil {
-		next = end.Done.Next
+		next, changes = end.Done.Next, end.Done.Changes
 		t.doneNudges = 0
 	}
 	if next == "reload" && !t.overBudgetL() {
@@ -2025,6 +2061,17 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.kick(donePrompt(end.Bad))
 		return
 	}
+	// A verdict that says nothing of what the turn changed leaves the revert
+	// point about to be made with an empty commit message; ask for one, as
+	// long as there is something to describe and a point to be made at all.
+	autoMerging := next == "merge" && t.info.AutoMerge != nil && *t.info.AutoMerge
+	if next != "" && changes == "" && dirty && !autoMerging && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
+		t.doneNudges++
+		t.unlock()
+		t.note("the agent's TPS-DONE line said nothing about what this turn changed; asking for a line")
+		t.kick(changesPrompt)
+		return
+	}
 	t.doneNudges = 0
 	if t.info.Phase == PhaseMerge { // the agent was resolving conflicts
 		msg := t.info.CommitMessage
@@ -2036,8 +2083,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			if len(t.info.Conflicts) > 0 { // the prompt said it; the next turn is told again
 				t.queueL("conflicts", conflictsPrompt(t.info.Conflicts))
 			}
-			t.setPhaseL(PhaseHuman)
-			t.unlock()
+			t.endRunL(changes)
 			return
 		}
 		if m := strings.TrimSpace(end.Done.Message); m != "" {
@@ -2066,6 +2112,16 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	if t.overBudgetL() {
 		t.noteBudgetL()
 	}
+	t.endRunL(changes)
+}
+
+// endRunL closes an agent's run: a save point on what it did (which needs the
+// lock free, being all git) and the task back with the human. Expects the
+// lock, and returns without it.
+func (t *Task) endRunL(changes string) {
+	t.unlock()
+	t.mark("Agent", changes)
+	t.lock()
 	t.setPhaseL(PhaseHuman)
 	t.unlock()
 }
@@ -2086,6 +2142,9 @@ func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
 	if t.agentPhaseL() && !t.stopping {
 		if code != 0 {
 			t.note(fmt.Sprintf("claude exited unexpectedly (%d)", code), errTail)
+			// Whatever it had got to is in the tree and nowhere else; a point
+			// of its own is what makes it something to come back to.
+			go t.mark("Agent", "claude exited part-way")
 		}
 		t.setPhaseL(PhaseHuman)
 	}

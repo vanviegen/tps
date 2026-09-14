@@ -1,8 +1,10 @@
 import A from 'aberdeen';
+import * as route from 'aberdeen/route';
 import { Marked } from 'marked';
 import * as S from 'staffa';
+import { gitFork, undo2 } from 'staffa/icons.js';
 import { chatLog } from './conn.ts';
-import { ELLIPSIS } from './util.ts';
+import { cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escape = (text: string) => text.replace(/[&<>"]/g, c => ESCAPES[c]);
@@ -31,14 +33,14 @@ export const md = new Marked({
  * messages as markdown; thinking, tool calls (call and result on one line)
  * and TPS notes as compact one-liners that open a dialog with the whole thing.
  */
-export function drawChat(pid: string, tid: string): void {
+export function drawChat(pid: string, tid: string, $t: any): void {
 	const $chat = chatLog(pid, tid);
 	// Content-sized grid rows: as flex or auto-row items, the one-liners (which
 	// clip their overflow) would be squashed to nothing once the log overflows.
 	// The single column is capped at the space available, so nothing in the log
 	// can push the left column wider than it is.
 	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2', () => {
-		A.onEach($chat, ($e: any) => drawEntry($e));
+		A.onEach($chat, ($e: any) => drawEntry($e, pid, tid, $t));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
 	let stick = true;
@@ -65,7 +67,7 @@ const markdown = A.insertCss({
 	img: 'max-width:100% height:auto',
 });
 
-function drawEntry($e: any): void {
+function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 	const line = (draw: () => void, opens = false) =>
 		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', () => detailDialog($e), draw) : A(`small ${ELLIPSIS}`, draw);
 	const prefix = (text: string) => A('b fg:$s-accent text=', text);
@@ -99,7 +101,91 @@ function drawEntry($e: any): void {
 		case 'result':
 			line(() => A(`span ${$e.error ? 'fg:$s-danger' : ''} text=`, $e.text));
 			break;
+		case 'mark':
+			drawMark($e, pid, tid, $t);
+			break;
 	}
+}
+
+/**
+ * A save point: the rule between two runs, wearing the commit it holds and
+ * what the run that ended there changed. The whole line is the button — what
+ * there is to do with a point is a choice inside the dialog it opens, not a
+ * row of verbs each needing explaining in the width of a chat log. A task
+ * whose workspace is gone (merged, or closed) has no point to use.
+ */
+function drawMark($e: any, pid: string, tid: string, $t: any): void {
+	const row = (rule: boolean) => (): void => {
+		A('span flex:none display:flex', () => gitFork({ size: '1em' }));
+		A('small flex:none #Save point');
+		A('small flex:none', () => A('code text=', shortSha($e)));
+		A(`small ${ELLIPSIS} min-width:0 text=`, $e.text);
+		if (rule) A('div flex:1 min-width:$3 h:1px bg:$s-faint');
+	};
+	const attrs = 'div display:flex align-items:center gap:$2 mt:$1 fg:$s-muted';
+	A(() => {
+		// Nothing to put back or to fork from once the workspace is gone
+		// (merged, or closed): the line stays, as the record of the run.
+		if (!hasWorkspace($t)) return void A(attrs, row(true));
+		A(attrs, openable, 'click=', () => pointDialog(pid, tid, $e, row(false)), row(true));
+	});
+}
+
+const shortSha = ($e: any) => ($e.mark?.commit ?? '').slice(0, 7);
+
+/**
+ * What to do with a save point. Two things can be put back to it and they are
+ * separate: the conversation — the log and what claude remembers — and the
+ * working tree. Both is the plain undo; either alone is the interesting half,
+ * a new mind on today's code or the whole discussion of code that is gone.
+ * Forking does the same to a copy and leaves this task be, which is the only
+ * difference between the two buttons.
+ *
+ * This is also the confirmation a revert needs: what it costs is written where
+ * it is chosen, and the button that does it is red.
+ */
+function pointDialog(pid: string, tid: string, $e: any, title: () => void): void {
+	const $use = A.proxy({ chat: true, work: true, fork: false });
+	const nothing = () => !$use.chat && !$use.work;
+	const box = (bind: 'chat' | 'work', label: string, help: string) => S.checkbox({
+		label, help, checked: A.peek($use, bind),
+		change: (e: Event) => { $use[bind] = (e.target as HTMLInputElement).checked; },
+	});
+	void S.dialog({
+		attrs: 'w:34rem',
+		header: () => A('div display:flex align-items:center gap:$2 min-width:0', title),
+		content: close => S.form({
+			submit: async () => {
+				const done = await cmd('usePoint', { pid, tid, entry: $e.id, fork: $use.fork, chat: $use.chat, work: $use.work });
+				close();
+				if (!done) return;
+				restoreDraft(pid, done.tid as string, done.draft as string);
+				if (done.tid !== tid) route.go(pathTo(pid, done.tid as string));
+			},
+			content: () => {
+				box('chat', 'Rewind the conversation',
+					'The chat log and what the agent remembers both end here. Whatever you said after it comes back to the message box.');
+				box('work', 'Revert the code',
+					'The working tree goes back to the files exactly as they were at this point.');
+			},
+			actions: () => {
+				const go = (fork: boolean) => { $use.fork = fork; };
+				// Quietest of the three, and first, so the two that do something
+				// sit together against the corner.
+				S.button({ content: 'Cancel', attrs: '.neutral fg:$s-muted', click: close });
+				A(() => S.button({
+					content: 'Fork', icon: gitFork, type: 'submit', attrs: '.outlined', disabled: nothing(),
+					tooltip: nothing() ? 'Pick at least one of the two' : 'Do it to a second task in this project, and leave this one exactly as it is',
+					click: () => go(true),
+				}));
+				A(() => S.button({
+					content: 'Revert', icon: undo2, type: 'submit', attrs: '.danger', disabled: nothing(),
+					tooltip: nothing() ? 'Pick at least one of the two' : 'Do it to this task. What it undoes is gone for good',
+					click: () => go(false),
+				}));
+			},
+		}),
+	});
 }
 
 /**

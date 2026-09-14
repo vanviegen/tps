@@ -489,6 +489,13 @@ type ref struct {
 	Text    string `json:"text"`
 	Phase   Phase  `json:"phase"`
 	Message string `json:"message"`
+	// What a use of a save point acts on: the point in the chat log, whether it
+	// is a fork rather than this task put back, and how much to bring along
+	// (see mark.go).
+	Entry string `json:"entry"`
+	Fork  bool   `json:"fork"`
+	Chat  bool   `json:"chat"`
+	Work  bool   `json:"work"`
 	// What a dashboard attached to a chat message (see uploads.go).
 	Files []ChatFile `json:"files"`
 }
@@ -580,6 +587,17 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"stopService":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
 		"restartService": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
 		"reloadTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
+		// Reverting and forking are one command: both put a save point's state
+		// somewhere, and only differ in where (see UsePoint). The reply names
+		// the task it landed in, so the dashboard can go there, and the message
+		// the undone work was set off by, for the composer to hand back.
+		"usePoint": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			tid, draft, err := t.UsePoint(r.Entry, Use{Fork: r.Fork, Chat: r.Chat, Work: r.Work})
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"tid": tid, "draft": draft}, nil
+		}),
 		// Exit once idle and let the UI start the binary it wants; containers stay up and are reused.
 		"restart": func(raw json.RawMessage) (any, error) {
 			m.scheduleRestart()

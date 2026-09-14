@@ -54,6 +54,11 @@ agent starts run as named services with their output kept, behind a play
 button. The ports the image exposes are forwarded to your browser, so one click
 opens the app the agent is working on.
 
+**Revert and fork conversations.** The agent's tree is committed at the end of
+each of its turns, and the chat log shows those as points to go back to. Rewind
+the conversation to one, or the code, or both — in this task, or into a second
+one that leaves this one alone.
+
 **Follow-ups remember.** A merged task keeps its conversation: send it a
 message later and the agent continues in a new clone, knowing what it did the
 first time.

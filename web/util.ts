@@ -379,3 +379,27 @@ export function setChatDraft(pid: string, tid: string, text: string): void {
 		localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
 	} catch {} // storage off or full: a draft is a convenience, not data
 }
+
+// The composers on screen, by task: a draft handed back from somewhere other
+// than the field itself has to reach the field the user is looking at, and
+// the textarea's value is not drawn from reactive state (see drawInputBar).
+const composers: Record<string, (text: string) => void> = {};
+
+/** Register this task's composer for as long as it is drawn. */
+export function onComposer(pid: string, tid: string, fill: (text: string) => void): void {
+	const key = `${pid}/${tid}`;
+	composers[key] = fill;
+	A.clean(() => { if (composers[key] === fill) delete composers[key]; });
+}
+
+/**
+ * Put a message back in a task's composer: what the user said after a revert
+ * point is theirs again once the run it set off is undone or forked away, to
+ * send as it stands or to word differently. A draft they are part-way through
+ * writing wins — this is a convenience, and overwriting that would not be one.
+ */
+export function restoreDraft(pid: string, tid: string, text: string): void {
+	if (!text.trim() || chatDraft(pid, tid).trim()) return;
+	setChatDraft(pid, tid, text);
+	composers[`${pid}/${tid}`]?.(text);
+}
