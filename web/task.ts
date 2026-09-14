@@ -92,17 +92,40 @@ export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEn
 	];
 }
 
-/** Move a task to a phase, confirming when that discards work, and asking how it should end when it ends. */
-export async function moveTask(pid: string, tid: string, $t: any, phase: string): Promise<void> {
-	if (phase === $t.phase) return;
+/**
+ * Move a task to a phase, confirming when that discards work or overtakes a
+ * wait, and asking how it should end when it ends. Every way a task is put
+ * somewhere by hand goes through here, so the questions are asked once and
+ * for all of them; the answer says whether the move was made, for callers
+ * with something to do after it.
+ */
+export async function moveTask(pid: string, tid: string, $t: any, phase: string): Promise<boolean> {
+	if (phase === $t.phase) return false;
 	if (phase === 'plan') {
 		const busy = $t.working ? ' The agent is still working; it is stopped.' : '';
-		if (!(await S.confirm(`Move this task back to Plan? All work is discarded: the workspace, the chat, and every unmerged change.${busy}`))) return;
+		if (!(await S.confirm(`Move this task back to Plan? All work is discarded: the workspace, the chat, and every unmerged change.${busy}`))) return false;
 	} else if (phase === 'done' || phase === 'closed' || phase === 'merge') {
-		if ($t.phase === 'merge') return; // already on its way there
-		return doneDialog(pid, tid, $t);
-	}
+		if ($t.phase !== 'merge') doneDialog(pid, tid, $t); // in Merging it is already on its way there
+		return false;
+	} else if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
 	void cmd('moveTask', { pid, tid, phase });
+	return true;
+}
+
+/**
+ * A task that follows others, handed to the agent by hand: it was going to
+ * wait for them and start in a workspace with their merged work in it, so
+ * getting ahead of that is worth a question. Once they are all done (or gone)
+ * there is nothing to overtake and nothing is asked — closing the plan would
+ * have sent it off anyway.
+ */
+async function confirmOvertake(pid: string, $t: any): Promise<boolean> {
+	const pending = A.peek(() => autoStarts($t) ? waitingFor(pid, $t) : []);
+	if (!pending.length) return true;
+	const names = A.peek(() => pending.map(d => `"${taskName(pid, d)}"`));
+	const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+	return S.confirm(`This task is set to start after ${list}, ${names.length > 1 ? 'which are not done yet' : 'which is not done yet'}. `
+		+ `Send it to the agent now? Its workspace is made at once, off the branch as it stands, so it will not have their work in it.`);
 }
 
 /**
@@ -353,7 +376,7 @@ async function assignTask(pid: string, tid: string, $t: any, phase: Phase): Prom
 	// The editor's debounce may still owe the server the last keystroke, and
 	// the agent is about to be handed whatever the server has.
 	if (!(await cmd('updateTask', { pid, tid, description: (A.peek($t, 'description') ?? '').trim() }))) return;
-	void cmd('moveTask', { pid, tid, phase });
+	if (!(await moveTask(pid, tid, $t, phase))) return;
 	// Handed off to the agent, there is nothing left to do here: the board is
 	// more use than watching the workspace come up in the right column. Taken
 	// on yourself, the task's own page is, and that is where you already are.
@@ -458,7 +481,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
 				A('span flex:1 text=', `⚠ conflicts in ${$t.conflicts.join(', ')}: putting this task's work onto the latest ${branch} did not merge cleanly there. `
 					+ 'Resolve the markers in VS Code, or send in the agent, which is told about them.');
-				S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void cmd('moveTask', { pid, tid, phase: 'agent' }) });
+				S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void moveTask(pid, tid, $t, 'agent') });
 			});
 		} else if ($t.commitMessage) {
 			A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
