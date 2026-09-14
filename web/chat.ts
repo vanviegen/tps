@@ -93,10 +93,12 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 			}, true);
 			break;
 		case 'note':
+			// A note clips like the rest, and some carry an error behind them:
+			// either way the dialog is where the whole of it is read.
 			line(() => {
 				prefix('tps');
 				A('text=', ' · ' + $e.text);
-			}, !!$e.detail);
+			}, true);
 			break;
 		case 'result':
 			line(() => A(`span ${$e.error ? 'fg:$s-danger' : ''} text=`, $e.text));
@@ -228,11 +230,15 @@ function oldFields(detail: string): { k: string; v: string }[] {
  * the dialog is the only thing that scrolls.
  */
 function detailDialog($e: any): void {
-	const title = $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps: ' + $e.text : 'Thinking';
+	const title = $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps' : 'Thinking';
 	const section = (header: string, content: () => void) =>
 		S.box({ header, attrs: 'flex-shrink:0', contentAttrs: 'p:0', content });
 	// Wider than a staffa dialog goes by itself: these hold code, not prose.
-	void S.dialog({ header: title, attrs: 'w:min(94vw,84rem) max-width:min(94vw,84rem)', content: () => {
+	// A note carrying nothing but its own sentence is prose, and reads better
+	// at the width a dialog has of its own.
+	const wide = $e.k !== 'note' || !!$e.detail;
+	const attrs = wide ? 'w:min(94vw,84rem) max-width:min(94vw,84rem)' : undefined;
+	void S.dialog({ header: title, attrs, content: () => {
 		if ($e.k === 'tool') {
 			const fields = $e.req ?? ($e.detail ? oldFields($e.detail) : []);
 			section('Request', () => {
@@ -247,6 +253,11 @@ function detailDialog($e: any): void {
 			if ($e.resDetail !== undefined) {
 				section($e.error ? 'Response (error)' : 'Response', () => codeBlock($e.resDetail));
 			}
+		} else if ($e.k === 'note') {
+			// The note is prose and wraps under the header; what it carries (a
+			// build log, an error) is not, and keeps its own lines in a box.
+			A('p m:0 overflow-wrap:anywhere text=', $e.text);
+			if ($e.detail) section('Details', () => codeBlock($e.detail));
 		} else if ($e.detail !== undefined) {
 			section(title, () => codeBlock($e.detail));
 		}
