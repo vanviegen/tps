@@ -77,10 +77,19 @@ function closeEntry(): { label: string; act: () => void } | undefined {
  * project's name and the task's phase, as matching is on the label alone —
  * and it takes a term at a time, from the start of a word, so "tps hum" finds
  * what waits for you here.
+ *
+ * The project you are in comes first, its whole block of entries with it: the
+ * place you want next is nearly always beside the one you are at, so a couple
+ * of letters of a task name lands there without a like-named task elsewhere
+ * standing in front of it.
  */
 function destinations(): Destination[] {
-	const out: Destination[] = [];
+	const here = selection().pid;
+	const blocks: Destination[][] = [];
 	for (const [pid, $p] of sortedProjects()) {
+		const out: Destination[] = [];
+		if (pid === here) blocks.unshift(out);
+		else blocks.push(out);
 		out.push({ value: pathTo(pid), label: $p.name });
 		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › ${branchLabel($p)}` });
 		out.push({ value: CREATE + pid, label: `${$p.name} › Create task` });
@@ -94,7 +103,7 @@ function destinations(): Destination[] {
 			out.push({ value: pathTo(pid, tid), label: `${$p.name} › ${taskTitle($t)} · ${phase}` });
 		}
 	}
-	return out;
+	return blocks.flat();
 }
 
 /**
