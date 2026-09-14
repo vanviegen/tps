@@ -96,6 +96,78 @@ TPS reads that line, the user does not, so keep strictly to the format above: on
 plain JSON, no code fence around it. A turn that ends without it is sent straight back
 in to supply it, so make it the last thing you write.`
 
+// reviewSystem is the reviewer's system prompt, in place of systemPrompt: it
+// has one job, one message that counts, and no need of anything TPS tells the
+// task's own agent about verdicts, services or containers.
+const reviewSystem = `You are reviewing another agent's finished work on a coding task, before it is committed.
+Your cwd /work is a clone of the project repository with that work in it, uncommitted. The
+message you are given names the commit the work started from, and quotes what the user asked for.
+
+Read the change — the diff, and the code around it that it has to live with — and judge it on:
+
+- Alignment: it does what the user asked for, all of it, and nothing they did not ask for.
+- Scope: nothing beyond the task. No unrequested features, options, configurability, refactors,
+  renames or reformatting, and no files that did not need touching.
+- Size: the smallest change that does the job. Look for code that could be left out, logic the
+  project already has elsewhere, needless abstraction and indirection, dead code, and comments
+  that only restate what the code says.
+- Architecture: it fits how this project is built and named, rather than bringing a style of its own.
+- Correctness: bugs, and what it breaks around it. Only what you can point at, not what you suspect.
+
+You may make small, obviously correct fixes yourself — a typo, a missed rename, a stray debug
+line — and say so. Anything larger is for the agent, not for you: do not restructure the work,
+and do not undo it. Do not commit, push, pull, rebase or switch branches.
+
+Your last message is the review; everything you say before it is thrown away, so leave nothing
+there that has to be read. It is read by a machine, and has exactly two allowed shapes:
+
+- The work is good as it stands, your own small fixes included: your last message is the single
+  word Accept. Nothing else whatsoever — no praise, no caveats, no "Accept, but…", no account of
+  what you did or what you looked at.
+- Otherwise: a bulleted list, one bullet for each thing that must change, saying what is wrong,
+  where, and what it should be instead. Nothing that is not a change to make — no praise, no
+  summary, no restating of the task, no observations. If it is not worth another round of work,
+  it does not belong in the list.`
+
+// reviewPrompt is the reviewer's one message: the work to read, everything the
+// user asked for, and the commit message the agent proposes for it.
+func reviewPrompt(base, message string, said []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Review the work in /work: it is uncommitted, on top of commit %[1]s, so `git diff %[1]s` "+
+		"and the untracked files `git status` lists are the whole of it. Nothing outside that is yours to judge.\n\n", base)
+	b.WriteString("Below is what the user asked for, in their own words: their messages and nothing else. Between " +
+		"them the agent worked, reported back and was steered, none of which is shown here — so read them as the " +
+		"whole of what was wanted, each later one refining or overruling what came before.\n")
+	for i, text := range said {
+		if i == 0 {
+			b.WriteString("\n--- the user asked for ---\n")
+		} else {
+			b.WriteString("\n--- then the agent worked, and the user said ---\n")
+		}
+		b.WriteString(text + "\n")
+	}
+	if len(said) == 0 {
+		b.WriteString("\n(nothing was written down; go by the commit message below)\n")
+	}
+	b.WriteString("--- end of what the user asked for ---\n\nThe agent proposes to commit the work as:\n\n" + message + "\n")
+	return b.String()
+}
+
+// reviewFeedbackPrompt hands the agent what a review asked for. The reviewer
+// never spoke to the user and read the work cold, so the agent — which knows
+// what was asked and what was tried — is the one to weigh what it says.
+func reviewFeedbackPrompt(feedback string) string {
+	return `You reported this task ready, and TPS had a second agent read the work over before committing it.
+Against what the user asked for, it asks for this:
+
+` + feedback + `
+
+That review is automated: it never spoke to the user, and it may well have misread what the task
+is for. Take on what it is right about and leave what does not match what the user actually wants,
+saying which and why in a line. Then end your turn as usual: 'merge' when the work is ready (it is
+reviewed once more), or 'user' if this needs the user rather than you.`
+}
+
 // changesPrompt asks for the one thing a verdict was missing: what the turn
 // changed, which the commit TPS is about to make is named after.
 const changesPrompt = `Your TPS-DONE line did not say what this turn changed, and the working tree has

@@ -34,7 +34,17 @@ big desktop while you steer from the laptop.
 **Merges that land themselves.** A task becomes one commit on the default
 branch, with a merge message proposed by the agent. If the branch moved on, the work
 is put on top of it first, as a patch, and a conflict is handed to the task's agent
-to resolve. Tasks can also be configured to auto-merge when the agent is done.
+to resolve. Tasks can also be configured to merge as soon as the agent is done,
+or as soon as a review of its work accepts it.
+
+**A second pair of eyes.** Work the agent reports ready can be read over by a
+reviewing agent first: against what you actually asked for, and for scope, size
+and architecture. It fixes the small and obvious itself, and then either accepts
+the work or sends it back to the agent with a list of what to change. You say
+what becomes of finished work at each point it can go more than one way, so a
+task can be left to review and merge itself, or to bring you the review and let
+you decide. What a last review still objects to lands in your message box, to
+send on, reword or drop.
 
 **An environment you define and the agent extends.** A `Containerfile.dev` in
 your repository is the image tasks run in, with nothing TPS-specific in it.

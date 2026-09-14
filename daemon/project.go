@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -17,24 +18,26 @@ import (
 // copied at creation, not consulted afterwards: changing them says what the
 // next tasks start out with, and leaves the ones that exist alone.
 type TaskDefaults struct {
-	Model     string   `json:"model,omitempty"`
-	Budget    *float64 `json:"budget,omitempty"`
-	AutoMerge bool     `json:"autoMerge,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	ReviewModel string   `json:"reviewModel,omitempty"`
+	OnReady     Answer   `json:"onReady,omitempty"`
+	OnAccept    Answer   `json:"onAccept,omitempty"`
+	ReviewLoops int      `json:"reviewLoops,omitempty"`
+	Budget      *float64 `json:"budget,omitempty"`
 }
 
 // ProjectInfo is the persisted part of a project (in projects.json). The list
 // belongs to the host: every dashboard connecting to this daemon sees the same
 // projects, under the same names.
 type ProjectInfo struct {
-	Dir       string               `json:"dir"`
-	Name      string               `json:"name"`
-	Color     string               `json:"color,omitempty"`    // the accent the dashboards show it in, as #rrggbb
-	Initials  string               `json:"initials,omitempty"` // one to three letters standing for it where there is no room for the name; empty: made from the name
-	Defaults  TaskDefaults         `json:"defaults"`
-	AutoMerge *bool                `json:"autoMerge,omitempty"` // where the merge setting sat before Defaults; see newProject
-	Activity  int64                `json:"activity,omitempty"`  // unix ms of the last change to a task
-	NextTask  int                  `json:"nextTask,omitempty"`
-	Tasks     map[string]*TaskInfo `json:"tasks"`
+	Dir      string               `json:"dir"`
+	Name     string               `json:"name"`
+	Color    string               `json:"color,omitempty"`    // the accent the dashboards show it in, as #rrggbb
+	Initials string               `json:"initials,omitempty"` // one to three letters standing for it where there is no room for the name; empty: made from the name
+	Defaults TaskDefaults         `json:"defaults"`
+	Activity int64                `json:"activity,omitempty"` // unix ms of the last change to a task
+	NextTask int                  `json:"nextTask,omitempty"`
+	Tasks    map[string]*TaskInfo `json:"tasks"`
 }
 
 // Project: a registered git repo plus its tasks.
@@ -90,21 +93,11 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if info.Defaults.Model == "" {
 		info.Defaults.Model = DefaultModel
 	}
+	if info.Defaults.ReviewModel == "" {
+		info.Defaults.ReviewModel = DefaultModel
+	}
 	if !colorRe.MatchString(info.Color) {
 		info.Color = m.pickColorL()
-	}
-	// The merge setting used to sit on the project and be read at merge time,
-	// a task's own overriding it. It is a default for new tasks now, so the
-	// tasks that leaned on it are handed what they had.
-	if info.AutoMerge != nil {
-		info.Defaults.AutoMerge = *info.AutoMerge
-		for _, t := range info.Tasks {
-			if t.AutoMerge == nil {
-				auto := *info.AutoMerge
-				t.AutoMerge = &auto
-			}
-		}
-		info.AutoMerge = nil
 	}
 	if info.NextTask == 0 {
 		for tid := range info.Tasks {
@@ -151,6 +144,12 @@ func (p *Project) init() error {
 		p.m.mu.Lock()
 		agentPhase := info.Phase == PhaseMerge || info.Phase == PhaseAgent
 		switch {
+		case info.Phase == PhaseReview:
+			// The reviewer died with the daemon, and it was nobody's
+			// conversation: there is nothing to pick back up, and the agent's
+			// own turn had ended before it started.
+			t.note("TPS restarted during the automated review; the task is yours")
+			info.Phase = PhaseHuman
 		case agentPhase && info.LimitUntil > 0:
 			// Waiting out a usage limit rather than working: no turn was cut
 			// off, and the wait is the daemon's to take back up.
@@ -162,10 +161,6 @@ func (p *Project) init() error {
 			t.queueL("restart", restartedPrompt) // saves the phase above with it
 		default:
 			info.LimitUntil = 0 // a wait the phase it was left in outlived
-		}
-		if info.Merged { // an older TPS kept it as a flag; it is a note for the agent now (see merge)
-			t.queueL("merged", mergedPrompt(p.defaultBranch))
-			info.Merged = false
 		}
 		t.adoptL()
 		t.publishL()
@@ -333,8 +328,17 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		if model, ok := defaults["model"].(string); ok && model != "" {
 			d.Model = model
 		}
-		if auto, ok := defaults["autoMerge"].(bool); ok {
-			d.AutoMerge = auto
+		if model, ok := defaults["reviewModel"].(string); ok && model != "" {
+			d.ReviewModel = model
+		}
+		if answer, ok := parseAnswer(defaults["onReady"], AnswerHuman, AnswerReview, AnswerMerge); ok {
+			d.OnReady = answer
+		}
+		if answer, ok := parseAnswer(defaults["onAccept"], AnswerHuman, AnswerMerge); ok {
+			d.OnAccept = answer
+		}
+		if loops, ok := defaults["reviewLoops"]; ok {
+			d.ReviewLoops = parseLoops(loops)
 		}
 		if budget, ok := defaults["budget"]; ok {
 			d.Budget = parseBudget(budget)
@@ -362,8 +366,11 @@ func (p *Project) pubLook() {
 func (p *Project) pubDefaults() {
 	d := p.info.Defaults
 	p.pubDefault("model", d.Model)
+	p.pubDefault("reviewModel", d.ReviewModel)
+	p.pubDefault("onReady", string(cmp.Or(d.OnReady, defaultOnReady)))
+	p.pubDefault("onAccept", string(cmp.Or(d.OnAccept, defaultOnAccept)))
+	p.pubDefault("reviewLoops", d.ReviewLoops)
 	p.pubDefault("budget", optional(d.Budget))
-	p.pubDefault("autoMerge", d.AutoMerge)
 }
 
 func (p *Project) pubDefault(field string, value any) {
@@ -381,7 +388,8 @@ func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	// The project's defaults are what a task starts out with; whatever the
 	// partial names wins.
 	d := p.info.Defaults // a copy, so the task's settings are its own
-	info := &TaskInfo{Model: d.Model, AutoMerge: &d.AutoMerge, Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
+	info := &TaskInfo{Model: d.Model, ReviewModel: d.ReviewModel, OnReady: d.OnReady, OnAccept: d.OnAccept,
+		ReviewLoops: d.ReviewLoops, Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
 	if d.Budget != nil {
 		budget := *d.Budget
 		info.Budget = &budget

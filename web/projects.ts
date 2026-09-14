@@ -306,7 +306,7 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 			});
 			S.textline({
 				label: 'Initials', value: A.peek(() => projectInitials($p)),
-				help: 'One to three letters to stand for the project where its name does not fit; emptied, they are made from the name again.',
+				help: 'For where the name does not fit. Empty: made from the name.',
 				input: debounce(600, (e: Event) => save({ initials: (e.target as HTMLInputElement).value.trim().slice(0, 3) })),
 			});
 			drawColorField(pid, $p);
@@ -314,7 +314,12 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 		// A section of its own, boxed and headed, so what it is about is not
 		// mistaken for more of the project's own settings.
 		S.box({
-			header: 'Default task settings', attrs: 'mt:0',
+			// A box clips what it does not fit, and a flex item that clips is
+			// allowed to shrink below its content: squeezed by the dialog's
+			// height, this one would swallow its own last fields instead of
+			// letting the dialog scroll. It keeps its height, and the dialog does
+			// the scrolling.
+			header: 'Default task settings', attrs: 'mt:0 flex-shrink:0',
 			contentAttrs: 'display:flex flex-direction:column gap:$2',
 			content: () => {
 				A('p.s-help m:0 #Copied into every new task of this project; the tasks that exist keep what they have.');

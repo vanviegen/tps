@@ -1,17 +1,18 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bellOff, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, monitor, server, user } from 'staffa/icons.js';
+import { bellOff, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, monitor, scanEye, server, user } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state, send } from './conn.ts';
 
 /**
- * The phases a task can be in. Muted is Human with the task put away: it waits
+ * The phases a task can be in. Review is a second agent reading the work over
+ * before it is handed on. Muted is Human with the task put away: it waits
  * for you too, but quietly — at the foot of the Human column, and out of the
  * sidebar. Closed is Done without the merge: the task is over, but its work
  * is kept as a patch rather than landing on the branch.
  */
-export const PHASES = ['plan', 'agent', 'human', 'muted', 'merge', 'done', 'closed'] as const;
+export const PHASES = ['plan', 'agent', 'review', 'human', 'muted', 'merge', 'done', 'closed'] as const;
 export type Phase = typeof PHASES[number];
 
 /**
@@ -19,13 +20,13 @@ export type Phase = typeof PHASES[number];
  * under the Human column, and Merging and Closed share the Done one — merging
  * is a moment on the way there, closing is arriving without it (see board.ts).
  */
-export const COLUMNS: Phase[] = ['plan', 'agent', 'human', 'done'];
+export const COLUMNS: Phase[] = ['plan', 'agent', 'review', 'human', 'done'];
 
 export const PHASE_LABELS: Record<Phase, string> = {
-	plan: 'Plan', agent: 'Agent', human: 'Human', muted: 'Muted', merge: 'Merging', done: 'Done', closed: 'Not merged',
+	plan: 'Plan', agent: 'Agent', review: 'Review', human: 'Human', muted: 'Muted', merge: 'Merging', done: 'Done', closed: 'Not merged',
 };
 
-export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, human: user, muted: bellOff, merge: gitMerge, done: check, closed: circleSlash };
+export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, review: scanEye, human: user, muted: bellOff, merge: gitMerge, done: check, closed: circleSlash };
 
 /** Whether the task has a workspace right now: what the daemon says it sees on disk. */
 export function hasWorkspace($t: any): boolean {
@@ -271,7 +272,7 @@ export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?
 		// merge a task in Merging is in the middle of — which is what tells those
 		// apart from the merged ones they sit above on the board. A spinner's
 		// glyph is for a spinner; this one does not turn.
-		const busy = $t.working || $t.phase === 'merge';
+		const busy = $t.working || $t.phase === 'merge' || $t.phase === 'review';
 		A(`span display:inline-flex flex-shrink:0 fg:${color && activity.color !== 'danger' ? color : `$s-${activity.color}`}`, () => {
 			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
 			icon({ size: '1.1em', attrs: busy ? busyAttrs(icon) : undefined });

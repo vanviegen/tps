@@ -50,6 +50,7 @@ type ChatEntry struct {
 	Detail    string     `json:"detail,omitempty"`    // full text (thinking/note)
 	ResDetail string     `json:"resDetail,omitempty"` // full result text
 	Error     bool       `json:"error,omitempty"`
+	Rev       bool       `json:"rev,omitempty"`  // said by the reviewer rather than by the task's own agent (see review.go)
 	Mark      *Mark      `json:"mark,omitempty"` // mark: the save point this entry is (see mark.go)
 	T         int64      `json:"t"`
 }
@@ -64,11 +65,24 @@ func newEntry(k string) *ChatEntry {
 	return &ChatEntry{K: k, T: time.Now().UnixMilli()}
 }
 
+// entry is newEntry for what this session says, which is the reviewer's or the
+// task's agent's own.
+func (s *ChatSession) entry(k string) *ChatEntry {
+	e := newEntry(k)
+	e.Rev = s.opts.Review
+	return e
+}
+
 type SessionOpts struct {
 	Container *Container
 	Model     string
 	System    string
-	Resume    bool     // --continue the task's most recent session
+	Resume    bool // --continue the task's most recent session
+	// Review: this session is the reviewer's rather than the task's own (see
+	// review.go). It starts blank and is never written down, so the task's own
+	// conversation stays the one a later --continue picks back up, and what it
+	// says is marked as its in the log.
+	Review    bool
 	Budget    *float64 // USD this session may spend (--max-budget-usd)
 	OnEntry   func(e *ChatEntry)
 	OnUpdate  func(e *ChatEntry) // an earlier entry (matched by id) changed
@@ -85,6 +99,7 @@ type ChatSession struct {
 	errTail      string
 	costReported float64               // cumulative session cost of the last result event
 	pending      map[string]*ChatEntry // tool calls awaiting their result
+	lastText     string                // the latest message of the turn under way, which is the reviewer's answer (see review.go)
 	done         *Done                 // the verdict of the turn under way, from its latest message
 	badDone      string                // why that message's TPS-DONE line was unusable
 	limited      bool                  // that message was claude reporting a usage limit
@@ -97,6 +112,12 @@ func newChatSession(opts SessionOpts) (*ChatSession, error) {
 	extra, budget := "", ""
 	if opts.Resume {
 		extra = "--continue"
+	}
+	if opts.Review {
+		// Nobody's conversation: it starts blank and is never written to the
+		// claude dir, so the session a later --continue picks back up is still
+		// the task's own.
+		extra = "--no-session-persistence"
 	}
 	if opts.Budget != nil {
 		budget = fmt.Sprintf("%.2f", *opts.Budget)
@@ -174,6 +195,7 @@ func (s *ChatSession) TurnActive() bool { return s.turnActive.Load() }
 
 func (s *ChatSession) Send(text string) {
 	s.turnActive.Store(true)
+	s.lastText = ""
 	s.limited, s.limitAt = false, time.Time{}
 	s.write(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": text}}}})
 }
@@ -246,18 +268,19 @@ func (s *ChatSession) onEvent(ev *event) {
 				s.done, s.badDone = done, bad
 				s.limited, s.limitAt = limitOf(b.Text)
 				if text = strings.TrimSpace(text); text != "" {
-					e := newEntry("text")
+					s.lastText = text
+					e := s.entry("text")
 					e.Text = text
 					s.opts.OnEntry(e)
 				}
 			case "thinking":
 				if text := strings.TrimSpace(b.Thinking); text != "" {
-					e := newEntry("thinking")
+					e := s.entry("thinking")
 					e.Text, e.Detail = oneLine(text, 110), clip(text)
 					s.opts.OnEntry(e)
 				}
 			case "tool_use":
-				e := newEntry("tool")
+				e := s.entry("tool")
 				e.ID, e.Name = b.ID, b.Name
 				e.Text, e.Arg = toolBits(b.Name, b.Input)
 				e.Req = reqFields(b.Input)
@@ -284,7 +307,7 @@ func (s *ChatSession) onEvent(ev *event) {
 				e.Res, e.ResDetail, e.Error = oneLine(text, 140), clip(resultText(b.Content)), b.IsError
 				s.opts.OnUpdate(e)
 			} else { // result without a tracked call (shouldn't normally happen)
-				e := newEntry("tool")
+				e := s.entry("tool")
 				e.Name, e.Res, e.ResDetail, e.Error = "result", oneLine(text, 140), clip(resultText(b.Content)), b.IsError
 				s.opts.OnEntry(e)
 			}
@@ -307,7 +330,7 @@ func (s *ChatSession) onEvent(ev *event) {
 		if ev.IsError && ev.Subtype != "" && ev.Subtype != "success" { // an auth failure comes labeled 'success'
 			why = " (" + strings.ReplaceAll(strings.TrimPrefix(ev.Subtype, "error_"), "_", " ") + ")"
 		}
-		e := newEntry("result")
+		e := s.entry("result")
 		e.Error = ev.IsError
 		if ev.IsError {
 			e.Text = "turn failed" + why
@@ -316,8 +339,8 @@ func (s *ChatSession) onEvent(ev *event) {
 		}
 		e.Text += " · " + secs + cost
 		s.opts.OnEntry(e)
-		end := TurnEnd{Cost: delta, Failed: ev.IsError, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt}
-		s.done, s.badDone, s.limited, s.limitAt = nil, "", false, time.Time{}
+		end := TurnEnd{Cost: delta, Failed: ev.IsError, Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt}
+		s.lastText, s.done, s.badDone, s.limited, s.limitAt = "", nil, "", false, time.Time{}
 		s.opts.OnTurnEnd(end)
 	}
 }
@@ -456,6 +479,7 @@ type Done struct {
 type TurnEnd struct {
 	Cost    float64   // USD spent since the previous turn
 	Failed  bool      // claude reported the turn itself as failed
+	Text    string    // the last message of the turn: the reviewer's answer (see review.go)
 	Done    *Done     // the verdict, if the last message carried a usable one
 	Bad     string    // why a TPS-DONE line that was there could not be used
 	Limited bool      // the last message was claude reporting a usage limit

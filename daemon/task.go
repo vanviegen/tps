@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,12 +25,13 @@ const (
 	PhaseAgent  Phase = "agent"
 	PhaseHuman  Phase = "human"
 	PhaseMuted  Phase = "muted"  // waiting for a human too, but parked: out of the sidebar and at the foot of its column
+	PhaseReview Phase = "review" // a second agent is reading the work over before it is handed on (see review.go)
 	PhaseMerge  Phase = "merge"  // TPS is merging: replaying the work onto the branch, or an agent resolving conflicts in it
 	PhaseDone   Phase = "done"   // merged: its work is on the branch and its workspace is gone
 	PhaseClosed Phase = "closed" // closed without merging: its work is kept as a patch, off the branch, and its workspace is gone
 )
 
-var phases = []Phase{PhasePlan, PhaseAgent, PhaseHuman, PhaseMuted, PhaseMerge, PhaseDone, PhaseClosed}
+var phases = []Phase{PhasePlan, PhaseAgent, PhaseReview, PhaseHuman, PhaseMuted, PhaseMerge, PhaseDone, PhaseClosed}
 
 type WorkStatus string
 
@@ -56,18 +58,57 @@ const (
 	maxLimitWaits = 12
 )
 
+// Answer is what a task does at one of the three moments where finished work
+// can go more than one way (see review.go): hand it to the user, merge it, or
+// have it read over first. Empty is the first of them, which is what a task
+// that says nothing does.
+type Answer string
+
+const (
+	AnswerHuman  Answer = "human"  // assign the task to the user
+	AnswerMerge  Answer = "merge"  // merge it, with the commit message the agent wrote
+	AnswerReview Answer = "review" // have a second agent read the work over first
+)
+
+// What a task that says nothing does: work an agent calls finished is read over
+// before anyone is asked to look at it, and what the review makes of it is the
+// user's to act on.
+const (
+	defaultOnReady  = AnswerReview
+	defaultOnAccept = AnswerHuman
+)
+
+// parseAnswer reads an answer as it arrives from a dashboard, and reports
+// whether it is one of those the question offers.
+func parseAnswer(raw any, offered ...Answer) (Answer, bool) {
+	s, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+	for _, a := range offered {
+		if Answer(s) == a {
+			return a, true
+		}
+	}
+	return "", false
+}
+
 // TaskInfo is the persisted part of a task (in projects.json).
 type TaskInfo struct {
 	Title         string   `json:"title"`
 	Description   string   `json:"description"`
 	Model         string   `json:"model"`
+	OnReady       Answer   `json:"onReady,omitempty"`     // what becomes of work the agent reports ready (see review.go)
+	OnAccept      Answer   `json:"onAccept,omitempty"`    // and of work a review accepts
+	ReviewLoops   int      `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent
+	ReviewLoop    int      `json:"reviewLoop,omitempty"`  // how often it has, since the user last said something
+	ReviewModel   string   `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is claude's own default
+	Review        string   `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
 	Phase         Phase    `json:"phase"`
 	Started       bool     `json:"started,omitempty"`       // a claude session exists in the task's claude dir
 	CommitMessage string   `json:"commitMessage,omitempty"` // proposed by the agent, awaiting the user's merge
-	Merged        bool     `json:"merged,omitempty"`        // older TPS: the work was committed since the agent's last turn; a pending note says so now (see init)
 	Spent         float64  `json:"spent,omitempty"`         // USD spent on agent runs so far
 	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
-	AutoMerge     *bool    `json:"autoMerge,omitempty"`     // merge without confirmation; copied from the project's defaults at creation
 	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
 	PhaseAt       int64    `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
@@ -128,6 +169,7 @@ type Task struct {
 	session       *ChatSession
 	sessionFlight *flight[*ChatSession]
 	sessionBudget *float64 // the budget setting the running claude was started under
+	sessionReview bool     // and whether it is the reviewer rather than the task's own agent (see review.go)
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
@@ -165,8 +207,16 @@ func (t *Task) touchL()               { t.lastActivity = time.Now() }
 // it reporting that the task's repo is not a repository.
 func (t *Task) hasWorkspace() bool { return exists(filepath.Join(t.repoDir(), ".git")) }
 
-// agentPhaseL: an agent may be at work, on the task itself or on merging it.
-func (t *Task) agentPhaseL() bool { return t.info.Phase == PhaseAgent || t.info.Phase == PhaseMerge }
+// onReadyL and onAcceptL: what this task does with work the agent reports
+// ready, and with work a review accepts.
+func (t *Task) onReadyL() Answer  { return cmp.Or(t.info.OnReady, defaultOnReady) }
+func (t *Task) onAcceptL() Answer { return cmp.Or(t.info.OnAccept, defaultOnAccept) }
+
+// agentPhaseL: an agent may be at work — on the task itself, on reviewing it,
+// or on merging it — so nothing is expected of the user meanwhile.
+func (t *Task) agentPhaseL() bool {
+	return t.info.Phase == PhaseAgent || t.info.Phase == PhaseReview || t.info.Phase == PhaseMerge
+}
 
 func (t *Task) lock()   { t.p.m.mu.Lock() }
 func (t *Task) unlock() { t.p.m.mu.Unlock() }
@@ -186,6 +236,11 @@ func (t *Task) publishL() {
 	t.pubL("title", t.info.Title)
 	t.pubL("description", t.info.Description)
 	t.pubL("model", t.info.Model)
+	t.pubL("onReady", string(t.onReadyL()))
+	t.pubL("onAccept", string(t.onAcceptL()))
+	t.pubL("reviewLoops", t.info.ReviewLoops)
+	t.pubL("reviewModel", nonEmpty(t.info.ReviewModel))
+	t.pubL("review", nonEmpty(t.info.Review))
 	t.pubL("phase", t.info.Phase)
 	t.pubL("phaseAt", t.info.PhaseAt)
 	t.pubL("commitMessage", nonEmpty(t.info.CommitMessage))
@@ -195,7 +250,6 @@ func (t *Task) publishL() {
 		t.pubL("spent", nil)
 	}
 	t.pubL("budget", optional(t.info.Budget))
-	t.pubL("autoMerge", optional(t.info.AutoMerge))
 	if len(t.info.StartAfter) > 0 {
 		t.pubL("startAfter", t.info.StartAfter)
 	} else {
@@ -258,6 +312,24 @@ func parseBudget(raw any) *float64 {
 	return &budget
 }
 
+// maxReviewLoops caps how often a review may send the work back: a limit is
+// there to end the back-and-forth, and one this long has stopped being
+// something to leave running.
+const maxReviewLoops = 3
+
+// parseLoops reads that limit as it arrives from a dashboard: a number or the
+// text of one. Anything that is not a count means none.
+func parseLoops(raw any) int {
+	var loops float64
+	switch v := raw.(type) {
+	case float64:
+		loops = v
+	case string:
+		fmt.Sscanf(strings.TrimSpace(v), "%g", &loops)
+	}
+	return min(max(int(loops), 0), maxReviewLoops)
+}
+
 // optional turns a nil pointer into nil (deleting the field) and otherwise the value.
 func optional[T any](v *T) any {
 	if v == nil {
@@ -275,7 +347,7 @@ func (t *Task) setStatusL(status WorkStatus, detail string) {
 }
 
 func (t *Task) setPhaseL(phase Phase) {
-	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent waits for nothing
+	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent (the review included) waits for nothing
 		t.clearLimitL()
 	}
 	t.info.Phase = phase
@@ -461,8 +533,17 @@ func (t *Task) applyL(partial map[string]any) {
 	if model, ok := partial["model"].(string); ok {
 		t.info.Model = model
 	}
-	if auto, ok := partial["autoMerge"].(bool); ok {
-		t.info.AutoMerge = &auto
+	if model, ok := partial["reviewModel"].(string); ok {
+		t.info.ReviewModel = model
+	}
+	if answer, ok := parseAnswer(partial["onReady"], AnswerHuman, AnswerReview, AnswerMerge); ok {
+		t.info.OnReady = answer
+	}
+	if answer, ok := parseAnswer(partial["onAccept"], AnswerHuman, AnswerMerge); ok {
+		t.info.OnAccept = answer
+	}
+	if raw, ok := partial["reviewLoops"]; ok {
+		t.info.ReviewLoops = parseLoops(raw)
 	}
 	if raw, ok := partial["budget"]; ok {
 		t.info.Budget = parseBudget(raw)
@@ -619,6 +700,16 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	t.touchL()
 	t.p.touchL()
 	t.doneNudges = 0
+	// A word from the user is a fresh start for the automatic review: its
+	// rounds are counted per thing asked for, and the feedback that was waiting
+	// here has been answered, ignored, or sent back in — either way it is said.
+	t.info.ReviewLoop = 0
+	t.setReviewL("")
+	// A review is a second opinion, and the user's own word outranks it: the
+	// task is the agent's again, so the kick below swaps the reviewer out for it.
+	if t.info.Phase == PhaseReview {
+		t.setPhaseL(PhaseAgent)
+	}
 	t.unlock()
 	e := newEntry("user")
 	e.Text = text
@@ -652,12 +743,18 @@ func (t *Task) kick(text string) {
 	// tree is not its doing, and becomes a commit of its own before it starts
 	// (see mark), so the point at the end of its run holds its work alone.
 	sendingIn := !t.agentPhaseL()
-	if t.info.Phase != PhaseMerge {
+	// The phases that run an agent of their own keep it: a merge's turn belongs
+	// to resolving conflicts, a review's to the reviewer. Anything else sent in
+	// means the task is the agent's again — which is how a message of the user's
+	// takes it back from a reviewer (see SendChat).
+	if t.info.Phase != PhaseMerge && t.info.Phase != PhaseReview {
 		t.setPhaseL(PhaseAgent)
 	}
-	// A running claude has its spending cap fixed at start; a changed budget needs a new process.
+	// A running claude is the reviewer or the task's own agent, with its
+	// spending cap fixed at start: either changing needs a new process.
+	review := t.info.Phase == PhaseReview
 	old := t.session
-	restart := old != nil && !sameBudget(t.sessionBudget, t.info.Budget)
+	restart := old != nil && (t.sessionReview != review || !sameBudget(t.sessionBudget, t.info.Budget))
 	branch := t.p.defaultBranch
 	t.unlock()
 	go func() {
@@ -685,9 +782,13 @@ func (t *Task) kick(text string) {
 			return
 		}
 		// Taken only now that there is someone to tell: a kick that never got
-		// this far leaves the notes waiting for the next one.
+		// this far leaves the notes waiting for the next one. What happened to
+		// the workspace is the agent's to hear and none of the reviewer's
+		// business, so a review leaves the notes where they are.
 		t.lock()
-		text = t.takePendingL(text)
+		if !review {
+			text = t.takePendingL(text)
+		}
 		t.unlock()
 		s.Send(text)
 		t.lock()
@@ -772,6 +873,8 @@ func (t *Task) MoveTo(phase Phase) error {
 			return t.Assign("agent")
 		}
 		return t.SendChat("Please continue working on the task.", nil)
+	case PhaseReview:
+		return t.StartReview()
 	case PhaseHuman, PhaseMuted:
 		// Both wait for a human; muting is that with the task put away. Getting
 		// there is the same work either way, and only the phase set at the end
@@ -786,7 +889,7 @@ func (t *Task) MoveTo(phase Phase) error {
 			if err := t.reopen(); err != nil {
 				return err
 			}
-		case PhaseAgent, PhaseMerge:
+		case PhaseAgent, PhaseReview, PhaseMerge:
 			if err := t.StopAgent(); err != nil {
 				return err
 			}
@@ -903,6 +1006,8 @@ func (t *Task) merge(repo, message string) error {
 	t.lock()
 	t.info.CommitMessage = ""
 	t.info.Conflicts = nil
+	t.info.ReviewLoop = 0
+	t.setReviewL("")
 	// The workspace these were about is gone; a task picked up after the merge
 	// gets a fresh clone, and hears about that instead.
 	for _, key := range []string{"rebase", "conflicts", "reopened", "container", "stopped", "restart"} {
@@ -1389,6 +1494,8 @@ func (t *Task) Discard() error {
 	defer t.unlock()
 	t.info.Started = false
 	t.info.CommitMessage = ""
+	t.info.ReviewLoop = 0
+	t.setReviewL("")
 	t.info.Conflicts, t.info.Pending = nil, nil // nothing of the old workspace is left to tell
 	t.p.m.hub.SetChat(t.key(), nil)
 	t.pubL("changes", nil)
@@ -1772,10 +1879,13 @@ func (t *Task) doUp() (*Container, error) {
 	return c, nil
 }
 
-// fixImageL sends the agent in to repair Containerfile.dev, unless a kick is
-// underway already (it then carries the message, see kick).
+// fixImageL sends the agent in to repair Containerfile.dev, but only when the
+// task is nobody's: a phase with an agent in it — its own, the reviewer, a
+// merge — has a claude on this workspace already, and a second one is what must
+// never happen. Those hear of it anyway, the note waiting for the turn that
+// comes next (see queueL); a kick underway carries it in itself.
 func (t *Task) fixImageL() {
-	if t.sessionFlight != nil || t.finishedL() {
+	if t.agentPhaseL() || t.sessionFlight != nil || t.finishedL() {
 		return
 	}
 	go func() {
@@ -1881,17 +1991,23 @@ func (t *Task) startSession() (*ChatSession, error) {
 	}
 	t.lock()
 	t.sessionBudget = t.info.Budget
+	t.sessionReview = t.info.Phase == PhaseReview
 	opts := SessionOpts{
 		Container: c, Model: t.info.Model, System: systemPrompt, Resume: t.info.Started,
 		OnEntry:   t.addEntry,
 		OnUpdate:  t.updateEntry,
 		OnTurnEnd: func(end TurnEnd) { go t.onTurnEnd(end) },
 	}
+	// The reviewer is the same machinery with another mind in it: its own
+	// system prompt and model, and a session that is nobody's (see review.go).
+	if t.sessionReview {
+		opts.Model, opts.System, opts.Review, opts.Resume = cmp.Or(t.info.ReviewModel, DefaultModel), reviewSystem, true, false
+	}
 	if t.info.Budget != nil {
 		left := max(0.01, *t.info.Budget-t.info.Spent)
 		opts.Budget = &left
 	}
-	if !t.info.Started {
+	if !t.info.Started && !t.sessionReview { // a session that is never written down is none to resume
 		t.info.Started = true
 		t.p.m.saveL()
 	}
@@ -2009,6 +2125,23 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.unlock()
 		return
 	}
+	// A turn that ended because we cut it off is not a turn to read anything
+	// into: whoever stopped it is seeing to what comes next.
+	if t.stopping {
+		t.unlock()
+		return
+	}
+	// The reviewer ends its turns with a review rather than a verdict, and
+	// everything below is about verdicts (see review.go). A review the task has
+	// moved on from — the user's message took it back — is nothing to act on.
+	if t.sessionReview {
+		reviewing := t.info.Phase == PhaseReview
+		t.unlock()
+		if reviewing {
+			t.finishReview(end)
+		}
+		return
+	}
 	t.unlock()
 	go t.refreshChanges()
 	// Whether the turn left anything behind, for the save point it is about
@@ -2064,7 +2197,8 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// A verdict that says nothing of what the turn changed leaves the revert
 	// point about to be made with an empty commit message; ask for one, as
 	// long as there is something to describe and a point to be made at all.
-	autoMerging := next == "merge" && t.info.AutoMerge != nil && *t.info.AutoMerge
+	// A task that merges by itself makes no save point worth naming.
+	autoMerging := next == "merge" && t.onReadyL() == AnswerMerge
 	if next != "" && changes == "" && dirty && !autoMerging && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
 		t.doneNudges++
 		t.unlock()
@@ -2100,7 +2234,18 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			t.info.CommitMessage = t.info.Title
 		}
 		t.p.m.saveL()
-		if t.info.AutoMerge != nil && *t.info.AutoMerge {
+		// What becomes of work the agent calls finished is the task's own answer
+		// (see review.go). A review costs a turn of its own, so a task with no
+		// room left for one skips to the user; a merge costs nothing.
+		switch {
+		case t.onReadyL() == AnswerReview && !t.overBudgetL():
+			// The run's save point is made here as for any other run; the
+			// review makes one of its own when it is done.
+			t.unlock()
+			t.mark("Agent", changes)
+			t.beginReview()
+			return
+		case t.onReadyL() == AnswerMerge:
 			msg := t.info.CommitMessage
 			t.unlock()
 			t.note("the agent reports the task is ready; merging")

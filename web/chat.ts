@@ -76,7 +76,10 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 			A('div.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', markdown, 'html=', md.parse($e.text) as string);
 			break;
 		case 'text':
-			A('div', markdown, 'html=', md.parse($e.text) as string);
+			// The reviewer's messages stand among the agent's own, so they are
+			// set apart the way the user's are.
+			if ($e.rev) A('div.s-s.neutral.outlined pv:$1 ph:$3', markdown, 'html=', md.parse($e.text) as string);
+			else A('div', markdown, 'html=', md.parse($e.text) as string);
 			break;
 		case 'thinking':
 			line(() => {

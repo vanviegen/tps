@@ -10,7 +10,7 @@ import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, busyAttrs, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Keep the task's chat streaming for as long as the calling scope lives, and
@@ -62,10 +62,11 @@ export function closeTask(pid: string, tid: string): void {
  * put away, so it is offered while it waits for you.
  */
 function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
-	const items: S.MenuEntry[] = (['plan', 'agent', 'human'] as Phase[]).map(phase => ({
+	const items: S.MenuEntry[] = (['plan', 'agent', 'review', 'human'] as Phase[]).map(phase => ({
 		label: PHASE_LABELS[phase],
 		icon: PHASE_ICONS[phase],
-		disabled: phase === $t.phase,
+		// There is nothing to review until there is a workspace to review it in.
+		disabled: phase === $t.phase || (phase === 'review' && !hasWorkspace($t)),
 		attrs: phase === 'plan' ? 'fg:$s-danger' : '',
 		click: () => void moveTask(pid, tid, $t, phase),
 	}));
@@ -218,23 +219,23 @@ export async function addTask(pid: string): Promise<void> {
 }
 
 /**
- * The models to choose from: what the claude on the project's host offers,
- * plus whatever the task is set to, so a model that host no longer lists
- * still shows.
+ * The models to choose from for one of the task's two model settings: what the
+ * claude on the project's host offers, plus whatever the task is set to, so a
+ * model that host no longer lists still shows.
  */
-function modelOptions(pid: string, $t: any): string[] {
+function modelOptions(pid: string, $t: any, field = 'model'): string[] {
 	const host = $state.hosts[$state.projects[pid]?.host];
 	const models: string[] = [...(host?.models ?? $state.models ?? [])];
-	const current = $t.model;
+	const current = $t[field];
 	if (current && !models.includes(current)) models.push(current);
 	return models;
 }
 
-/** Says where the list came from, so a short one isn't a silent mystery. */
-function modelHelp(pid: string): string {
+/** Why the list is the built-in one rather than what claude offers, if it is. */
+function modelsError(pid: string): string {
 	const hid = $state.projects[pid]?.host;
 	const host = $state.hosts[hid];
-	if (!host?.modelsError) return `Offered by claude on ${hostName(hid)}.`;
+	if (!host?.modelsError) return '';
 	return `claude on ${hostName(hid)} could not be asked which models it offers, so this is the built-in list: ${host.modelsError}`;
 }
 
@@ -245,13 +246,23 @@ function modelHelp(pid: string): string {
  * so no `Start after`) sets what the next task there starts with.
  */
 export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
-	S.select({
-		label: 'Model', options: () => modelOptions(pid, $t), help: () => A(() => A('span', 'text=', modelHelp(pid))),
+	// The two models stand together: a task is often worth a different mind from
+	// the one that reads its work over. The help under either is the reason its
+	// list is the built-in one, and nothing at all while it is claude's own.
+	A(() => S.select({
+		label: 'Agent model', options: () => modelOptions(pid, $t), help: modelsError(pid) || undefined,
 		bind: {
 			get value() { return $t.model ?? 'default'; },
 			set value(model: string) { if (model) save({ model }); },
 		},
-	});
+	}));
+	A(() => S.select({
+		label: 'Review model', options: () => modelOptions(pid, $t, 'reviewModel'), help: modelsError(pid) || undefined,
+		bind: {
+			get value() { return $t.reviewModel ?? 'default'; },
+			set value(model: string) { if (model) save({ reviewModel: model }); },
+		},
+	}));
 	// Only while the task is in Plan: following others is how it leaves Plan,
 	// so once it has, there is nothing left to set here.
 	A(() => {
@@ -259,7 +270,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		S.autocomplete({
 			label: 'Start after', multi: true, allowCustom: false,
 			placeholder: 'Tasks to wait for…',
-			help: 'The task hands itself to the agent once each of these is done or deleted, and nobody has its plan open — a description still being written is never sent off. Its workspace is made at that moment, so it includes their merged work.',
+			help: 'The task hands itself to the agent once these are all done or deleted, and its plan is closed. Its workspace is made then, so it holds their merged work.',
 			// The tasks it already follows stay listed even when done, so their
 			// chips read as names rather than as numbers.
 			options: () => {
@@ -279,16 +290,11 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	});
 	S.textline({
 		label: 'Task budget limit (USD)', type: 'number',
-		help: 'The task is parked for you when spending reaches the limit; empty means no limit.',
+		help: 'The task is parked for you when spending reaches it. Empty: no limit.',
 		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
 		input: debounce(600, (e: Event) => save({ budget: (e.target as HTMLInputElement).value })),
 	});
-	S.checkbox({
-		label: 'Merge when ready',
-		help: 'Merge as soon as the agent reports the task ready, without confirming the commit message.',
-		checked: !!A.peek($t, 'autoMerge'),
-		change: (e: Event) => save({ autoMerge: (e.target as HTMLInputElement).checked }),
-	});
+	drawReadyFields(pid, $t, save);
 	// The odd one out: this setting is not the task's but this browser's, so it
 	// goes nowhere near `save` (see notify.ts). Switching it on can be refused —
 	// the browser may not allow notifications — and the box then says so by
@@ -296,12 +302,60 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	S.checkbox({
 		label: 'Ready notifications',
 		help: tid
-			? 'Have this browser say so — a desktop notification — when an agent hands this task back, or its merge is over. Kept by this browser alone, not by the task.'
-			: 'Switch ready notifications on for the tasks made here from now on. Kept by this browser alone, not by the project.',
+			? 'A desktop notification from this browser when the task comes back to you. Kept by the browser, not by the task.'
+			: 'Switch them on for the tasks made here from now on. Kept by the browser, not by the project.',
 		checked: A.peek(() => tid ? notifies(pid, tid) : notifiesByDefault(pid)),
 		change: async (e: Event) => {
 			await (tid ? toggleNotifies(pid, tid) : toggleDefaultNotifies(pid));
 			(e.target as HTMLInputElement).checked = A.peek(() => tid ? notifies(pid, tid) : notifiesByDefault(pid));
+		},
+	});
+}
+
+/**
+ * What becomes of finished work: one question per moment where it can go more
+ * than one way, each answered on its own, and the first answer to each is what
+ * a task does when nothing is said. The two about the review are asked even
+ * where no review is set to happen, because a review asked for by hand (the
+ * board's Review column) ends the same way and follows the same answers.
+ */
+function drawReadyFields(pid: string, $t: any, save: (patch: object) => void): void {
+	S.select({
+		label: 'When the agent reports the task ready',
+		help: 'Reviewing is a second agent reading the work over against what you asked for, and for scope, size and architecture. It fixes the small and obvious itself, and either accepts the work or lists what to change.',
+		options: [
+			{ value: 'review', label: 'Have it reviewed' },
+			{ value: 'human', label: 'Assign it to me' },
+			{ value: 'merge', label: 'Merge it' },
+		],
+		bind: {
+			get value() { return $t.onReady ?? 'review'; },
+			set value(onReady: string) { if (onReady) save({ onReady }); },
+		},
+	});
+	S.select({
+		label: 'When a review asks for changes',
+		options: [
+			{ value: '0', label: 'Assign it to me' },
+			{ value: '1', label: 'Send it back to the agent, at most once' },
+			{ value: '2', label: 'Send it back to the agent, at most twice' },
+			{ value: '3', label: 'Send it back to the agent, at most three times' },
+		],
+		help: 'Each time, the work is reviewed again. What the last review still asks for comes to you, in the task’s message box.',
+		bind: {
+			get value() { return String($t.reviewLoops ?? 0); },
+			set value(reviewLoops: string) { if (reviewLoops) save({ reviewLoops }); },
+		},
+	});
+	S.select({
+		label: 'When a review accepts',
+		options: [
+			{ value: 'human', label: 'Assign it to me' },
+			{ value: 'merge', label: 'Merge it' },
+		],
+		bind: {
+			get value() { return $t.onAccept ?? 'human'; },
+			set value(onAccept: string) { if (onAccept) save({ onAccept }); },
 		},
 	});
 }
@@ -329,7 +383,7 @@ export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
 	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: () => {
 		S.textline({
-			label: 'Title', help: 'What the board and the sidebar call this task; empty, its description stands in.',
+			label: 'Title',
 			value: A.peek($t, 'title') ?? '',
 			input: debounce(600, (e: Event) => save({ title: (e.target as HTMLInputElement).value.trim() })),
 		});
@@ -476,6 +530,14 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			return;
 		}
 		if (!waitsForHuman($t)) return;
+		// The last review's feedback is put in the message box, to send on as it
+		// stands, to word differently, or to clear: what the reviewer asks for is
+		// the user's to weigh, and saying it back to the agent is a message like
+		// any other. A message half written wins (see restoreDraft).
+		if ($t.review) {
+			restoreDraft(pid, tid, $t.review);
+			A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
+		}
 		if ($t.conflicts?.length) {
 			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 			A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {

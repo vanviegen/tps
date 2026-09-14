@@ -134,16 +134,16 @@ function drawProject(pid: string, $p: any): void {
 }
 
 /**
- * A task is listed while it waits for a human, while an agent is on it, while
- * this dashboard holds it, and while it is on screen: everything under way, in
- * other words. A muted one is none of those: putting it away is what muting is
+ * A task is listed while it waits for a human, while an agent is on it (its
+ * own, or the one reviewing its work), while this dashboard holds it, and while
+ * it is on screen: everything under way, in other words. A muted one is none of those: putting it away is what muting is
  * for, and opening it takes it back out (see useTask).
  */
 function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
 	if ($t.phase === 'muted') return false;
-	return $t.phase === 'human' || $t.phase === 'agent' || !!$holds[holdKey(pid, tid)];
+	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || !!$holds[holdKey(pid, tid)];
 }
 
 function drawTask(pid: string, tid: string, $t: any): void {

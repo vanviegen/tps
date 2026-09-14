@@ -158,12 +158,13 @@ function show(title: string, body: string, url: string): void {
 function announcement($t: any, from: Phase): string | undefined {
 	const phase = $t.phase as Phase;
 	switch (phase) {
-		case 'merge': return;
+		case 'merge': case 'review': return;
 		case 'done': return 'merged ✔';
 		case 'closed': return 'closed without merging';
 		case 'plan': return 'put back in Plan';
 		case 'agent': return from === 'merge' ? 'the agent is resolving the merge conflicts' : undefined;
 		default: // human, muted: the ones worth having asked for
+			if ($t.review) return 'the automated review asks for changes';
 			if ($t.conflicts) return 'conflicts are left to resolve and need you';
 			if ($t.commitMessage) return 'the agent reports it ready to merge';
 			return from === 'merge' ? 'back with you' : 'the agent is done; it is yours';
@@ -193,7 +194,7 @@ export function watchPhases(): void {
 				const phase = $t.phase as Phase;
 				const was = seen.get(k);
 				seen.set(k, phase);
-				if (was === undefined || was === phase || (was !== 'agent' && was !== 'merge')) continue;
+				if (was === undefined || was === phase || (was !== 'agent' && was !== 'merge' && was !== 'review')) continue;
 				if (!A.peek(() => $on[k])) continue;
 				// Everything about the task but its phase is read past the
 				// subscription: this scope is about phases, and a commit message
