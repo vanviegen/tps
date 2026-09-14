@@ -504,7 +504,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 			removeRef(area(), uploadPath(name));
 		});
 		S.textarea({
-			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh overflow-y:auto',
+			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh',
 			value: draft,
 			// One glyph in the field's own bottom-right corner, beside the caret:
 			// send while there is something to send, else stop while claude works.
