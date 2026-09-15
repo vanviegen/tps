@@ -221,7 +221,7 @@ do not commit or rebase yourself, and end your turn with a TPS-DONE line.`, bran
 // Containerfile.dev is broken. It waits for the agent's next turn (see queueL),
 // ahead of whatever that turn is about.
 func fallbackPrompt(err string) string {
-	return fmt.Sprintf(`Bringing up the container from /work/Containerfile.dev failed:
+	return fmt.Sprintf(`Building the image from /work/Containerfile.dev failed:
 
 %s
 

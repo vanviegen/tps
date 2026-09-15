@@ -256,7 +256,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if c := runningContainer(o.name, config); c != nil {
 		return c, nil
 	}
-	rmContainer(o.name)
+	rmErr := rmContainer(o.name)
 	clearServices(o.servicesDir)         // whatever ran in the old one is gone
 	_ = os.MkdirAll(o.uploadsDir, 0o755) // a task that was never sent a file still needs the mountpoint
 	vscode, err := sharedVscodeDir()
@@ -322,7 +322,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	// task open and stopped when none does (see StartCode), which must not
 	// take the agent down with it.
 	args = append(args, o.image, "/tps/bin/tini", "--", "sh", "-c", "while :; do sleep 3600; done")
-	if _, err := runCmd(append([]string{"podman"}, args...), RunOpts{}); err != nil {
+	if err := runContainer(o.name, args, rmErr); err != nil {
 		return nil, err
 	}
 	// podman binds the ports as the container starts. A docker socket served
@@ -339,6 +339,44 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		return nil, fmt.Errorf("container %s has no published ports", o.name)
 	}
 	return c, c.waitReady()
+}
+
+// runContainer starts the container, taking one more shot at it when podman
+// refuses the name as taken: something held it a moment after the removal
+// above — a leftover that removal did not get rid of, or a container still on
+// its way out. Neither is the task's doing or its image's, so when the name
+// stays taken the error says what the removal ran into rather than leaving a
+// bare conflict for someone to read as a broken Containerfile.
+func runContainer(name string, args []string, rmErr error) error {
+	err := podmanRun(args)
+	if err == nil || !nameTaken(err) {
+		return err
+	}
+	retryErr := rmContainer(name)
+	// The second attempt's own error is the one to report: it is what the
+	// container failed on now, and it may be something else entirely.
+	err = podmanRun(args)
+	if err == nil || !nameTaken(err) {
+		return err
+	}
+	if rmErr == nil {
+		rmErr = retryErr
+	}
+	if rmErr != nil {
+		return fmt.Errorf("%w\nremoving the container that holds the name failed: %v", err, rmErr)
+	}
+	return err
+}
+
+func podmanRun(args []string) error {
+	_, err := runCmd(append([]string{"podman"}, args...), RunOpts{})
+	return err
+}
+
+// nameTaken reports whether podman refused to start the container because
+// another one has its name.
+func nameTaken(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "already in use")
 }
 
 // containerConfig is the label value recording what a container was started
@@ -359,8 +397,19 @@ func runningContainer(name, config string) *Container {
 	return publishedContainer(name)
 }
 
-func rmContainer(name string) {
-	_, _ = runCmd([]string{"podman", "rm", "-f", "-t", "2", name}, RunOpts{NoCheck: true})
+// rmContainer removes the container of that name, forcefully, and says when it
+// could not: a name that stays taken is what stops the next container from
+// starting, and why it is taken is worth more than the conflict that follows.
+// A name that was not in use to begin with is gone as far as callers care.
+func rmContainer(name string) error {
+	r, err := runCmd([]string{"podman", "rm", "-f", "-t", "2", name}, RunOpts{NoCheck: true})
+	if err != nil {
+		return err
+	}
+	if r.Code != 0 && !strings.Contains(strings.ToLower(r.Err), "no such container") {
+		return fmt.Errorf("`podman rm -f %s` failed (%d): %s", name, r.Code, strings.TrimSpace(r.Err))
+	}
+	return nil
 }
 
 // publishedContainer describes the container by the ports podman gave it;
@@ -497,5 +546,5 @@ func (c *Container) Exec(script string) error {
 
 func (c *Container) Rm() {
 	nestDown(c.Name)
-	rmContainer(c.Name)
+	_ = rmContainer(c.Name)
 }

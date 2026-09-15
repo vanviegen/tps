@@ -236,7 +236,7 @@ func (p *Project) forget() {
 	tasks := p.taskListL()
 	p.m.mu.Unlock()
 	for _, t := range tasks {
-		rmContainer(t.containerName())
+		_ = rmContainer(t.containerName())
 	}
 }
 

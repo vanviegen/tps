@@ -1485,7 +1485,7 @@ func (t *Task) Discard() error {
 	defer t.p.m.work()()
 	t.stopAgent()
 	t.down()
-	rmContainer(t.containerName()) // also one the daemon never knew about
+	_ = rmContainer(t.containerName()) // also one the daemon never knew about
 	nestPurge(t.containerName(), nestDir(t.dir()))
 	if err := rmTree(t.dir()); err != nil {
 		logf("%s: discarding the workspace: %v", t.key(), err)
@@ -1507,7 +1507,7 @@ func (t *Task) Delete() error {
 	defer t.p.m.work()()
 	t.stopAgent()
 	t.down()
-	rmContainer(t.containerName())
+	_ = rmContainer(t.containerName())
 	nestPurge(t.containerName(), nestDir(t.dir()))
 	if err := rmTree(t.dir()); err != nil {
 		logf("%s: deleting the workspace: %v", t.key(), err)
@@ -1836,12 +1836,15 @@ func (t *Task) doUp() (*Container, error) {
 	go t.p.m.refreshModels() // now that this host has a claude to ask
 	c, err := t.start(cf, toolbox)
 	imageErr := ""
-	if err != nil && cf != defaultContainerfile {
+	if isBuildErr(err) && cf != defaultContainerfile {
 		// A broken Containerfile.dev (say, with conflict markers) must not lock
 		// the user and the agent out of the task: the default image lets them
 		// in to fix it. The tag stays that of the broken file, so the fallback
-		// is kept until the file changes.
-		t.note("the container from Containerfile.dev failed; using the default image until it is fixed", err.Error())
+		// is kept until the file changes. Only a failed build falls back: what
+		// goes wrong after it — podman refusing to run the container, a port it
+		// cannot publish — is the host's, and another image would fail the same
+		// way, so the agent is not sent to fix a file that is fine.
+		t.note("building the image from Containerfile.dev failed; using the default image until it is fixed", err.Error())
 		imageErr = err.Error()
 		cf = defaultContainerfile
 		c, err = t.start(cf, toolbox)
@@ -1854,7 +1857,7 @@ func (t *Task) doUp() (*Container, error) {
 	// made the mount point back when it started; both go, and the caller hears
 	// what it would have heard a moment earlier.
 	if !t.hasWorkspace() {
-		rmContainer(t.containerName())
+		_ = rmContainer(t.containerName())
 		_ = os.Remove(t.repoDir()) // only if it is the empty mount point
 		t.lock()
 		t.container = nil
@@ -1894,6 +1897,15 @@ func (t *Task) fixImageL() {
 	}()
 }
 
+// buildErr marks a failure of the image build itself: the Containerfile's own
+// doing, and the only failure the default image can stand in for (see doUp).
+type buildErr struct{ error }
+
+func isBuildErr(err error) bool {
+	var be buildErr
+	return err != nil && errors.As(err, &be)
+}
+
 // start builds the image for this Containerfile (if needed) and starts the task's container from it.
 func (t *Task) start(cf, toolbox string) (*Container, error) {
 	tag := imageTag(cf)
@@ -1901,7 +1913,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 		t.note("building the dev container image; the first build takes a few minutes…")
 	}
 	if err := buildImage(tag, cf, t.repoDir(), func(string) {}); err != nil {
-		return nil, err
+		return nil, buildErr{err}
 	}
 	t.lock()
 	t.setStatusL(StatusStarting, "starting container")
