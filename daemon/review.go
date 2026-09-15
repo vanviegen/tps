@@ -146,7 +146,7 @@ func (t *Task) finishReview(end TurnEnd) {
 		_ = t.Merge(msg)
 		return
 	}
-	t.note("the review accepts the work; the task is ready to merge")
+	t.noteReadyL("the review accepts the work; the task is ready to merge")
 	t.setPhaseL(PhaseHuman)
 	t.unlock()
 }

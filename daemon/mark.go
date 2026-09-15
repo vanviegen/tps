@@ -295,6 +295,7 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 	}
 	t.lock()
 	t.info.CommitMessage = point.Mark.Message
+	t.info.Ready = false
 	t.info.Conflicts = nil
 	t.info.Pending = nil // what was waiting was waiting for a turn that is now undone
 	if use.Chat {

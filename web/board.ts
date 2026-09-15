@@ -4,18 +4,22 @@ import * as S from 'staffa';
 import { funnel, plus, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { addTask, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * The project's board: a box per column, a card dropped anywhere in a box's
  * body. Its notices and settings live in the left column. The width the
  * columns share is defined once, so they can't drift apart.
  *
+ * The column says what phase its cards are in — its header wears the phase's
+ * icon — so a card repeats none of that: it carries a glyph only where it has
+ * something else to say (see saysMore).
+ *
  * Two columns hold more than their own phase, the extra one under a marker:
  * Human has the muted tasks at its foot (still waiting for you, just not out
  * loud), and Done has the ones closed without merging. Merging is a moment on
  * the way to Done rather than a place of its own, so those cards simply sit at
- * the top of the Done column, their icon turning until it is over.
+ * the top of the Done column, wearing the merge icon until it is over.
  *
  * A column is one drop area, marker and all: which of its parts a card lands
  * on says nothing, as muting and closing are not things to do by accident.
@@ -55,6 +59,7 @@ export function drawBoard(pid: string, $p: any): void {
 				// part that scrolls while the header stays put.
 				contentAttrs: 'flex:1 min-height:0 overflow-y:auto display:flex flex-direction:column',
 				header: () => {
+					A('span display:inline-flex flex:none fg:$s-muted', () => PHASE_ICONS[phase]({ size: '1.1em' }));
 					A('text=', PHASE_LABELS[phase]);
 					A('div display:flex align-items:center gap:$1 ml:auto', () => {
 						if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Create task', attrs: '.small', click: () => void addTask(pid) });
@@ -180,6 +185,17 @@ function drawSection(pid: string, $p: any, phase: Phase, key: string): void {
 	drawCards(pid, $p, phase, key, true);
 }
 
+/**
+ * Whether a card's icon would say more than the column it sits in: the task is
+ * waiting (for the tasks it follows, or for claude's usage limit), it is being
+ * merged among the ones already merged, or its workspace is in trouble — which
+ * the icon carries as its colour. Everything else the icon could show is the
+ * phase, and that is the column's to say.
+ */
+function saysMore(pid: string, $t: any): boolean {
+	return autoStarts($t) || !!$t.limitUntil || $t.phase === 'merge' || taskActivity(pid, $t).color === 'danger';
+}
+
 // Browsers can fire a click on the card a drag started from once that drag
 // ends, which would open the task the user just dropped elsewhere. Any real
 // click starts with a pointerdown, so that is where the flag is cleared.
@@ -196,7 +212,7 @@ function drawCard(pid: string, tid: string, $t: any, dim: boolean): void {
 			}});
 			S.box({ attrs: 'cursor:pointer', contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
 				A('div display:flex align-items:center gap:$2 font-weight:600', () => {
-					drawTaskIcon(pid, $t);
+					A(() => { if (saysMore(pid, $t)) drawTaskIcon(pid, $t); });
 					A('span flex:1 text=', taskTitle($t));
 					drawLiveLink($t);
 				});
@@ -214,10 +230,10 @@ function drawCard(pid: string, tid: string, $t: any, dim: boolean): void {
 						});
 					});
 					A(() => {
-						if (autoStarts($t)) A('small text=', '⏳ ' + taskActivity(pid, $t).text);
+						if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
 						else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ review feedback to weigh');
 						else if (waitsForHuman($t) && $t.conflicts) A('small fg:$s-warning #⚠ conflicts to resolve');
-						else if (waitsForHuman($t) && $t.commitMessage) A('small fg:$s-success #✔ ready to merge');
+						else if (waitsForHuman($t) && $t.ready) A('small fg:$s-success #✔ ready to merge');
 						else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
 					});
 				});

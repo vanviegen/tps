@@ -10,7 +10,7 @@ import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, busyAttrs, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Keep the task's chat streaming for as long as the calling scope lives, and
@@ -470,8 +470,10 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
 		drawChat(pid, tid, $t);
 		// A neutral surface, opaque and rounded, so the log scrolls under them
-		// rather than through them.
-		A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
+		// rather than through them. How tall the row is the buttons decide, so it
+		// is measured rather than guessed: the log keeps that much room at its top
+		// (see drawChat) for its first entry to start below them.
+		const bar = A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
 			A(() => { // its own scope: a service arriving must not redraw the row
 				if (!hasServices($t)) return;
 				// Red while something runs: services go on behind a closed console, and this is what brings it back.
@@ -498,13 +500,13 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
 			// The phase, worn as the icon it has on the board and in the sidebar,
 			// is the button for everything that is about the phase: a menu needs
-			// no glyph of its own where the state it acts on is one. It works away
-			// while the agent has the task — the one phase that moves by itself.
+			// no glyph of its own where the state it acts on is one. It breathes
+			// while something is going on, exactly as the sidebar's does.
 			A(() => {
 				const phase = $t.phase as Phase;
 				const icon = PHASE_ICONS[phase] ?? bot;
 				S.iconButton({
-					icon: () => icon({ attrs: phase === 'agent' ? busyAttrs(icon) : undefined }),
+					icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
 					ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
 					tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
 					click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
@@ -512,7 +514,10 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			});
 			S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
 				click: () => closeTask(pid, tid) });
-		});
+		}) as HTMLElement;
+		const measure = new ResizeObserver(() => bar.parentElement?.style.setProperty('--tps-overlay', `${bar.offsetHeight}px`));
+		measure.observe(bar);
+		A.clean(() => measure.disconnect());
 	});
 	A(() => {
 		if ($t.phase === 'closed') {
@@ -545,13 +550,12 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 					+ 'Resolve the markers in VS Code, or send in the agent, which is told about them.');
 				S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void moveTask(pid, tid, $t, 'agent') });
 			});
-		} else if ($t.commitMessage) {
-			A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
-				A('span flex:1 #✔ the agent reports this task ready to merge');
-				S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', key: 'mod+shift+g', click: () => doneDialog(pid, tid, $t) });
-			});
 		}
 	});
+	// The merge has no button of its own down here: the agent reporting the
+	// work done is a moment in the log, and the button sits with it (see
+	// drawReady). The key it had reaches it from wherever the log is scrolled.
+	A(() => { if (canMerge($t)) S.bindKey('mod+shift+g', 'Merge this task…', () => doneDialog(pid, tid, $t)); });
 	A(() => {
 		if (!['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
 		const { text, color } = taskActivity(pid, $t);

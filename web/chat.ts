@@ -2,9 +2,10 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import { Marked } from 'marked';
 import * as S from 'staffa';
-import { gitFork, undo2 } from 'staffa/icons.js';
+import { gitFork, gitMerge, undo2 } from 'staffa/icons.js';
 import { chatLog } from './conn.ts';
-import { cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
+import { doneDialog } from './task.ts';
+import { canMerge, cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escape = (text: string) => text.replace(/[&<>"]/g, c => ESCAPES[c]);
@@ -39,7 +40,10 @@ export function drawChat(pid: string, tid: string, $t: any): void {
 	// clip their overflow) would be squashed to nothing once the log overflows.
 	// The single column is capped at the space available, so nothing in the log
 	// can push the left column wider than it is.
-	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2', () => {
+	// Room at the top for the buttons floating over the log (see drawTask, which
+	// measures them into --tps-overlay): the first entry starts below them
+	// rather than under them, and what scrolls up afterwards passes behind them.
+	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2 padding-top: calc(var(--tps-overlay, 2.5rem) + $2);', () => {
 		A.onEach($chat, ($e: any) => drawEntry($e, pid, tid, $t));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
@@ -96,6 +100,9 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 			}, true);
 			break;
 		case 'note':
+			// The one note that is a moment rather than a remark: the work
+			// reported ready to merge, which stays where it happened.
+			if ($e.ready) { drawReady($e, pid, tid, $t); break; }
 			// A note clips like the rest, and some carry an error behind them:
 			// either way the dialog is where the whole of it is read.
 			line(() => {
@@ -110,6 +117,22 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 			drawMark($e, pid, tid, $t);
 			break;
 	}
+}
+
+/**
+ * The agent (or the review) reporting the work done, in the log at the moment
+ * it was said. The merge itself rides along for as long as that report is
+ * still where the task stands and there is nothing in the way of it: what the
+ * line says is history, what the button does is now.
+ */
+function drawReady($e: any, pid: string, tid: string, $t: any): void {
+	A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
+		A('span flex:1 text=', '✔ ' + $e.text);
+		A(() => {
+			if (!$t.ready || !canMerge($t)) return;
+			S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', click: () => doneDialog(pid, tid, $t) });
+		});
+	});
 }
 
 /**

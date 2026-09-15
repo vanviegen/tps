@@ -52,6 +52,14 @@ export function waitsForHuman($t: any): boolean {
 	return $t.phase === 'human' || $t.phase === 'muted';
 }
 
+/**
+ * Whether merging is something to offer right now: the task is the user's,
+ * there is a workspace holding work to merge, and nothing is in the way of it.
+ */
+export function canMerge($t: any): boolean {
+	return waitsForHuman($t) && hasWorkspace($t) && !$t.conflicts?.length;
+}
+
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
 
@@ -124,12 +132,22 @@ export function drawStrip(color: string, text: string, action?: () => void, clic
 A.insertGlobalCss({ '@keyframes pulse': { '50%': 'opacity:0.35' } });
 
 /**
- * The attrs that make an icon say it: the robot has a better way than
- * breathing — it types and thinks (see bot.ts), in the primary colour so that
- * it stands out from whatever is around it — and every other glyph breathes.
+ * The attrs that make an icon say it: every glyph breathes, the robot included
+ * — it types and thinks besides (see bot.ts), but the breath is what says it is
+ * at work, so that no phase is marked by a colour of its own instead.
  */
 export function busyAttrs(icon: typeof bot): string {
-	return icon === bot ? '.tps-busy fg:$s-primary' : 'animation: pulse 1.6s ease-in-out infinite;';
+	return `${icon === bot ? '.tps-busy ' : ''}animation: pulse 1.6s ease-in-out infinite;`;
+}
+
+/**
+ * Whether the task's phase icon is at work: claude running, and the phases
+ * that move by themselves — the agent's own, the review reading the work over,
+ * and the merge a task in Merging is in the middle of, which is what tells
+ * those apart from the merged ones they sit above on the board.
+ */
+export function taskBusy($t: any): boolean {
+	return !!$t.working || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
 }
 
 /**
@@ -251,8 +269,8 @@ export function taskTip(pid: string, $t: any): string {
 }
 
 /**
- * The task at a glance: its phase as an icon — the robot at work while claude
- * is, the merge icon breathing while a merge runs, an hourglass while it waits
+ * The task at a glance: its phase as an icon — the robot while the agent has
+ * the task, the merge icon while a merge runs, an hourglass while it waits
  * (for the tasks it follows, or for claude's usage limit to reset) — colored
  * by the container status.
  *
@@ -260,19 +278,15 @@ export function taskTip(pid: string, $t: any): string {
  * collapsed sidebar, whose rows carry it themselves. `color` is for where the
  * icon belongs to something it should look part of — the sidebar again, where
  * it sits in the row's text — and gives way to the status colour when the
- * workspace is in trouble, which no cohesion is worth hiding. A working robot
- * wears the primary colour wherever it is (see busyAttrs).
+ * workspace is in trouble, which no cohesion is worth hiding.
  */
 export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?: boolean; color?: string } = {}): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
 		const icon = autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
-		// The phase's own icon throughout, at work while something is going on:
-		// the robot typing while claude does, the merge icon breathing during the
-		// merge a task in Merging is in the middle of — which is what tells those
-		// apart from the merged ones they sit above on the board. A spinner's
-		// glyph is for a spinner; this one does not turn.
-		const busy = $t.working || $t.phase === 'merge' || $t.phase === 'review';
+		// The phase's own icon throughout, breathing while something is going on
+		// (see taskBusy). A spinner's glyph is for a spinner; this one does not turn.
+		const busy = taskBusy($t);
 		A(`span display:inline-flex flex-shrink:0 fg:${color && activity.color !== 'danger' ? color : `$s-${activity.color}`}`, () => {
 			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
 			icon({ size: '1.1em', attrs: busy ? busyAttrs(icon) : undefined });

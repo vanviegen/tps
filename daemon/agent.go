@@ -51,8 +51,9 @@ type ChatEntry struct {
 	Detail    string     `json:"detail,omitempty"`    // full text (thinking/note)
 	ResDetail string     `json:"resDetail,omitempty"` // full result text
 	Error     bool       `json:"error,omitempty"`
-	Rev       bool       `json:"rev,omitempty"`  // said by the reviewer rather than by the task's own agent (see review.go)
-	Mark      *Mark      `json:"mark,omitempty"` // mark: the save point this entry is (see mark.go)
+	Rev       bool       `json:"rev,omitempty"`   // said by the reviewer rather than by the task's own agent (see review.go)
+	Ready     bool       `json:"ready,omitempty"` // note: the work was reported ready to merge here (see noteReadyL)
+	Mark      *Mark      `json:"mark,omitempty"`  // mark: the save point this entry is (see mark.go)
 	T         int64      `json:"t"`
 }
 

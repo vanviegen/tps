@@ -106,7 +106,8 @@ type TaskInfo struct {
 	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
 	Phase         Phase          `json:"phase"`
 	Started       bool           `json:"started,omitempty"`       // a claude session exists in the task's claude dir
-	CommitMessage string         `json:"commitMessage,omitempty"` // proposed by the agent, awaiting the user's merge
+	CommitMessage string         `json:"commitMessage,omitempty"` // the message the agent proposed for the merge, last time it reported one
+	Ready         bool           `json:"ready,omitempty"`         // that report still stands: nothing has been asked of the task since (see noteReadyL)
 	Spent         float64        `json:"spent,omitempty"`         // USD spent on agent runs so far
 	Budget        *float64       `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
 	Context       int64          `json:"context,omitempty"`       // tokens the conversation came to at the agent's last turn
@@ -274,6 +275,11 @@ func (t *Task) publishL() {
 	t.pubL("phase", t.info.Phase)
 	t.pubL("phaseAt", t.info.PhaseAt)
 	t.pubL("commitMessage", nonEmpty(t.info.CommitMessage))
+	if t.info.Ready {
+		t.pubL("ready", true)
+	} else {
+		t.pubL("ready", nil)
+	}
 	if t.info.Spent > 0 {
 		t.pubL("spent", t.info.Spent)
 	} else {
@@ -381,6 +387,9 @@ func (t *Task) setPhaseL(phase Phase) {
 	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent (the review included) waits for nothing
 		t.clearLimitL()
 	}
+	if phase != PhaseHuman && phase != PhaseMuted { // sent anywhere at all, the task is no longer one reported done
+		t.info.Ready = false
+	}
 	t.info.Phase = phase
 	t.info.PhaseAt = time.Now().UnixMilli()
 	t.p.touchL()
@@ -428,6 +437,19 @@ func (t *Task) note(text string, detail ...string) {
 }
 
 func (t *Task) noteErr(prefix string, err error) { t.note(prefix + ": " + err.Error()) }
+
+// noteReadyL records work being reported ready to merge: the note stays in the
+// log at the moment it happened, and the flag says the report still stands —
+// until something is asked of the task again (see setPhaseL), which is what
+// tells "the agent is done with this" from "the agent once said so". The
+// message it proposed outlives both, as what the merge dialog opens with.
+// Expects the lock.
+func (t *Task) noteReadyL(text string) {
+	t.info.Ready = true
+	e := newEntry("note")
+	e.Text, e.Ready = text, true
+	t.addEntry(e)
+}
 
 // queueL saves something for the agent to be told the next time it is sent in,
 // ahead of whatever sends it (see kick). Things happen to a workspace while no
@@ -2415,7 +2437,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			_ = t.Merge(msg)
 			return
 		}
-		t.note("the agent reports the task is ready to merge")
+		t.noteReadyL("the agent reports the task is ready to merge")
 	}
 	if t.overBudgetL() {
 		t.noteBudgetL()

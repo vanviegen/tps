@@ -215,6 +215,7 @@ say 8 '"k":"tool","id":"d8","name":"Bash","text":"run the tests","arg":"python3 
 say 5 '"k":"tool","id":"d9","name":"Bash","text":"post an upper-case url","arg":"curl -sd {\"url\": \"HTTPS://EXAMPLE.COM/\"} http://localhost:8000/","res":"201 {\"key\": \"Kp3v\", \"short\": \"http://localhost:8000/Kp3v\"}"'
 say 4 '"k":"text","text":"Good catch — the scheme is the one part of a URL that is not case-sensitive, and `startswith` is. The check is now `allowed(url)`, which lower-cases before comparing and is a function rather than a branch, so the three cases have tests: http and https go through, `HTTPS://` goes through, and `javascript:`, `file:`, `data:` and a bare hostname do not. Eight tests, all green.\n\nThe URL that gets stored is still the one that arrived; only the comparison is lower-cased."'
 say 2 '"k":"result","text":"turn finished · 47s · $0.14"'
+say 1 '"k":"note","ready":true,"text":"the agent reports the task is ready to merge"'
 
 # snip #7 — closed without merging. Its workspace is made the way an older TPS
 # left one, and parked by the daemon at startup.
@@ -285,6 +286,7 @@ cat >"$CONFIG.new" <<JSON
 					"model": "haiku",
 					"phase": "human",
 					"started": true,
+					"ready": true,
 					"commitMessage": "Only shorten http and https links\n\nA URL with any other scheme is refused with a 400 rather than given a key: a\nshort link that redirects to javascript: is worth more to an attacker than to\nanyone else. The scheme is compared in lower case, so HTTPS:// is a link like\nany other. The README says what is accepted, and allowed() has tests.",
 					"spent": 0.43,
 					"context": 46000,
