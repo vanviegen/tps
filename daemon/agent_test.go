@@ -252,3 +252,81 @@ func TestLimitPark(t *testing.T) {
 		t.Errorf("a turn with a verdict was parked: %s, until %d", info.Phase, info.LimitUntil)
 	}
 }
+
+// The message claude ends a turn with when its login no longer works, and the
+// shapes it is not read into.
+func TestAuthGone(t *testing.T) {
+	yes := []string{
+		"Failed to authenticate: OAuth session expired and could not be refreshed",
+		"OAuth token has expired. Please obtain a new token.",
+		"Invalid API key · Please run /login",
+	}
+	for _, text := range yes {
+		if !authGone(text) {
+			t.Errorf("authGone(%q) = false", text)
+		}
+	}
+	for _, text := range []string{"", "I refreshed the session token in auth.go", "the tests authenticate against a stub"} {
+		if authGone(text) {
+			t.Errorf("authGone(%q) = true", text)
+		}
+	}
+
+	var end TurnEnd
+	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+		OnEntry:   func(*ChatEntry) {},
+		OnUpdate:  func(*ChatEntry) {},
+		OnTurnEnd: func(e TurnEnd) { end = e },
+		OnExit:    func(int, string) {},
+	}}
+	feed := func(line string) {
+		var ev event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatal(err)
+		}
+		s.onEvent(&ev)
+	}
+	// Claude words it in a message, and labels the failed result 'success'.
+	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Failed to authenticate: OAuth session expired and could not be refreshed"}]}}`)
+	feed(`{"type":"result","subtype":"success","is_error":true,"duration_ms":300}`)
+	if !end.NoLogin || !end.Failed {
+		t.Fatalf("a turn that could not sign in: %+v", end)
+	}
+	// Or in the result itself — but only a failed one: a turn that went fine
+	// carries the agent's own last words there, which may quote anything.
+	feed(`{"type":"result","is_error":true,"result":"Failed to authenticate: OAuth session expired","duration_ms":300}`)
+	if !end.NoLogin {
+		t.Errorf("the reason was in the result: %+v", end)
+	}
+	feed(`{"type":"result","result":"Failed to authenticate: OAuth session expired","duration_ms":300}`)
+	if end.NoLogin {
+		t.Errorf("a turn that went fine was read for a login failure: %+v", end)
+	}
+}
+
+// A turn that could not sign in asks the host for a sign-in, and hands the
+// task over as any failed turn does.
+func TestLoginFailed(t *testing.T) {
+	m := &Manager{projects: map[string]*Project{}, hub: hub.New(nil), saveCh: make(chan []byte, 1)}
+	p := &Project{m: m, pid: "p", info: &ProjectInfo{Dir: t.TempDir(), Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}}
+	m.projects["p"] = p
+	info := &TaskInfo{Phase: PhaseAgent}
+	task := newTask(p, "1", info)
+	p.tasks["1"], p.info.Tasks["1"] = task, info
+
+	task.onTurnEnd(TurnEnd{Failed: true, NoLogin: true})
+	if !m.loginGone.Load() {
+		t.Error("the host was not asked for a sign-in")
+	}
+	if info.Phase != PhaseHuman {
+		t.Errorf("the task did not go to the user: %s", info.Phase)
+	}
+
+	// A verdict means the agent was talking about logins, not failing on one.
+	m.loginGone.Store(false)
+	info.Phase = PhaseAgent
+	task.onTurnEnd(TurnEnd{Failed: true, NoLogin: true, Done: &Done{Next: "user"}})
+	if m.loginGone.Load() {
+		t.Error("a turn with a verdict asked for a sign-in")
+	}
+}

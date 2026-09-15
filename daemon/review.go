@@ -154,6 +154,8 @@ func (t *Task) finishReview(end TurnEnd) {
 // reviewMissing says why a turn left no review to act on, and "" when it left one.
 func reviewMissing(end TurnEnd, text string) string {
 	switch {
+	case end.Failed && end.NoLogin: // the failure is what tells it apart from a reviewer quoting one
+		return "claude could not sign in on this host"
 	case end.Limited:
 		return "claude's usage limit stopped it"
 	case end.Failed:

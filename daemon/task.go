@@ -2106,6 +2106,13 @@ func (t *Task) resumeAfterLimit() {
 	t.kick(limitPrompt)
 }
 
+// loginNote tells the user, in the task's own chat, what the failed turn was
+// about and what to do: the sign-in button is in the sidebar, on the host,
+// and signing in is all there is to it before sending the task back in.
+const loginNote = "claude could not sign in on this host, so this turn did not run and nothing about it is yours " +
+	"to fix: sign in to claude again — the host says so in the sidebar, and the button there does it — and send the " +
+	"task back in."
+
 // maxDoneNudges: how often in a row an agent is sent back in for the TPS-DONE
 // line it forgot before the task is handed to the human anyway.
 const maxDoneNudges = 2
@@ -2130,6 +2137,15 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	if t.stopping {
 		t.unlock()
 		return
+	}
+	// A turn that could not sign in says nothing about the task, whoever's turn
+	// it was: the host's login is what needs fixing, so the dashboards are told
+	// to ask for one and the chat says as much. Where the task goes is left to
+	// the rest of this, as with any other failed turn. A verdict means the
+	// agent was talking about logins rather than failing on one.
+	if end.Failed && end.NoLogin && end.Done == nil {
+		t.p.m.loginExpired()
+		t.note(loginNote)
 	}
 	// The reviewer ends its turns with a review rather than a verdict, and
 	// everything below is about verdicts (see review.go). A review the task has
@@ -2285,7 +2301,13 @@ func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
 		return
 	}
 	if t.agentPhaseL() && !t.stopping {
-		if code != 0 {
+		// A claude that could not sign in dies before a turn of it ever runs,
+		// and says so on its way out: that is the host's login rather than
+		// this task, and there is nothing half-done to keep.
+		if code != 0 && authGone(errTail) {
+			t.p.m.loginExpired()
+			t.note(loginNote)
+		} else if code != 0 {
 			t.note(fmt.Sprintf("claude exited unexpectedly (%d)", code), errTail)
 			// Whatever it had got to is in the tree and nowhere else; a point
 			// of its own is what makes it something to come back to.

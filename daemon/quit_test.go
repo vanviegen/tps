@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -97,12 +96,5 @@ func TestQuitIfConfigReplaced(t *testing.T) {
 	m.quitIfConfigReplaced()
 	if *exited != 1 {
 		t.Fatal("a registry taken away should stop the daemon too")
-	}
-}
-
-func write(t *testing.T, path, text string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-		t.Fatal(err)
 	}
 }

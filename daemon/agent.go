@@ -104,6 +104,7 @@ type ChatSession struct {
 	badDone      string                // why that message's TPS-DONE line was unusable
 	limited      bool                  // that message was claude reporting a usage limit
 	limitAt      time.Time             // and when it says that limit resets
+	noLogin      bool                  // the turn ran into claude being unable to authenticate at all
 	opts         SessionOpts
 	exited       chan struct{}
 }
@@ -196,7 +197,7 @@ func (s *ChatSession) TurnActive() bool { return s.turnActive.Load() }
 func (s *ChatSession) Send(text string) {
 	s.turnActive.Store(true)
 	s.lastText = ""
-	s.limited, s.limitAt = false, time.Time{}
+	s.limited, s.limitAt, s.noLogin = false, time.Time{}, false
 	s.write(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": text}}}})
 }
 
@@ -236,6 +237,7 @@ type event struct {
 	Message *struct {
 		Content []block `json:"content"`
 	} `json:"message"`
+	Result       string   `json:"result"` // why a failed turn failed, where claude says it here rather than in a message
 	TotalCostUSD *float64 `json:"total_cost_usd"`
 	DurationMS   float64  `json:"duration_ms"`
 	IsError      bool     `json:"is_error"`
@@ -267,6 +269,7 @@ func (s *ChatSession) onEvent(ev *event) {
 				text, done, bad := parseDone(strings.TrimSpace(b.Text))
 				s.done, s.badDone = done, bad
 				s.limited, s.limitAt = limitOf(b.Text)
+				s.noLogin = s.noLogin || authGone(b.Text)
 				if text = strings.TrimSpace(text); text != "" {
 					s.lastText = text
 					e := s.entry("text")
@@ -314,6 +317,9 @@ func (s *ChatSession) onEvent(ev *event) {
 		}
 	case "result":
 		s.turnActive.Store(false)
+		// A turn that went fine carries the agent's own last words here, which
+		// may well be about logins: only a failed one is read for the reason.
+		s.noLogin = s.noLogin || (ev.IsError && authGone(ev.Result))
 		total := s.costReported
 		if ev.TotalCostUSD != nil {
 			total = *ev.TotalCostUSD
@@ -339,8 +345,8 @@ func (s *ChatSession) onEvent(ev *event) {
 		}
 		e.Text += " · " + secs + cost
 		s.opts.OnEntry(e)
-		end := TurnEnd{Cost: delta, Failed: ev.IsError, Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt}
-		s.lastText, s.done, s.badDone, s.limited, s.limitAt = "", nil, "", false, time.Time{}
+		end := TurnEnd{Cost: delta, Failed: ev.IsError, Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
+		s.lastText, s.done, s.badDone, s.limited, s.limitAt, s.noLogin = "", nil, "", false, time.Time{}, false
 		s.opts.OnTurnEnd(end)
 	}
 }
@@ -484,6 +490,7 @@ type TurnEnd struct {
 	Bad     string    // why a TPS-DONE line that was there could not be used
 	Limited bool      // the last message was claude reporting a usage limit
 	LimitAt time.Time // when that limit resets; zero when it named no time we could read
+	NoLogin bool      // the turn ran into claude not being able to authenticate (see authGone)
 }
 
 // parseDone splits a TPS-DONE line off the end of an agent message: the text
@@ -555,6 +562,21 @@ func limitOf(text string) (bool, time.Time) {
 	}
 	return true, parseReset(strings.TrimSpace(m[1]), time.Now())
 }
+
+// --- claude's login ---
+
+// A turn whose credentials no longer work ends much like one that ran into a
+// limit: a message from claude itself — "Failed to authenticate: OAuth session
+// expired and could not be refreshed" — and a failed result behind it. What
+// needs fixing is the host's login rather than anything about the task, so TPS
+// reads that out and asks for a sign-in where the user is, instead of leaving
+// them to work out what the message meant (see loginExpired). An agent whose
+// own words happen to match — this file's would — is why nothing acts on this
+// without the turn having failed as well: see onTurnEnd and reviewMissing.
+var authWords = regexp.MustCompile(`(?i)failed to authenticate|oauth (session|token) (has )?expired|invalid api key|please run ` + "`?" + `/?(claude )?(auth )?login`)
+
+// authGone reports whether a message is claude saying it could not sign in.
+func authGone(text string) bool { return text != "" && authWords.MatchString(text) }
 
 // parseReset reads the clock claude names in that message: "4:40pm (UTC)", in
 // UTC because that is the zone the process is given (see newChatSession) —

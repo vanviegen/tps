@@ -35,6 +35,7 @@ type Manager struct {
 	restarting bool
 	usedAt     time.Time   // when a dashboard was last connected; Start and quitIfUnused are all that touch it
 	quitting   atomic.Bool // a stop is under way; both quit tickers can ask for one
+	loginGone  atomic.Bool // claude's login here stopped being accepted (see loginExpired)
 
 	savedMu sync.Mutex // serialises writing the registry file with reading it back (see quitIfConfigReplaced)
 	saved   []byte     // what the file held when this daemon last wrote or read it
