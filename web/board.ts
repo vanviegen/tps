@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { funnel, plus, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { addTask, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, COLUMNS, costText, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * The project's board: a box per column, a card dropped anywhere in a box's
@@ -205,6 +205,13 @@ function drawCard(pid: string, tid: string, $t: any, dim: boolean): void {
 					A(() => {
 						const cost = costText($t);
 						if (cost) A('small text=', cost);
+					});
+					A(() => {
+						if (!contextSlices($t)) return;
+						A('small display:inline-flex align-items:center fg:$s-muted', () => {
+							S.addTooltip({ tip: () => drawContextTip($t) });
+							drawContextRing($t, '1.1em');
+						});
 					});
 					A(() => {
 						if (autoStarts($t)) A('small text=', '⏳ ' + taskActivity(pid, $t).text);

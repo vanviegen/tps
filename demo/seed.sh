@@ -263,6 +263,8 @@ cat >"$CONFIG.new" <<JSON
 					"started": true,
 					"merged": true,
 					"spent": 1.87,
+					"context": 118000,
+					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 23)
 				},
 				"2": {
@@ -273,6 +275,8 @@ cat >"$CONFIG.new" <<JSON
 					"started": true,
 					"merged": true,
 					"spent": 0.34,
+					"context": 31000,
+					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 9)
 				},
 				"3": {
@@ -283,6 +287,8 @@ cat >"$CONFIG.new" <<JSON
 					"started": true,
 					"commitMessage": "Only shorten http and https links\n\nA URL with any other scheme is refused with a 400 rather than given a key: a\nshort link that redirects to javascript: is worth more to an attacker than to\nanyone else. The scheme is compared in lower case, so HTTPS:// is a link like\nany other. The README says what is accepted, and allowed() has tests.",
 					"spent": 0.43,
+					"context": 46000,
+					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 0 3)
 				},
 				"4": {
@@ -293,6 +299,8 @@ cat >"$CONFIG.new" <<JSON
 					"started": true,
 					"merged": true,
 					"spent": 1.12,
+					"context": 87000,
+					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 4)
 				},
 				"5": {
@@ -317,6 +325,8 @@ cat >"$CONFIG.new" <<JSON
 					"phase": "closed",
 					"started": true,
 					"spent": 0.11,
+					"context": 12000,
+					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 12)
 				}
 			}
@@ -337,6 +347,8 @@ cat >"$CONFIG.new" <<JSON
 					"started": true,
 					"merged": true,
 					"spent": 0.27,
+					"context": 24500,
+					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"budget": 5,
 					"phaseAt": $(ms 6)
 				},

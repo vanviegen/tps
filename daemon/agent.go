@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -99,6 +100,7 @@ type ChatSession struct {
 	errTail      string
 	costReported float64               // cumulative session cost of the last result event
 	pending      map[string]*ChatEntry // tool calls awaiting their result
+	context      int64                 // tokens the last request sent, which is what claude currently remembers
 	lastText     string                // the latest message of the turn under way, which is the reviewer's answer (see review.go)
 	done         *Done                 // the verdict of the turn under way, from its latest message
 	badDone      string                // why that message's TPS-DONE line was unusable
@@ -236,11 +238,35 @@ type event struct {
 	Subtype string `json:"subtype"`
 	Message *struct {
 		Content []block `json:"content"`
+		Usage   *usage  `json:"usage"`
 	} `json:"message"`
 	Result       string   `json:"result"` // why a failed turn failed, where claude says it here rather than in a message
 	TotalCostUSD *float64 `json:"total_cost_usd"`
 	DurationMS   float64  `json:"duration_ms"`
 	IsError      bool     `json:"is_error"`
+	// A system event about compaction: the boundary one carries the metadata,
+	// a status one that failed says why (see onEvent).
+	CompactMeta  *compactMeta `json:"compact_metadata"`
+	CompactRes   string       `json:"compact_result"`
+	CompactError string       `json:"compact_error"`
+}
+
+// usage is what one request to claude was billed for, in tokens. The three
+// input figures together are the context it sent: what was fresh, what was
+// freshly cached, and what was read back from cache.
+type usage struct {
+	Input         int64 `json:"input_tokens"`
+	CacheCreation int64 `json:"cache_creation_input_tokens"`
+	CacheRead     int64 `json:"cache_read_input_tokens"`
+}
+
+func (u *usage) context() int64 { return u.Input + u.CacheCreation + u.CacheRead }
+
+// compactMeta is what claude reports about a compaction it just did.
+type compactMeta struct {
+	Trigger string `json:"trigger"` // auto: the window filled up · manual: someone said /compact
+	Pre     int64  `json:"pre_tokens"`
+	Post    int64  `json:"post_tokens"`
 }
 
 type block struct {
@@ -260,6 +286,13 @@ func (s *ChatSession) onEvent(ev *event) {
 	case "assistant":
 		if ev.Message == nil {
 			return
+		}
+		// Every message says what the request that produced it sent, which is
+		// the size of the conversation as claude now holds it.
+		if ev.Message.Usage != nil {
+			if n := ev.Message.Usage.context(); n > 0 {
+				s.context = n
+			}
 		}
 		for _, b := range ev.Message.Content {
 			switch b.Type {
@@ -315,6 +348,35 @@ func (s *ChatSession) onEvent(ev *event) {
 				s.opts.OnEntry(e)
 			}
 		}
+	case "system":
+		// Compaction: claude replacing everything it remembers with a summary
+		// of it, either because the context window filled up or because
+		// somebody said /compact. It only ever appends to its transcript, so
+		// the save points made before this one still measure the whole
+		// conversation and reverting to one undoes the compaction (see mark).
+		switch {
+		case ev.Subtype == "compact_boundary" && ev.CompactMeta != nil:
+			m := ev.CompactMeta
+			how := "claude's context filled up, so it was compacted"
+			if m.Trigger == "manual" {
+				how = "claude compacted its context on request"
+			}
+			e := s.entry("note")
+			// Claude's own two figures, as it words them. They are not the size
+			// of the window before and after — a request made right after a
+			// compaction sends far more than the second one — so they are given
+			// as what they are and nothing is read into them (see compactNote).
+			e.Text = fmt.Sprintf("%s: %s → %s", how, tokens(m.Pre), tokens(m.Post))
+			e.Detail = compactNote
+			s.opts.OnEntry(e)
+		case ev.CompactRes == "failed":
+			e := s.entry("note")
+			e.Text, e.Error = "compacting claude's context failed", true
+			if why := strings.TrimSpace(ev.CompactError); why != "" {
+				e.Text += ": " + oneLine(why, 200)
+			}
+			s.opts.OnEntry(e)
+		}
 	case "result":
 		s.turnActive.Store(false)
 		// A turn that went fine carries the agent's own last words here, which
@@ -326,12 +388,15 @@ func (s *ChatSession) onEvent(ev *event) {
 		}
 		delta := max(0, total-s.costReported)
 		s.costReported = total
-		secs, cost, why := "", "", ""
+		secs, cost, held, why := "", "", "", ""
 		if ev.DurationMS > 0 {
 			secs = fmt.Sprintf("%ds", int(ev.DurationMS/1000+0.5))
 		}
 		if delta > 0 {
 			cost = fmt.Sprintf(" · $%.2f", delta)
+		}
+		if s.context > 0 {
+			held = " · " + tokens(s.context) + " in context"
 		}
 		if ev.IsError && ev.Subtype != "" && ev.Subtype != "success" { // an auth failure comes labeled 'success'
 			why = " (" + strings.ReplaceAll(strings.TrimPrefix(ev.Subtype, "error_"), "_", " ") + ")"
@@ -343,9 +408,9 @@ func (s *ChatSession) onEvent(ev *event) {
 		} else {
 			e.Text = "turn finished"
 		}
-		e.Text += " · " + secs + cost
+		e.Text += " · " + secs + cost + held
 		s.opts.OnEntry(e)
-		end := TurnEnd{Cost: delta, Failed: ev.IsError, Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
+		end := TurnEnd{Cost: delta, Context: s.context, Failed: ev.IsError, Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
 		s.lastText, s.done, s.badDone, s.limited, s.limitAt, s.noLogin = "", nil, "", false, time.Time{}, false
 		s.opts.OnTurnEnd(end)
 	}
@@ -402,6 +467,29 @@ func clip(s string) string {
 	}
 	return s[:cut] + fmt.Sprintf("\n… (%d more characters)", len(s)-cut)
 }
+
+// tokens renders a token count the way the log mentions it: 950, 9k, 23k, 1.2M.
+func tokens(n int64) string {
+	round := func(v float64) string { return strings.TrimSuffix(fmt.Sprintf("%.1f", v), ".0") }
+	switch {
+	case n >= 1_000_000:
+		return round(float64(n)/1e6) + "M"
+	case n >= 10_000:
+		return strconv.FormatInt(n/1000, 10) + "k"
+	case n >= 1_000:
+		return round(float64(n)/1e3) + "k"
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+// compactNote is what the compaction note says when it is opened: the two
+// things about it that are not obvious from the line itself.
+const compactNote = `The two figures are claude's own report of the compaction, not the size of its window ` +
+	`before and after; what it really holds is what the ring beside the message box shows, from the next turn on.
+
+The agent has forgotten, but the task has not: claude only ever adds to its transcript, so the save points ` +
+	`above still measure the whole conversation. Putting the task back to one — or forking from it — gives the ` +
+	`agent its memory back as it was.`
 
 func str(v any) string {
 	s, _ := v.(string)
@@ -484,6 +572,7 @@ type Done struct {
 // TurnEnd is what a finished claude turn amounts to for the task.
 type TurnEnd struct {
 	Cost    float64   // USD spent since the previous turn
+	Context int64     // tokens the turn's last request sent: what claude remembers now
 	Failed  bool      // claude reported the turn itself as failed
 	Text    string    // the last message of the turn: the reviewer's answer (see review.go)
 	Done    *Done     // the verdict, if the last message carried a usable one

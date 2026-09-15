@@ -10,7 +10,7 @@ import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, busyAttrs, chatDraft, cmd, debounce, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Keep the task's chat streaming for as long as the calling scope lives, and
@@ -600,6 +600,19 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 				if ($has.text || $atts.length) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
 				else if ($t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
 					click: () => void cmd('stopAgent', { pid, tid }) });
+				// Nothing to send and nothing to stop: how full the agent's window is,
+				// and the button that empties it. What is about the conversation rather
+				// than about this message belongs where the eye already is when nothing
+				// is being typed. Nothing is measured before the agent has run, and a
+				// finished task has no window to look into — an empty ring would be a
+				// button over nothing, so neither draws one.
+				else if (hasWorkspace($t) && contextSlices($t)) S.iconButton({
+					icon: () => drawContextRing($t, '1.4rem'),
+					ariaLabel: 'Compact the agent’s memory',
+					attrs: size + 'fg:$s-muted',
+					tooltip: () => drawContextTip($t, 'Click to have it do that now.'),
+					click: () => void cmd('compactTask', { pid, tid }),
+				});
 			}),
 			input: (e: Event) => {
 				const text = (e.target as HTMLTextAreaElement).value;

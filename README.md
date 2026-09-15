@@ -88,7 +88,9 @@ commits, each on top of the branch as it stands.
 
 And of course TPS also handles the usual: an agent chat that allow mid-run steering
 and pasting screenshots and other files, a choice of model per task, cost tracking with a
-budget that parks a task when it is reached, opt-in desktop notifications when a task needs you, and keyboard shortcuts for the things you do all day.
+budget that parks a task when it is reached, a ring beside the message box showing what fills the agent's
+context window and a click to have claude summarise it away, opt-in desktop notifications when a task
+needs you, and keyboard shortcuts for the things you do all day.
 
 ## Installing
 

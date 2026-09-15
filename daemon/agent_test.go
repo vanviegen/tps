@@ -330,3 +330,120 @@ func TestLoginFailed(t *testing.T) {
 		t.Error("a turn with a verdict asked for a sign-in")
 	}
 }
+
+// Compaction: what claude says when it summarises away what it remembers, and
+// the context figure that follows it back down.
+func TestCompaction(t *testing.T) {
+	var entries []*ChatEntry
+	var ends []TurnEnd
+	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+		OnEntry:   func(e *ChatEntry) { entries = append(entries, e) },
+		OnUpdate:  func(*ChatEntry) {},
+		OnTurnEnd: func(e TurnEnd) { ends = append(ends, e) },
+		OnExit:    func(int, string) {},
+	}}
+	feed := func(line string) {
+		var ev event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatal(err)
+		}
+		s.onEvent(&ev)
+	}
+	// Everything the request sent counts as context: fresh, freshly cached and
+	// read back from cache alike.
+	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Hello."}],"usage":{"input_tokens":12,"cache_creation_input_tokens":8,"cache_read_input_tokens":23000}}}`)
+	feed(`{"type":"result","total_cost_usd":0.01,"duration_ms":1000,"is_error":false}`)
+	if s.context != 23020 || len(ends) != 1 || ends[0].Context != 23020 {
+		t.Fatalf("context not measured: %d, ends %+v", s.context, ends)
+	}
+	if entries[1].Text != "turn finished · 1s · $0.01 · 23k in context" {
+		t.Errorf("result entry: %q", entries[1].Text)
+	}
+
+	feed(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":23117,"post_tokens":2734}}`)
+	note := entries[2]
+	if note.K != "note" || note.Text != "claude's context filled up, so it was compacted: 23k → 2.7k" || note.Detail == "" {
+		t.Errorf("compaction note: %+v", note)
+	}
+	// Claude's post_tokens is not the size of the window afterwards — a request
+	// made right after a compaction sends far more than it — so only what a
+	// turn reports sending may move the figure the dashboard draws.
+	if s.context != 23020 {
+		t.Errorf("a compaction moved the context figure to %d; only a turn may", s.context)
+	}
+	feed(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":9000,"post_tokens":900}}`)
+	if entries[3].Text != "claude compacted its context on request: 9k → 900" {
+		t.Errorf("manual compaction note: %q", entries[3].Text)
+	}
+	// A compaction that failed is the one thing worse than one that happened:
+	// claude carries on with a context it could not make room in.
+	feed(`{"type":"system","subtype":"status","status":null,"compact_result":"failed","compact_error":"Not logged in · Please run /login"}`)
+	if e := entries[4]; !e.Error || !strings.Contains(e.Text, "Not logged in") {
+		t.Errorf("failed compaction: %+v", e)
+	}
+	if len(entries) != 5 {
+		t.Errorf("got %d entries", len(entries))
+	}
+	for _, c := range []struct {
+		n    int64
+		want string
+	}{{950, "950"}, {1234, "1.2k"}, {9000, "9k"}, {23117, "23k"}, {1_000_000, "1M"}, {1_250_000, "1.2M"}} {
+		if got := tokens(c.n); got != c.want {
+			t.Errorf("tokens(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
+// The context figure a task keeps is its agent's own; the reviewer's blank
+// session says nothing about how full the conversation is.
+func TestContextRecorded(t *testing.T) {
+	m := &Manager{projects: map[string]*Project{}, hub: hub.New(nil), saveCh: make(chan []byte, 1)}
+	p := &Project{m: m, pid: "p", info: &ProjectInfo{Dir: t.TempDir(), Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}}
+	m.projects["p"] = p
+	info := &TaskInfo{Phase: PhaseAgent}
+	task := newTask(p, "1", info)
+	p.tasks["1"], p.info.Tasks["1"] = task, info
+
+	task.onTurnEnd(TurnEnd{Context: 34_000, Done: &Done{Next: "user"}})
+	if info.Context != 34_000 {
+		t.Fatalf("the turn's context was not kept: %d", info.Context)
+	}
+	info.Phase, task.sessionReview = PhaseReview, true
+	task.onTurnEnd(TurnEnd{Context: 900, Text: "Accept"})
+	if info.Context != 34_000 {
+		t.Errorf("the reviewer's context was taken for the task's: %d", info.Context)
+	}
+}
+
+// A compaction is a turn of claude's session but not one of the task's: what it
+// cost and what it left in the window are counted, and nothing else is read
+// into it — no verdict, no nudge for the line it never had, no handover.
+func TestCompactTurn(t *testing.T) {
+	m := &Manager{projects: map[string]*Project{}, hub: hub.New(nil), saveCh: make(chan []byte, 1)}
+	p := &Project{m: m, pid: "p", info: &ProjectInfo{Dir: t.TempDir(), Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}}
+	m.projects["p"] = p
+	info := &TaskInfo{Phase: PhaseAgent, Context: 120_000}
+	task := newTask(p, "1", info)
+	p.tasks["1"], p.info.Tasks["1"] = task, info
+
+	task.compacting = true
+	task.onTurnEnd(TurnEnd{Cost: 0.02, Context: 4_000})
+	if info.Spent != 0.02 || info.Context != 4_000 {
+		t.Errorf("a compaction's cost and what it left should both count: %+v", info)
+	}
+	if task.compacting {
+		t.Error("the compaction flag outlived the turn it was for")
+	}
+	if info.Phase != PhaseAgent || task.doneNudges != 0 {
+		t.Errorf("the task was moved along by a turn nothing was asked in: %s, %d nudges", info.Phase, task.doneNudges)
+	}
+	// Stopping one is not cutting the agent off: there is nothing half done to
+	// tell it about, and nothing worth a save point.
+	task.compacting = true
+	if task.stopAgent() {
+		t.Error("stopping a compaction should not count as cutting a turn short")
+	}
+	if task.compacting || len(info.Pending) > 0 {
+		t.Errorf("a stopped compaction left something behind: %+v", info.Pending)
+	}
+}

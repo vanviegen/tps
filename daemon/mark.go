@@ -300,6 +300,7 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 	if use.Chat {
 		// A point from before the agent ever ran leaves no session to resume.
 		t.info.Started = len(point.Mark.Claude) > 0
+		t.info.Context = 0 // the conversation is another length now; the next turn measures it
 	}
 	if use.explains() {
 		t.queueL("point", pointPrompt(use))

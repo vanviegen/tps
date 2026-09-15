@@ -95,25 +95,27 @@ func parseAnswer(raw any, offered ...Answer) (Answer, bool) {
 
 // TaskInfo is the persisted part of a task (in projects.json).
 type TaskInfo struct {
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	Model         string   `json:"model"`
-	OnReady       Answer   `json:"onReady,omitempty"`     // what becomes of work the agent reports ready (see review.go)
-	OnAccept      Answer   `json:"onAccept,omitempty"`    // and of work a review accepts
-	ReviewLoops   int      `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent
-	ReviewLoop    int      `json:"reviewLoop,omitempty"`  // how often it has, since the user last said something
-	ReviewModel   string   `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is claude's own default
-	Review        string   `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
-	Phase         Phase    `json:"phase"`
-	Started       bool     `json:"started,omitempty"`       // a claude session exists in the task's claude dir
-	CommitMessage string   `json:"commitMessage,omitempty"` // proposed by the agent, awaiting the user's merge
-	Spent         float64  `json:"spent,omitempty"`         // USD spent on agent runs so far
-	Budget        *float64 `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
-	TitleAsked    bool     `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
-	PhaseAt       int64    `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
-	StartAfter    []string `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
-	Conflicts     []string `json:"conflicts,omitempty"`     // files the last replay onto the branch could not merge cleanly (see plant); until a clean one, or the merge
-	LimitUntil    int64    `json:"limitUntil,omitempty"`    // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
+	Title         string         `json:"title"`
+	Description   string         `json:"description"`
+	Model         string         `json:"model"`
+	OnReady       Answer         `json:"onReady,omitempty"`     // what becomes of work the agent reports ready (see review.go)
+	OnAccept      Answer         `json:"onAccept,omitempty"`    // and of work a review accepts
+	ReviewLoops   int            `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent
+	ReviewLoop    int            `json:"reviewLoop,omitempty"`  // how often it has, since the user last said something
+	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is claude's own default
+	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
+	Phase         Phase          `json:"phase"`
+	Started       bool           `json:"started,omitempty"`       // a claude session exists in the task's claude dir
+	CommitMessage string         `json:"commitMessage,omitempty"` // proposed by the agent, awaiting the user's merge
+	Spent         float64        `json:"spent,omitempty"`         // USD spent on agent runs so far
+	Budget        *float64       `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
+	Context       int64          `json:"context,omitempty"`       // tokens the conversation came to at the agent's last turn
+	Window        *ContextWindow `json:"window,omitempty"`        // and what claude's window holds besides it (see context.go)
+	TitleAsked    bool           `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
+	PhaseAt       int64          `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
+	StartAfter    []string       `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
+	Conflicts     []string       `json:"conflicts,omitempty"`     // files the last replay onto the branch could not merge cleanly (see plant); until a clean one, or the merge
+	LimitUntil    int64          `json:"limitUntil,omitempty"`    // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
 
 	// Pending is what the agent is told the next time it is sent in: things
 	// that happened to its workspace while it wasn't running.
@@ -170,6 +172,7 @@ type Task struct {
 	sessionFlight *flight[*ChatSession]
 	sessionBudget *float64 // the budget setting the running claude was started under
 	sessionReview bool     // and whether it is the reviewer rather than the task's own agent (see review.go)
+	compacting    bool     // the turn under way is a /compact of ours, not one the task asked anything in
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
@@ -212,6 +215,33 @@ func (t *Task) hasWorkspace() bool { return exists(filepath.Join(t.repoDir(), ".
 func (t *Task) onReadyL() Answer  { return cmp.Or(t.info.OnReady, defaultOnReady) }
 func (t *Task) onAcceptL() Answer { return cmp.Or(t.info.OnAccept, defaultOnAccept) }
 
+// conversationPart names the share of the window the conversation itself takes:
+// the one part claude does not name, because it is everything it did not.
+const conversationPart = "This conversation"
+
+// contextL is the agent's context window as the dashboard draws it: what the
+// last turn really sent, where that stops, and what it is made of. The parts
+// were measured on their own and the turn's total on its own, so the two can
+// disagree by a little; what a turn sent is what was really paid for, so the
+// parts are laid inside that and the conversation is whatever is left over —
+// which is also the only part that grows, and the only one compacting takes
+// back. Nil until both have been measured, there being no window to draw then.
+func (t *Task) contextL() any {
+	w := t.info.Window
+	if t.info.Context <= 0 || w == nil || w.Limit <= 0 {
+		return nil
+	}
+	left := t.info.Context
+	parts := make([]ContextPart, 0, len(w.Parts)+1)
+	for _, p := range w.Parts {
+		size := min(left, p.Tokens)
+		parts = append(parts, ContextPart{Name: p.Name, Tokens: size})
+		left -= size
+	}
+	parts = append(parts, ContextPart{Name: conversationPart, Tokens: left})
+	return map[string]any{"used": t.info.Context, "limit": w.Limit, "parts": parts}
+}
+
 // agentPhaseL: an agent may be at work — on the task itself, on reviewing it,
 // or on merging it — so nothing is expected of the user meanwhile.
 func (t *Task) agentPhaseL() bool {
@@ -250,6 +280,7 @@ func (t *Task) publishL() {
 		t.pubL("spent", nil)
 	}
 	t.pubL("budget", optional(t.info.Budget))
+	t.pubL("context", t.contextL())
 	if len(t.info.StartAfter) > 0 {
 		t.pubL("startAfter", t.info.StartAfter)
 	} else {
@@ -827,6 +858,86 @@ func (t *Task) StopAgent() error {
 	return nil
 }
 
+// Compact is the user asking claude to summarise what it remembers down to a
+// paragraph, making room for what comes next. It runs as a turn of the agent's
+// session — claude's own /compact — but not as a turn of the task: nothing was
+// asked of the agent, so nothing is read from how it ends and no save point is
+// made of it (see onTurnEnd). The log hears about it from the compaction
+// itself, which reports what it made of what (see onEvent).
+func (t *Task) Compact() error {
+	defer t.p.m.work()()
+	t.lock()
+	switch {
+	case t.workingL():
+		t.unlock()
+		return errors.New("The agent is working; wait for it, or stop it first")
+	case t.info.Phase == PhaseReview:
+		// The session a review starts is the reviewer's, and starting one now
+		// would start that; the agent has the task back soon enough.
+		t.unlock()
+		return errors.New("A review is under way; this is the agent's own memory, and it has the task back after")
+	case !t.info.Started:
+		t.unlock()
+		return errors.New("This task's agent has not run yet, so there is nothing for it to forget")
+	case !t.hasWorkspace():
+		t.unlock()
+		return errors.New("This task has no workspace to work from; pick it up first")
+	}
+	// A review leaves its session running, and that one is nobody's
+	// conversation: compacting it would compact nothing and say it had (see
+	// review.go). Out it goes, the way kick swaps it out, and the agent's own
+	// is picked back up by the session that replaces it.
+	var stale *ChatSession
+	if t.sessionReview {
+		stale = t.session
+	}
+	t.compacting = true
+	t.touchL()
+	t.unlock()
+	go func() {
+		if stale != nil {
+			t.stopSession(stale)
+		}
+		s, err := t.ensureSession()
+		if err != nil {
+			t.lock()
+			t.compacting = false
+			t.unlock()
+			t.noteErr("compacting the agent's memory failed", err)
+			return
+		}
+		s.Send("/compact")
+	}()
+	return nil
+}
+
+// probeContextParts learns what claude's window holds before a word is said in
+// it, and where claude will compact — the two things the dashboard's gauge
+// needs and no turn reports (see context.go). Neither changes while the model
+// does not, so a window already measured for it is left alone; the asking is
+// done in the background, a task waiting on it waiting on nothing it needs.
+func (t *Task) probeContextParts(c *Container) {
+	t.lock()
+	model := t.info.Model
+	// The reviewer's window is its own, and starts empty every time (see
+	// review.go): what it holds says nothing about the task's conversation.
+	if t.sessionReview || (t.info.Window != nil && t.info.Window.Model == model) {
+		t.unlock()
+		return
+	}
+	t.unlock()
+	p, ok := probeContext(c, model, systemPrompt)
+	if !ok {
+		return
+	}
+	p.Model = model // in the task's own words, which is what the guard above reads
+	t.lock()
+	t.info.Window = &p
+	t.p.m.saveL()
+	t.publishL()
+	t.unlock()
+}
+
 // stopAgent hands the task to the human, interrupting any agent turn (or
 // merge), and reports whether it cut a turn short. No save point: the callers
 // here are clearing the way for something else — a merge, a close, a revert —
@@ -835,7 +946,11 @@ func (t *Task) stopAgent() bool {
 	t.lock()
 	s := t.session
 	cutOff := t.workingL()
-	if cutOff {
+	// A compaction of ours is not the agent's work: stopping one leaves nothing
+	// half done for it to be told about, and nothing worth a save point.
+	if t.compacting {
+		t.compacting, cutOff = false, false
+	} else if cutOff {
 		// Its turn is about to be cut off mid-thought; whatever it was doing
 		// was left half done, which it has no other way of finding out.
 		t.queueL("stopped", stoppedPrompt)
@@ -2038,6 +2153,7 @@ func (t *Task) startSession() (*ChatSession, error) {
 	t.lock()
 	t.session = s
 	t.unlock()
+	go t.probeContextParts(c)
 	return s, nil
 }
 
@@ -2135,11 +2251,30 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	t.lock()
 	t.touchL()
 	t.p.touchL()
+	save := false
 	if end.Cost > 0 {
 		t.info.Spent = math.Round((t.info.Spent+end.Cost)*10000) / 10000
+		save = true
+	}
+	// How full the agent's head is, as of the request it just made. The
+	// reviewer's context is nobody's but its own: it starts blank every time
+	// and is never written down (see review.go).
+	if end.Context > 0 && !t.sessionReview {
+		t.info.Context = end.Context
+		save = true
+	}
+	if save {
 		t.p.m.saveL()
 	}
 	t.publishL()
+	// A compaction is a turn of claude's session but not one of the task's: the
+	// agent was asked for nothing, so there is no verdict to read out of how it
+	// ended and no run to make a save point of (see Compact).
+	if t.compacting {
+		t.compacting = false
+		t.unlock()
+		return
+	}
 	if t.workingL() { // the user already sent a follow-up
 		t.unlock()
 		return

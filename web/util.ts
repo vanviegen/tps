@@ -286,6 +286,97 @@ export function costText($t: any): string | undefined {
 	return `$${($t.spent ?? 0).toFixed(2)}${$t.budget ? ` / $${$t.budget.toFixed(2)}` : ''}`;
 }
 
+/** A token count the way the log words it: 950, 9k, 34k, 1.2M. */
+export function tokenText(n: number): string {
+	const round = (v: number) => v.toFixed(1).replace(/\.0$/, '');
+	if (n >= 1e6) return `${round(n / 1e6)}M`;
+	if (n >= 1e4) return `${Math.floor(n / 1e3)}k`;
+	if (n >= 1e3) return `${round(n / 1e3)}k`;
+	return String(n);
+}
+
+/** Past this much of its window, the agent is close enough to forgetting to say so. */
+const CONTEXT_FULL = 0.9;
+
+/** The colours the fixed parts of the window wear, in the order claude lists them. */
+const PART_COLORS = ['#5b9cf5', '#9b7bf0', '#45c4d6', '#7bd36f', '#d9a441'];
+
+/** One wedge of the context ring: how much of the window, in what colour, called what. */
+interface ContextSlice { tokens: number; color: string; label: string }
+
+/**
+ * The agent's context window as wedges to draw: what the daemon measured it to
+ * hold, the conversation last of all — the part that grows, and the part
+ * compacting takes back, so the only one worth a colour that says so.
+ * Undefined before the agent has run, there being nothing measured yet.
+ */
+export function contextSlices($t: any): { slices: ContextSlice[]; used: number; limit: number; full: boolean } | undefined {
+	const ctx = $t.context;
+	if (!ctx?.limit || !ctx.used) return;
+	const full = ctx.used / ctx.limit >= CONTEXT_FULL;
+	const parts: { name: string; tokens: number }[] = ctx.parts ?? [];
+	const slices = parts.map((p, i) => ({
+		tokens: p.tokens,
+		label: p.name,
+		color: i === parts.length - 1
+			? (full ? 'var(--s-warning)' : 'var(--s-primary)')
+			: PART_COLORS[i % PART_COLORS.length],
+	}));
+	return { slices, used: ctx.used, limit: ctx.limit, full };
+}
+
+/**
+ * The window as a ring, a wedge per part, filling clockwise from twelve
+ * o'clock; what is left of it is the faint track behind them. The conversation
+ * is the wedge on the end, so it is the one seen growing — and the one seen
+ * vanishing when claude compacts it away.
+ */
+export function drawContextRing($t: any, size = '1.1em'): void {
+	A(() => {
+		const ctx = contextSlices($t);
+		if (!ctx) return;
+		const r = 9;
+		const arc = 2 * Math.PI * r;
+		const ring = (len: number, from: number, stroke: string, opacity = 1) =>
+			`<circle cx="12" cy="12" r="${r}" fill="none" stroke="${stroke}" stroke-opacity="${opacity}" stroke-width="4"`
+			+ ` transform="rotate(-90 12 12)" stroke-dasharray="${len.toFixed(2)} ${(arc - len).toFixed(2)}"`
+			+ ` stroke-dashoffset="${(-from).toFixed(2)}"/>`;
+		let html = ring(arc, 0, 'currentColor', 0.2); // the room there is, all the way round
+		let at = 0;
+		for (const slice of ctx.slices) {
+			const len = Math.min(arc - at, (slice.tokens / ctx.limit) * arc);
+			if (len > 0) html += ring(len, at, slice.color);
+			at += len;
+		}
+		const el = A('svg aria-hidden=true viewBox="0 0 24 24" fill=none', 'width=', size, 'height=', size) as SVGSVGElement;
+		// Children of an <svg> have to be built in its own namespace, which is
+		// what setting them as markup on the element itself does.
+		el.innerHTML = html;
+	});
+}
+
+/**
+ * The ring in words: what fills the window, wedge by wedge, and what claude
+ * does when it is full. Whoever shows this offers the compacting themselves.
+ */
+export function drawContextTip($t: any, action = ''): void {
+	const ctx = contextSlices($t);
+	if (!ctx) return;
+	A('div display:flex flex-direction:column gap:$1 text-align:left', () => {
+		A('text=', `The agent is holding ${tokenText(ctx.used)} of the ${tokenText(ctx.limit)} it has room for:`);
+		for (const slice of ctx.slices) {
+			if (slice.tokens <= 0) continue;
+			A('div display:flex align-items:center gap:$2', () => {
+				A(`span w:0.6em h:0.6em r:99em flex-shrink:0 bg:${slice.color}`);
+				A('span flex:1 text=', slice.label);
+				A('span text=', tokenText(slice.tokens));
+			});
+		}
+		A('small text=', 'Claude sums the conversation up in a paragraph and forgets the rest when the window fills up.'
+			+ (action ? ' ' + action : ''));
+	});
+}
+
 /** Where a forwarded port of a task is reached from this browser. */
 export function portUrl(p: { host: number }): string {
 	return `http://${location.hostname}:${p.host}/`;
