@@ -55,12 +55,12 @@ func TestReadServices(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("test", "cmd", "npm test\n")
+	write("test", "argv", "npm test\x00")
 	write("test", "pid", "123\n")
 	write("test", "exit", "1\n")
-	write("web", "cmd", "serve\n")
+	write("web", "argv", "serve\x00")
 	write("web", "pid", "124\n")
-	write("old", "cmd", "x\n")
+	write("old", "argv", "node\x00a b.js\x00")
 	write("old", "pid", "1\n")
 	write("old", "exit", "143\n")
 	write("old", "stopped", "")
@@ -73,7 +73,7 @@ func TestReadServices(t *testing.T) {
 	if got[1].Name != "web" || got[1].Status != "running" || got[1].Cmd != "serve" || got[1].Started == 0 {
 		t.Errorf("declared running keeps the command it ran with: %+v", got[1])
 	}
-	if got[2].Name != "old" || got[2].Status != "stopped" || *got[2].Code != 143 || got[2].Declared {
+	if got[2].Name != "old" || got[2].Status != "stopped" || *got[2].Code != 143 || got[2].Declared || got[2].Cmd != "node 'a b.js'" {
 		t.Errorf("stopped: %+v", got[2])
 	}
 	if got[3].Name != "test" || got[3].Status != "exited" || *got[3].Code != 1 || got[3].Ended == 0 {
@@ -90,9 +90,15 @@ func TestReadServices(t *testing.T) {
 	if readFile(filepath.Join(dir, ".declared", "web")) != "serve --declared\n" || exists(filepath.Join(dir, ".declared", "test")) {
 		t.Error("declared files")
 	}
-	clearServices(dir)
-	if entries, _ := os.ReadDir(dir); len(entries) != 1 || entries[0].Name() != ".declared" {
-		t.Errorf("clear keeps the declarations only: %v", entries)
+	resetServices(dir)
+	if got := readServices(dir, nil); len(got) != 3 || got[0].Name != "old" || got[0].Status != "idle" || got[0].Cmd != "node 'a b.js'" {
+		t.Errorf("a reset keeps every service, with its command, not started: %+v", got)
+	}
+	if exists(filepath.Join(dir, "test", "log")) || readFile(filepath.Join(dir, ".declared", "web")) == "" {
+		t.Error("a reset drops the runs and keeps the declarations")
+	}
+	if got := readServices(dir, declared); got[1].Name != "web" || got[1].Cmd != "serve --declared" {
+		t.Errorf("a declared service not started here follows its declaration again: %+v", got[1])
 	}
 }
 

@@ -21,9 +21,10 @@ import (
 // behalf) go through it, so the two never disagree about what runs.
 //
 // A service is a directory under /services (the task's services dir,
-// bind-mounted): cmd (the command as one would type it), argv (NUL-separated,
-// for running it again), pid (the wrapper's), log, and once it ended, exit
-// (its code) and, if it was told to stop, stopped. The daemon reads those
+// bind-mounted): argv (the command, NUL-separated), pid (the wrapper's), log,
+// and once it ended, exit (its code) and, if it was told to stop, stopped.
+// Only argv outlives the container the service ran in, which is what makes an
+// ad hoc service the task's and not that container's. The daemon reads those
 // files from the host side; see services.go.
 //
 // run starts a wrapper: this binary again, in a session and process group
@@ -44,11 +45,14 @@ their output kept, and listed in the TPS dashboard (the play button of the
 task), where the user sees them and can start, stop and read them too. Use it
 for anything that serves or takes a while: dev servers, test suites, builds.
 
-  run <name> [command...]  Start a service. Without a command, the one that
-                           Containerfile.dev declares for that name is run (its
-                           CMD is the service 'app'; a LABEL
-                           tps.service.<name>="command" declares another). A
-                           single argument is run by bash -c; several are argv.
+  run <name> [command...]  Start a service. A single argument is run by bash -c;
+                           several are argv. Without a command, it runs what
+                           Containerfile.dev declares for that name (its CMD is
+                           the service 'app'; a LABEL tps.service.<name>="command"
+                           declares another), or else what that service ran last:
+                           a name keeps its command for the rest of the task, so
+                           the user can start it again from the dashboard, even
+                           after the container was replaced.
   stop <name>              Stop it: TERM to its process group, KILL 5s later.
   restart <name>           Stop it if it runs, and run it again as before.
   await <name> [seconds]   Wait for it to end, up to 60 seconds by default.
@@ -161,12 +165,10 @@ func (st *serviceTool) run(args []string) error {
 	}
 	if len(argv) == 0 {
 		// Declared services run what Containerfile.dev says now; an ad hoc one
-		// runs again as it did.
-		if declared := readFile(filepath.Join(st.root, ".declared", name)); strings.TrimSpace(declared) != "" {
-			argv = []string{strings.TrimSpace(declared)}
-		} else if raw := readFile(filepath.Join(dir, "argv")); raw != "" {
-			argv = strings.Split(strings.TrimSuffix(raw, "\x00"), "\x00")
-		} else {
+		// runs again as it did, in this container or an earlier one.
+		if declared := strings.TrimSpace(readFile(filepath.Join(st.root, ".declared", name))); declared != "" {
+			argv = []string{declared}
+		} else if argv = serviceArgv(dir); len(argv) == 0 {
 			return fmt.Errorf("no command given, and Containerfile.dev declares no service '%s'", name)
 		}
 	}
@@ -174,15 +176,8 @@ func (st *serviceTool) run(args []string) error {
 	if err != nil {
 		return err
 	}
-	display := shellLine(argv)
-	if len(argv) == 1 { // a shell line, shown as one
-		display = argv[0]
-	}
-	_ = os.WriteFile(filepath.Join(dir, "cmd"), []byte(display+"\n"), 0o644)
+	resetService(dir)
 	_ = os.WriteFile(filepath.Join(dir, "argv"), []byte(strings.Join(argv, "\x00")+"\x00"), 0o644)
-	for _, f := range []string{"exit", "stopped", "pid"} {
-		_ = os.Remove(filepath.Join(dir, f))
-	}
 	log, err := os.OpenFile(filepath.Join(dir, "log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
@@ -212,7 +207,7 @@ func (st *serviceTool) run(args []string) error {
 	_ = wrap.Process.Release()
 	_ = ready.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, _ = ready.Read(make([]byte, 1))
-	fmt.Printf("Started '%s' (pid %d): %s\n", name, pid, display)
+	fmt.Printf("Started '%s' (pid %d): %s\n", name, pid, serviceCmd(argv))
 	fmt.Printf("Its output goes to %s/log; '%s await %s' waits for it to end.\n", dir, serviceToolName, name)
 	return nil
 }

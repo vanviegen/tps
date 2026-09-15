@@ -257,7 +257,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		return c, nil
 	}
 	rmErr := rmContainer(o.name)
-	clearServices(o.servicesDir)         // whatever ran in the old one is gone
+	resetServices(o.servicesDir)         // whatever ran in the old one is gone; the commands stay
 	_ = os.MkdirAll(o.uploadsDir, 0o755) // a task that was never sent a file still needs the mountpoint
 	vscode, err := sharedVscodeDir()
 	if err != nil {

@@ -10,7 +10,9 @@ import { cmd, ELLIPSIS, portUrl } from './util.ts';
  * a review app — declared by Containerfile.dev or started ad hoc, by the
  * agent (tps-service-manager) or from here. The play button opens a menu of
  * them, with the forwarded ports below; a service opens a console with its
- * output and the buttons to start, stop and restart it.
+ * output and the buttons to start, stop and restart it. A service belongs to
+ * the task, not to its container: a replaced container ends what ran, and
+ * leaves every service idle with the command it runs, ready to start again.
  */
 export interface Service {
 	name: string;
@@ -58,9 +60,9 @@ function statusIcon(s: Service): S.MenuItem['icon'] {
 
 /**
  * The play button's menu: a row per service (a click opens its console, and
- * starts one that never ran), then a row per forwarded port — "8080 → 56123",
- * the port inside the container and the one it is on here — that opens the
- * page in a new tab once something answers HTTP there.
+ * starts one that is not started), then a row per forwarded port — "8080 →
+ * 56123", the port inside the container and the one it is on here — that
+ * opens the page in a new tab once something answers HTTP there.
  */
 export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: any): void {
 	// Plain copies: the menu is built once, as it opens, off the state of that moment.
@@ -76,10 +78,7 @@ export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: 
 					A('code font-size:0.85em fg:$s-muted max-width:32rem', ELLIPSIS, 'text=', s.cmd);
 				});
 			},
-			click: () => {
-				if (s.status === 'idle') void cmd('runService', { pid, tid, name: s.name });
-				serviceDialog(pid, tid, $t, s.name);
-			},
+			click: () => serviceDialog(pid, tid, $t, s.name, s.status === 'idle'),
 		});
 	}
 	if (!services.length) {
@@ -104,17 +103,28 @@ export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: 
 
 /**
  * One service's console: its output, following new output unless scrolled
- * up, and the buttons for it. The service outlives the dialog — the menu
- * brings it back with the output intact — unless *Stop* ends it.
+ * up, and the buttons for it. Opened with start, it starts the service
+ * first, as the menu does for one that is not started. The service outlives
+ * the dialog — the menu brings it back with the output intact — unless *Stop*
+ * ends it.
  */
-export function serviceDialog(pid: string, tid: string, $t: any, name: string): void {
+export function serviceDialog(pid: string, tid: string, $t: any, name: string, start = false): void {
 	const find = (): Service | undefined => ($t.services ?? []).find((s: Service) => s.name === name);
+	// Starting is no state of the service: it stays idle until the container has
+	// it running, and the console says so for as long as the command is out.
+	const $starting = A.proxy({ value: false });
+	const run = async () => {
+		$starting.value = true;
+		await cmd('runService', { pid, tid, name });
+		$starting.value = false;
+	};
+	if (start) void run();
 	let close: () => void;
 	void S.dialog({
 		header: () => { A('span text=', name + ': '); A(() => A('code text=', find()?.cmd ?? '')); },
 		// A height of its own, so the console scrolls inside it and the dialog never does.
 		attrs: 'w:110rem max-width:96vw h:min(88vh,800px)',
-		content: c => { close = c; drawConsole($t, name, find); },
+		content: c => { close = c; drawConsole($t, name, find, $starting); },
 		footer: () => {
 			A('div display:flex flex-wrap:wrap gap:$2 margin-right:auto', () => drawPorts($t));
 			A(() => {
@@ -124,7 +134,7 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string): 
 					S.button({ content: 'Restart', attrs: '.neutral', click: () => void cmd('restartService', { pid, tid, name }) });
 					S.button({ content: 'Background', attrs: '.neutral', tooltip: 'Leave it running; the play button brings this back', click: () => close() });
 				} else {
-					if (s) S.button({ content: s.status === 'idle' ? 'Start' : 'Run again', click: () => void cmd('runService', { pid, tid, name }) });
+					if (s) S.button({ content: s.status === 'idle' ? 'Start' : 'Run again', click: () => void run() });
 					S.button({ content: 'Close', attrs: '.neutral', click: () => close() });
 				}
 			});
@@ -132,7 +142,7 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string): 
 	});
 }
 
-function drawConsole($t: any, name: string, find: () => Service | undefined): void {
+function drawConsole($t: any, name: string, find: () => Service | undefined, $starting: { value: boolean }): void {
 	// The log is a terminal's output: colours and progress lines are played out
 	// (see ansi.ts) into HTML built here, never anything the log itself wrote.
 	const el = A('pre r:0 flex:1 min-height:0 m:0 overflow:auto white-space:pre-wrap overflow-wrap:anywhere', () => {
@@ -149,9 +159,9 @@ function drawConsole($t: any, name: string, find: () => Service | undefined): vo
 	A('div fg:$s-muted font-size:0.9em', () => {
 		const s = find();
 		if ($t.status !== 'up') A('text=', `${$t.statusDetail || $t.status}…`);
-		else if (!s) A('text=', 'Gone: the container was recreated, and what ran in it went with it.');
+		else if (!s) A('text=', 'Gone: the task has no such service.');
 		else if (s.status === 'running') A('text=', 'Running.' + ($t.ports ? '' : ' Ports named by EXPOSE lines in Containerfile.dev are forwarded; this one has none.'));
-		else if (s.status === 'idle') A('text=', 'Starting…');
+		else if ($starting.value) A('text=', 'Starting…');
 		else A('text=', statusText(s).replace(/^./, c => c.toUpperCase()) + '.');
 	});
 }

@@ -40,7 +40,7 @@ func TestServiceTool(t *testing.T) {
 	if log := readFile(filepath.Join(root, "app", "log")); log != "hello declared\nbye\n" {
 		t.Errorf("app log: %q", log)
 	}
-	if cmd := readFile(filepath.Join(root, "app", "cmd")); cmd != "echo hello declared; sleep 0.3; echo bye\n" {
+	if cmd := readService(root, "app").Cmd; cmd != "echo hello declared; sleep 0.3; echo bye" {
 		t.Errorf("app cmd: %q", cmd)
 	}
 	if err := run("test", "bash", "-c", `echo "it's a test"; exit 3`); err != nil {
@@ -49,7 +49,7 @@ func TestServiceTool(t *testing.T) {
 	if code := st.await([]string{"test", "5"}); code != 3 {
 		t.Errorf("await test: %d", code)
 	}
-	if cmd := readFile(filepath.Join(root, "test", "cmd")); cmd != "bash -c 'echo \"it'\\''s a test\"; exit 3'\n" {
+	if cmd := readService(root, "test").Cmd; cmd != "bash -c 'echo \"it'\\''s a test\"; exit 3'" {
 		t.Errorf("test cmd: %q", cmd)
 	}
 	if err := run("web", `trap "echo got TERM; exit 0" TERM; echo ready; while :; do sleep 0.1; done`); err != nil {
@@ -118,6 +118,18 @@ func TestServiceTool(t *testing.T) {
 	}
 	if got := colorEnv([]string{"PATH=/bin", "FORCE_COLOR=0"}); strings.Join(got, " ") != "PATH=/bin FORCE_COLOR=0 CLICOLOR_FORCE=1" {
 		t.Errorf("colorEnv overrode what was set: %q", got)
+	}
+	// A container replaced takes the running processes with it, not the
+	// services: an ad hoc one runs again by name alone.
+	resetServices(root)
+	if s := readService(root, "test"); s.Status != "idle" || s.Cmd == "" {
+		t.Errorf("after a reset: %+v", s)
+	}
+	if err := run("test"); err != nil {
+		t.Fatal(err)
+	}
+	if code := st.await([]string{"test", "5"}); code != 3 {
+		t.Errorf("await the ad hoc service, run again: %d", code)
 	}
 	if err := run("bad name", "x"); err == nil {
 		t.Error("bad name accepted")

@@ -1935,7 +1935,7 @@ func (t *Task) down() {
 		s.Kill()
 	}
 	if c != nil {
-		c.Rm() // its services go with it
+		c.Rm() // what its services were running goes with it
 	}
 	t.lock()
 	t.container = nil

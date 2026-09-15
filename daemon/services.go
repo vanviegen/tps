@@ -23,7 +23,10 @@ import (
 // declaration. Every service is a directory under the task's services dir,
 // mounted at /services in the container; the daemon writes the declared
 // commands there (.declared/<name>) and reads the state and output the tool
-// leaves, so the dashboard follows without a channel into the container.
+// leaves, so the dashboard follows without a channel into the container. The
+// services dir outlives the container: a replaced one takes the running
+// processes with it, but what each service runs stays behind, so an ad hoc
+// service is still there to be started again.
 
 const servicesMount = "/services"
 
@@ -228,27 +231,42 @@ func writeDeclared(dir string, declared []declaredService) {
 	}
 }
 
-// clearServices forgets every service: for a container about to be replaced,
-// whose processes go with it. The declarations stay.
-func clearServices(dir string) {
+// resetService forgets a run of a service: its pid, log and exit code — all
+// of the directory but the argv that says what the service is. For one about
+// to run again, and for a container being replaced (see resetServices).
+func resetService(dir string) {
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name() != "argv" {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
+// resetServices forgets the runs of every service: for a container about to
+// be replaced, whose processes go with it. The commands stay, declared or ad
+// hoc, so every service the task has can be started again in the new one.
+func resetServices(dir string) {
 	_ = os.MkdirAll(dir, 0o755)
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if e.Name() != ".declared" {
-			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+		if e.IsDir() && serviceNameRe.MatchString(e.Name()) {
+			resetService(filepath.Join(dir, e.Name()))
 		}
 	}
 }
 
 // readServices reads the state of every service from its files: the declared
-// ones first, in their order, then the rest by name.
+// ones first, in their order, then the rest by name. A declared service that
+// is not started shows the command its declaration has now, which is what
+// starting it would run; one that ran shows the command it ran with.
 func readServices(dir string, declared []declaredService) []serviceState {
 	var out []serviceState
 	seen := map[string]bool{}
 	for _, d := range declared {
 		s := readService(dir, d.Name)
 		s.Declared = true
-		if s.Cmd == "" {
+		if s.Status == "idle" {
 			s.Cmd = d.Cmd
 		}
 		out = append(out, s)
@@ -268,9 +286,27 @@ func readServices(dir string, declared []declaredService) []serviceState {
 	return out
 }
 
+// serviceArgv is what a service runs, as the tool wrote it down: the
+// arguments NUL-separated, a single one of them being a shell line.
+func serviceArgv(dir string) []string {
+	raw := readFile(filepath.Join(dir, "argv"))
+	if raw == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(raw, "\x00"), "\x00")
+}
+
+// serviceCmd is that command as one would type it.
+func serviceCmd(argv []string) string {
+	if len(argv) == 1 {
+		return argv[0] // a shell line, shown as one
+	}
+	return shellLine(argv)
+}
+
 func readService(dir, name string) serviceState {
 	d := filepath.Join(dir, name)
-	s := serviceState{Name: name, Status: "idle", Cmd: strings.TrimSpace(readFile(filepath.Join(d, "cmd")))}
+	s := serviceState{Name: name, Status: "idle", Cmd: serviceCmd(serviceArgv(d))}
 	pid, err := os.Stat(filepath.Join(d, "pid"))
 	if err != nil {
 		return s
