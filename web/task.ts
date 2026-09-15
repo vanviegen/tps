@@ -322,7 +322,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 function drawReadyFields(pid: string, $t: any, save: (patch: object) => void): void {
 	S.select({
 		label: 'When the agent reports the task ready',
-		help: 'Reviewing is a second agent reading the work over against what you asked for, and for scope, size and architecture. It fixes the small and obvious itself, and either accepts the work or lists what to change.',
+		help: 'Reviewing is a second agent reading the work over against what you asked for, and above all for size: what can be left out, and what the project already does elsewhere. It fixes the small and obvious itself, and either accepts the work or lists what to change.',
 		options: [
 			{ value: 'review', label: 'Have it reviewed' },
 			{ value: 'human', label: 'Assign it to me' },

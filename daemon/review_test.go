@@ -129,8 +129,10 @@ func TestFinishReview(t *testing.T) {
 	if task.info.Phase != PhaseHuman {
 		t.Errorf("the last round's feedback is the user's: %s", task.info.Phase)
 	}
-	if task.info.Review != "- the naming is off" {
-		t.Errorf("the feedback should be kept for the message box: %q", task.info.Review)
+	// Kept for the message box, under a line saying it is a machine's reading
+	// rather than the user's own word (see reviewBoxPrompt).
+	if !strings.Contains(task.info.Review, "- the naming is off") || !strings.Contains(task.info.Review, "automated review") {
+		t.Errorf("the feedback should be kept for the message box, marked as a review's: %q", task.info.Review)
 	}
 	if !strings.Contains(task.lastMark(t), "Review") {
 		t.Error("the review phase should end on a save point of its own")

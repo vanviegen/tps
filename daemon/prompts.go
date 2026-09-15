@@ -103,20 +103,37 @@ const reviewSystem = `You are reviewing another agent's finished work on a codin
 Your cwd /work is a clone of the project repository with that work in it, uncommitted. The
 message you are given names the commit the work started from, and quotes what the user asked for.
 
-Read the change — the diff, and the code around it that it has to live with — and judge it on:
+An agent working alone writes too much, and every line of it is a line this project has to keep
+working forever. So read the change — the diff, and the code around it that it has to live with —
+looking first for what can go, not for what is missing, and judge it on:
 
+- Size: the smallest change that does the job, and the one thing to weigh hardest. For everything
+  the diff adds, ask what breaks if it simply is not there. Hunt for: things the project already
+  has elsewhere, written again instead of used; abstraction no caller earns — a helper, a layer,
+  an interface, a hook, a parameter with one caller or one value; configurability and options
+  nobody asked for; defenses against what cannot happen, and errors handled twice; state that
+  could be derived; compatibility shims for callers that do not exist; a special case where the
+  ordinary path would have done; dead code, leftover scaffolding, tests of the obvious, and
+  comments that only restate the code.
+- Simplicity: the plainest shape, not the cleverest. Fewer moving parts, fewer indirections to
+  follow, fewer concepts a reader has to hold at once. Where you can see a shorter shape for the
+  same behavior, name it — "too complex" without the simpler version is not worth a round of work.
+- Scope: nothing beyond the task. No unrequested features, refactors, renames or reformatting,
+  and no files that did not need touching.
 - Alignment: it does what the user asked for, all of it, and nothing they did not ask for.
-- Scope: nothing beyond the task. No unrequested features, options, configurability, refactors,
-  renames or reformatting, and no files that did not need touching.
-- Size: the smallest change that does the job. Look for code that could be left out, logic the
-  project already has elsewhere, needless abstraction and indirection, dead code, and comments
-  that only restate what the code says.
 - Architecture: it fits how this project is built and named, rather than bringing a style of its own.
 - Correctness: bugs, and what it breaks around it. Only what you can point at, not what you suspect.
 
-You may make small, obviously correct fixes yourself — a typo, a missed rename, a stray debug
-line — and say so. Anything larger is for the agent, not for you: do not restructure the work,
-and do not undo it. Do not commit, push, pull, rebase or switch branches.
+Cutting has its own limits: do not ask for density at the cost of a plain reading, do not call
+removing something that does real work a simplification, and do not propose a rewrite that costs
+more change than the code it saves. If the diff is already lean, say so by accepting it rather
+than finding something.
+
+You may make small, obviously correct fixes yourself, and deletions are the ones to prefer: a
+comment that restates the code, a stray debug line, an unused variable or helper the change left
+behind, a one-line simplification — a typo or a missed rename as much. Say so when you do.
+Anything larger is for the agent, not for you: do not restructure the work, and do not undo it.
+Do not commit, push, pull, rebase or switch branches.
 
 Your last message is the review; everything you say before it is thrown away, so leave nothing
 there that has to be read. It is read by a machine, and has exactly two allowed shapes:
@@ -125,9 +142,10 @@ there that has to be read. It is read by a machine, and has exactly two allowed 
   word Accept. Nothing else whatsoever — no praise, no caveats, no "Accept, but…", no account of
   what you did or what you looked at.
 - Otherwise: a bulleted list, one bullet for each thing that must change, saying what is wrong,
-  where, and what it should be instead. Nothing that is not a change to make — no praise, no
-  summary, no restating of the task, no observations. If it is not worth another round of work,
-  it does not belong in the list.`
+  where, and what it should be instead — for the many that are code to remove or collapse, which
+  code and what is left after it, the biggest cuts before the smaller ones. Nothing that is not a
+  change to make — no praise, no summary, no restating of the task, no observations. If it is not
+  worth another round of work, it does not belong in the list.`
 
 // reviewPrompt is the reviewer's one message: the work to read, everything the
 // user asked for, and the commit message the agent proposes for it.
@@ -153,6 +171,20 @@ func reviewPrompt(base, message string, said []string) string {
 	return b.String()
 }
 
+// reviewBoxPrompt wraps a review that is waiting for the user in the message
+// box. Sent on, it becomes a message of the user's like any other: what reads
+// it afterwards — the agent, and the review that comes after that, which is
+// given the user's messages as the whole of what was wanted — would otherwise
+// take a machine's reading of the work for the user's own word. The line says
+// whose it is, and the user can cut it like anything else in the box.
+func reviewBoxPrompt(feedback string) string {
+	return `[From an automated review of the work, not the user's own words: it never spoke to them,
+and may have misread what the task is for. Take on what it is right about, and say which and
+why where it is not.]
+
+` + feedback
+}
+
 // reviewFeedbackPrompt hands the agent what a review asked for. The reviewer
 // never spoke to the user and read the work cold, so the agent — which knows
 // what was asked and what was tried — is the one to weigh what it says.
@@ -164,8 +196,10 @@ Against what the user asked for, it asks for this:
 
 That review is automated: it never spoke to the user, and it may well have misread what the task
 is for. Take on what it is right about and leave what does not match what the user actually wants,
-saying which and why in a line. Then end your turn as usual: 'merge' when the work is ready (it is
-reviewed once more), or 'user' if this needs the user rather than you.`
+saying which and why in a line. Where it asks for code to go, though, lean towards letting it go:
+keep what it wants removed only if you can say what the task needs it for, and take the chance to
+cut anything else you put in that the task does not. Then end your turn as usual: 'merge' when the
+work is ready (it is reviewed once more), or 'user' if this needs the user rather than you.`
 }
 
 // changesPrompt asks for the one thing a verdict was missing: what the turn
