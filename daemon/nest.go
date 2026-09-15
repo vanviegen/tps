@@ -100,34 +100,69 @@ func nestFor(name, dir string) (*podnester.Proxy, error) {
 	return p, nil
 }
 
+// nestClear removes a task's sub-containers, its socket still served. They
+// run in the task container's user namespace (podnester puts them there, so
+// they can join each other's namespaces), which makes them dependents podman
+// refuses to remove that container before: clearing them is where removing a
+// task container begins, and a container being replaced needs them gone
+// while its socket lives on.
+func nestClear(name, dir string) {
+	var p *podnester.Proxy
+	nests.Lock()
+	if n := nests.m[name]; n != nil {
+		p = n.proxy
+	}
+	nests.Unlock()
+	if p == nil {
+		// A task this daemon never served (it restarted since) still has
+		// everything it made labeled with its name, which is all this takes.
+		if p = offNest(name, dir); p == nil {
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := p.RemoveContainers(ctx); err != nil {
+		logf("%s: removing sub-containers: %v", name, err)
+	}
+}
+
+// offNest is a proxy for a task whose socket this daemon does not serve: it
+// serves nothing itself, and is only good for working on what the task made.
+// nil when there is no podman to talk to.
+func offNest(name, dir string) *podnester.Proxy {
+	sock, err := podmanAPI()
+	if err != nil {
+		return nil
+	}
+	// Forwarder set, as none is run: podnester would otherwise install its
+	// binary in the control directory for it.
+	p, err := podnester.New(podnester.Config{Upstream: sock, Owner: name, Control: dir, ControlMount: nestMount, Forwarder: []string{"-"}, Logf: logf})
+	if err != nil {
+		return nil
+	}
+	return p
+}
+
 // nestDown removes a task's sub-containers and stops serving its socket:
 // its container is going down.
-func nestDown(name string) {
+func nestDown(name, dir string) {
+	nestClear(name, dir)
 	nests.Lock()
 	n := nests.m[name]
 	delete(nests.m, name)
 	nests.Unlock()
-	if n == nil {
-		return
+	if n != nil {
+		n.cancel()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := n.proxy.RemoveContainers(ctx); err != nil {
-		logf("%s: removing sub-containers: %v", name, err)
-	}
-	n.cancel()
 }
 
 // nestPurge removes everything a task made through its socket, volumes and
 // networks included: the task itself is going away.
 func nestPurge(name, dir string) {
-	nestDown(name)
-	sock, err := podmanAPI()
-	if err != nil {
-		return
-	}
-	p, err := podnester.New(podnester.Config{Upstream: sock, Owner: name, Control: dir, ControlMount: nestMount, Forwarder: []string{"-"}, Logf: logf})
-	if err != nil {
+	nestDown(name, dir)
+	p := offNest(name, dir)
+	if p == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

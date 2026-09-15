@@ -256,7 +256,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if c := runningContainer(o.name, config); c != nil {
 		return c, nil
 	}
-	rmErr := rmContainer(o.name)
+	rmErr := rmWorkspace(o.name, o.nestDir)
 	resetServices(o.servicesDir)         // whatever ran in the old one is gone; the commands stay
 	_ = os.MkdirAll(o.uploadsDir, 0o755) // a task that was never sent a file still needs the mountpoint
 	vscode, err := sharedVscodeDir()
@@ -322,7 +322,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	// task open and stopped when none does (see StartCode), which must not
 	// take the agent down with it.
 	args = append(args, o.image, "/tps/bin/tini", "--", "sh", "-c", "while :; do sleep 3600; done")
-	if err := runContainer(o.name, args, rmErr); err != nil {
+	if err := runContainer(o.name, o.nestDir, args, rmErr); err != nil {
 		return nil, err
 	}
 	// podman binds the ports as the container starts. A docker socket served
@@ -347,12 +347,12 @@ func ensureContainer(o containerOpts) (*Container, error) {
 // its way out. Neither is the task's doing or its image's, so when the name
 // stays taken the error says what the removal ran into rather than leaving a
 // bare conflict for someone to read as a broken Containerfile.
-func runContainer(name string, args []string, rmErr error) error {
+func runContainer(name, nestDir string, args []string, rmErr error) error {
 	err := podmanRun(args)
 	if err == nil || !nameTaken(err) {
 		return err
 	}
-	retryErr := rmContainer(name)
+	retryErr := rmWorkspace(name, nestDir)
 	// The second attempt's own error is the one to report: it is what the
 	// container failed on now, and it may be something else entirely.
 	err = podmanRun(args)
@@ -395,6 +395,16 @@ func runningContainer(name, config string) *Container {
 		return nil
 	}
 	return publishedContainer(name)
+}
+
+// rmWorkspace removes a task's container, and first the sub-containers it
+// started through its docker socket: podman refuses to remove a container
+// anything else depends on, and those run in its user namespace (see
+// nestClear). The socket keeps being served, for the container that takes
+// its place.
+func rmWorkspace(name, nestDir string) error {
+	nestClear(name, nestDir)
+	return rmContainer(name)
 }
 
 // rmContainer removes the container of that name, forcefully, and says when it
@@ -544,7 +554,7 @@ func (c *Container) Exec(script string) error {
 	return exec.CommandContext(context.Background(), "podman", "exec", c.Name, "bash", "-lc", script).Run()
 }
 
-func (c *Container) Rm() {
-	nestDown(c.Name)
+func (c *Container) Rm(nestDir string) {
+	nestDown(c.Name, nestDir)
 	_ = rmContainer(c.Name)
 }

@@ -236,6 +236,7 @@ func (p *Project) forget() {
 	tasks := p.taskListL()
 	p.m.mu.Unlock()
 	for _, t := range tasks {
+		nestDown(t.containerName(), nestDir(t.dir()))
 		_ = rmContainer(t.containerName())
 	}
 }

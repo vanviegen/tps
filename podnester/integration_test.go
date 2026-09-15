@@ -221,4 +221,13 @@ func TestAgainstPodman(t *testing.T) {
 	if !strings.Contains(string(out[:n2]), "ping") {
 		t.Errorf("through the forwarder: %q", out[:n2])
 	}
+	// Removing the siblings gets every one of them, whichever order podman
+	// wants: probe is in db's network namespace, and a container another one
+	// depends on is not removed before it.
+	if err := p.RemoveContainers(ctx); err != nil {
+		t.Errorf("removing the siblings: %v", err)
+	}
+	if list, err := up.listContainers(ctx, p.ownerLabel()); err != nil || len(list) != 0 {
+		t.Errorf("siblings left behind: %v %v", err, list)
+	}
 }

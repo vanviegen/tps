@@ -265,14 +265,28 @@ func (p *Proxy) RemoveContainers(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var errs []error
+	ids := make([]string, 0, len(list))
 	for _, c := range list {
-		q := url.Values{"force": {"true"}}
-		if err := p.up.call(ctx, "DELETE", "/containers/"+c.ID, q, nil, nil); err != nil && !isNotFound(err) {
-			errs = append(errs, err)
-		}
+		ids = append(ids, c.ID)
 	}
-	return errors.Join(errs...)
+	// A sibling can be in another's namespaces (compose's network_mode:
+	// service:x, say), and podman removes nothing that another container
+	// depends on, so whatever refuses is tried again until a pass gets rid
+	// of none of them.
+	for {
+		var left []string
+		var errs []error
+		for _, id := range ids {
+			q := url.Values{"force": {"true"}}
+			if err := p.up.call(ctx, "DELETE", "/containers/"+id, q, nil, nil); err != nil && !isNotFound(err) {
+				left, errs = append(left, id), append(errs, err)
+			}
+		}
+		if len(left) == 0 || len(left) == len(ids) {
+			return errors.Join(errs...)
+		}
+		ids = left
+	}
 }
 
 // Purge removes everything of the owner's: containers, networks and (when

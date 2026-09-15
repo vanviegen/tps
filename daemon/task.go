@@ -1622,8 +1622,8 @@ func (t *Task) Discard() error {
 	defer t.p.m.work()()
 	t.stopAgent()
 	t.down()
-	_ = rmContainer(t.containerName()) // also one the daemon never knew about
 	nestPurge(t.containerName(), nestDir(t.dir()))
+	_ = rmContainer(t.containerName()) // also one the daemon never knew about
 	if err := rmTree(t.dir()); err != nil {
 		logf("%s: discarding the workspace: %v", t.key(), err)
 	}
@@ -1644,8 +1644,8 @@ func (t *Task) Delete() error {
 	defer t.p.m.work()()
 	t.stopAgent()
 	t.down()
-	_ = rmContainer(t.containerName())
 	nestPurge(t.containerName(), nestDir(t.dir()))
+	_ = rmContainer(t.containerName())
 	if err := rmTree(t.dir()); err != nil {
 		logf("%s: deleting the workspace: %v", t.key(), err)
 	}
@@ -1994,7 +1994,7 @@ func (t *Task) doUp() (*Container, error) {
 	// made the mount point back when it started; both go, and the caller hears
 	// what it would have heard a moment earlier.
 	if !t.hasWorkspace() {
-		_ = rmContainer(t.containerName())
+		_ = rmWorkspace(t.containerName(), nestDir(t.dir()))
 		_ = os.Remove(t.repoDir()) // only if it is the empty mount point
 		t.lock()
 		t.container = nil
@@ -2072,7 +2072,7 @@ func (t *Task) down() {
 		s.Kill()
 	}
 	if c != nil {
-		c.Rm() // what its services were running goes with it
+		c.Rm(nestDir(t.dir())) // what its services and its sub-containers were running goes with it
 	}
 	t.lock()
 	t.container = nil

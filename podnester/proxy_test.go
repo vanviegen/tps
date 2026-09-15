@@ -1,6 +1,7 @@
 package podnester
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -108,12 +110,17 @@ func (f *fakePodman) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func newTestProxy(t *testing.T) (*Proxy, *fakePodman) {
 	f := &fakePodman{t: t, root: t.TempDir(), work: t.TempDir()}
+	return proxyOn(t, f), f
+}
+
+// proxyOn is a proxy talking to this stand-in for podman.
+func proxyOn(t *testing.T, upstream http.Handler) *Proxy {
 	sock := filepath.Join(t.TempDir(), "podman.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewUnstartedServer(f)
+	srv := httptest.NewUnstartedServer(upstream)
 	srv.Listener = l
 	srv.Start()
 	t.Cleanup(srv.Close)
@@ -123,7 +130,7 @@ func newTestProxy(t *testing.T) (*Proxy, *fakePodman) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return p, f
+	return p
 }
 
 func do(p *Proxy, method, path string, body any) *httptest.ResponseRecorder {
@@ -404,5 +411,53 @@ func TestUserns(t *testing.T) {
 	}
 	if hc := f.bodies[len(f.bodies)-1]["HostConfig"].(map[string]any); hc["UsernsMode"] != "container:top" {
 		t.Errorf("userns: %v", hc["UsernsMode"])
+	}
+}
+
+// Siblings can be in each other's namespaces, and podman refuses to remove a
+// container another one depends on: removing them all takes another pass at
+// whatever refused, and stops when a pass removes nothing.
+func TestRemoveContainersRetries(t *testing.T) {
+	removable := func(stuck bool) (http.Handler, map[string]bool) {
+		var mu sync.Mutex
+		gone := map[string]bool{}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			_, path := splitVersion(r.URL.Path)
+			id := strings.TrimPrefix(path, "/containers/")
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case path == "/containers/json":
+				list := []any{}
+				for _, c := range []string{"a", "b"} {
+					if !gone[c] {
+						list = append(list, map[string]any{"Id": c})
+					}
+				}
+				json.NewEncoder(w).Encode(list)
+			case r.Method == "DELETE" && (stuck || (id == "a" && !gone["b"])):
+				w.WriteHeader(500)
+				json.NewEncoder(w).Encode(map[string]any{"message": "container " + id + " has dependent containers which must be removed before it"})
+			case r.Method == "DELETE":
+				gone[id] = true
+				w.WriteHeader(204)
+			default:
+				w.WriteHeader(404)
+			}
+		}), gone
+	}
+	// a is only removable once b is gone, and the list has it first.
+	h, gone := removable(false)
+	if err := proxyOn(t, h).RemoveContainers(context.Background()); err != nil {
+		t.Errorf("removing the siblings: %v", err)
+	}
+	if !gone["a"] || !gone["b"] {
+		t.Errorf("left behind: %v", gone)
+	}
+	// Nothing can go: the error is reported rather than retried forever.
+	h, _ = removable(true)
+	if err := proxyOn(t, h).RemoveContainers(context.Background()); err == nil {
+		t.Error("a removal that gets nowhere is reported as done")
 	}
 }
