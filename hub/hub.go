@@ -163,6 +163,14 @@ func (h *Hub) appendChat(key string, e Entry) {
 	h.chats[key] = log
 }
 
+// ClientCount is how many peers are connected, which is how a daemon tells
+// whether anyone is still there (see quitIfUnused).
+func (h *Hub) ClientCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.clients)
+}
+
 func (h *Hub) WatcherCount(key string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()

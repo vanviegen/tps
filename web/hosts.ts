@@ -163,7 +163,7 @@ function hostItems(hid: string, $h: any): S.MenuEntry[] {
 async function removeHost(hid: string): Promise<void> {
 	const projects = A.peek(() => projectsOn(hid).length);
 	const also = projects ? ` Its ${projects} project${projects > 1 ? 's' : ''} leave${projects > 1 ? '' : 's'} the list with it.` : '';
-	if (!(await S.confirm(`Remove "${A.peek(() => hostName(hid))}" from the list?${also} Nothing changes on the host itself: its daemon and tasks keep running, and come back when you add it again.`))) return;
+	if (!(await S.confirm(`Remove "${A.peek(() => hostName(hid))}" from the list?${also} Nothing on the host is thrown away: work in hand runs to its end, and its daemon stops once nothing is running and nothing is connected to it. Adding the host again picks it all back up.`))) return;
 	void cmd('removeHost', { hid });
 }
 

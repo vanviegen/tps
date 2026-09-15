@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,11 @@ type Manager struct {
 	exit       func(code int)
 	busy       atomic.Int32 // long operations in flight (builds, clones, merges, deletions)
 	restarting bool
+	usedAt     time.Time   // when a dashboard was last connected; Start and quitIfUnused are all that touch it
+	quitting   atomic.Bool // a stop is under way; both quit tickers can ask for one
+
+	savedMu sync.Mutex // serialises writing the registry file with reading it back (see quitIfConfigReplaced)
+	saved   []byte     // what the file held when this daemon last wrote or read it
 
 	modelsMu     sync.Mutex // guards the model detection
 	modelsFound  bool
@@ -42,6 +48,60 @@ type Manager struct {
 func (m *Manager) work() func() {
 	m.busy.Add(1)
 	return func() { m.busy.Add(-1) }
+}
+
+// unusedExit is how long the daemon goes on without a dashboard before it
+// stops itself. Stopping takes the workspaces down with it, and a container
+// holds more than the agent: a code-server with unsaved editors and whatever
+// its terminals are running. So this is minutes, not seconds — long enough to
+// walk away from a dashboard and come back to it, and to sit out the gap
+// between a daemon being started and being dialled, which over ssh is seconds.
+const unusedExit = 2 * time.Minute
+
+// quitIfUnused stops a daemon nobody is using any more. The dashboard starts
+// it detached, so it outlives the dashboard on purpose — but once that
+// dashboard is gone there is nothing it can be asked to do, while it still
+// holds the whole board in memory (and would write that back over a config
+// edited underneath it) and keeps every workspace container up. Work is what
+// keeps it: a command in flight, an agent mid-turn, a task waiting out a usage
+// limit. Nothing else does, a daemon no dashboard ever reached included.
+func (m *Manager) quitIfUnused() {
+	if m.hub.ClientCount() > 0 {
+		m.usedAt = time.Now()
+		return
+	}
+	if time.Since(m.usedAt) < unusedExit || m.anyAwake() {
+		return
+	}
+	m.stop("no dashboard connected and nothing running")
+}
+
+// quitIfConfigReplaced stops the daemon when its registry file is no longer
+// the one it last wrote. The board lives in memory and is saved over that
+// file, so something else editing it — demo/seed.sh reseeding, a hand-edited
+// projects.json — would simply be undone by the next save. Stopping hands it
+// to the next daemon, which reads the file as it now is.
+func (m *Manager) quitIfConfigReplaced() {
+	m.savedMu.Lock()
+	data, err := os.ReadFile(m.configFile)
+	same := (err == nil || os.IsNotExist(err)) && bytes.Equal(data, m.saved)
+	m.savedMu.Unlock()
+	if same || err != nil && !os.IsNotExist(err) {
+		return
+	}
+	m.stop("the project registry changed on disk")
+}
+
+// stop shuts the daemon down for a reason of its own (the two above), once
+// nothing is running that the exit would cut short. A task waiting out a usage
+// limit is not that: the wait is on disk and picked up again.
+func (m *Manager) stop(why string) {
+	if m.busy.Load() != 0 || m.anyWorking() || !m.quitting.CompareAndSwap(false, true) {
+		return
+	}
+	logf("%s: stopping", why)
+	m.Shutdown()
+	m.exit(0)
 }
 
 // scheduleRestart makes the daemon exit as soon as nothing is running; the
@@ -118,7 +178,11 @@ func (m *Manager) Start() error {
 		if err := json.Unmarshal(data, &saved); err != nil {
 			return fmt.Errorf("%s: %w", m.configFile, err)
 		}
+		m.savedMu.Lock()
+		m.saved = data // what this daemon is the daemon for (see quitIfConfigReplaced)
+		m.savedMu.Unlock()
 	}
+	m.usedAt = time.Now()
 	for _, info := range saved.Projects {
 		if _, err := m.load(info); err != nil {
 			logf("Failed to load project %s: %v", info.Dir, err)
@@ -130,6 +194,8 @@ func (m *Manager) Start() error {
 	go m.refreshModels()
 	go m.ticker(60*time.Second, m.refreshModels) // until claude answers
 	go m.ticker(60*time.Second, m.sweep)
+	go m.ticker(time.Second, m.quitIfUnused)
+	go m.ticker(time.Second, m.quitIfConfigReplaced)
 	go m.ticker(2*time.Second, m.checkLive)
 	go m.ticker(5*time.Second, m.refreshWatched)
 	go m.ticker(time.Second, m.syncServices)
@@ -163,10 +229,17 @@ func (m *Manager) saveL() {
 
 func (m *Manager) saver() {
 	for data := range m.saveCh {
+		data = append(data, '\n')
 		_ = os.MkdirAll(filepath.Dir(m.configFile), 0o755)
-		if err := os.WriteFile(m.configFile, append(data, '\n'), 0o644); err != nil {
+		// Under savedMu, so that the check for the file having been written by
+		// someone else never catches this one half done.
+		m.savedMu.Lock()
+		if err := os.WriteFile(m.configFile, data, 0o644); err != nil {
 			logf("save failed: %v", err)
+		} else {
+			m.saved = data
 		}
+		m.savedMu.Unlock()
 	}
 }
 

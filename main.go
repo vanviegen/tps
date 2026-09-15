@@ -1,7 +1,8 @@
 // TPS: a kanban-style manager for AI coding agents working in podman dev
 // containers. One binary, two roles: the UI (default) serves the web app and
-// relays to daemons; --daemon runs the workflow on a host and keeps running
-// without a UI. --autostart also has the desktop start it at login.
+// relays to daemons; --daemon runs the workflow on a host, without a UI of its
+// own and outliving the one that started it, until nothing is running and no
+// dashboard is connected. --autostart also has the desktop start it at login.
 package main
 
 import (

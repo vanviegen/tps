@@ -36,6 +36,14 @@ def new_key(taken):
             return key
 
 
+def allowed(url):
+    """Only a link a browser follows as a link. The scheme is compared in
+    lower case: HTTPS:// is a URL too, and refusing it would be a bug.
+    A prefix check rather than urlparse, which reads javascript:alert(1)
+    as a scheme just as happily; the allowlist is the point."""
+    return url.lower().startswith(SCHEMES)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "snip"
 
@@ -56,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
         url = self.read_url(body)
         if not url:
             return self.send(400, b'{"error": "no url given"}\n', "application/json")
-        if not url.startswith(SCHEMES):
+        if not allowed(url):
             return self.send(400, b'{"error": "only http and https links can be shortened"}\n', "application/json")
         key = new_key(self.server.store.keys())
         self.server.store.put(key, url)

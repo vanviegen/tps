@@ -1,7 +1,7 @@
 FROM docker.io/library/node:22-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates git curl less nano procps \
+      ca-certificates git curl sudo less nano procps \
     && rm -rf /var/lib/apt/lists/*
 # node's image already has a uid 1000 (node); TPS runs the task as that user.
 RUN echo 'node ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/node

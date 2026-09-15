@@ -81,7 +81,9 @@ then, conflicts marked in the files.
 **It keeps going.** The remote daemons continue work while your laptop sleeps.
 It will drive agents forward, do auto-merges, initiate tasks queued with
 dependencies, auto-resuming after hitting a 5H session limit, and keep a 
-wake-lock on the system while doing so.
+wake-lock on the system while doing so. A daemon with none of that left to do
+stops a couple of minutes after the last dashboard has gone, taking its
+workspace containers with it, and is back the moment you connect again.
 
 **Clean linear history.** Your repository only ever receives the squashed
 commits, each on top of the branch as it stands.
@@ -104,8 +106,9 @@ TPS runs on Linux, any distribution. Every machine that runs projects needs:
   anywhere: TPS brings its own.
 
 A host over SSH works best with lingering on for your user (`loginctl
-enable-linger`): its daemon and containers then carry on while your laptop
-sleeps and the connection is gone. TPS points it out when it is off.
+enable-linger`): its daemon and containers then carry on with the work they
+have while your laptop sleeps and the connection is gone. TPS points it out
+when it is off.
 
 Download a release into a bin directory of your own and start it:
 

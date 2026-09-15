@@ -9,7 +9,8 @@ curl -d '{"url": "https://example.com/a/very/long/one"}' http://localhost:8000/
 ```
 
 The links live in `links.json` next to the server (`--file` moves it); see
-`store.py` for how it is written. Only `http` and `https` links are shortened.
+`store.py` for how it is written. Only `http` and `https` links are shortened,
+in whatever case they arrive; anything else comes back as a 400.
 
 ## Tests
 

@@ -65,13 +65,15 @@ USER dev
 WORKDIR /work
 
 # Run TPS itself, so the dashboard's Run button previews this project: a home
-# with two demo projects and a board's worth of tasks in it first (demo/seed.sh,
-# which leaves an already seeded home alone), then the web bundle, then the
-# binary on the exposed port. It listens on 0.0.0.0 because the forwarded port
-# arrives on the container's own address, not its loopback; TPS publishes that
-# port on the host's loopback, so this is not exposure.
+# with two demo projects and a board's worth of tasks in it first (demo/seed.sh
+# --force, so that restarting this service is how you get the board back to
+# what it was), then the web bundle, then the binary on the exposed port. It
+# listens on 0.0.0.0 because the forwarded port arrives on the container's own
+# address, not its loopback; TPS publishes that port on the host's loopback, so
+# this is not exposure. Seeding is not part of the && chain: a reseed it will
+# not do (an agent still mid-turn) should not cost you the dashboard.
 LABEL tps.service.test="npm run typecheck && go test ./..."
 # Go's module and build caches and npm's, shared by this project's tasks.
 LABEL tps.cache="/home/dev/go/pkg/mod /home/dev/.cache/go-build /home/dev/.npm"
 EXPOSE 8080
-CMD ./demo/seed.sh && npm install --silent && npm run build && go run . --host 0.0.0.0 --port 8080 --no-open
+CMD ./demo/seed.sh --force; npm install --silent && npm run build && go run . --host 0.0.0.0 --port 8080 --no-open

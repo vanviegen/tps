@@ -5,16 +5,30 @@
 # its work sitting in a workspace, a couple in the plan column (one of them
 # waiting for another), a parked one and a closed one.
 #
-# The project's 'app' service runs this before starting TPS, so the play button
-# gives a dashboard with something on it instead of an empty sidebar. Tests may
-# want the same fixture: point TPS_DEMO_HOME at a directory of their own, and
-# nothing outside it is touched.
+# Nothing seeded here runs an agent on its own: every task is in a phase that
+# waits (plan, human, muted, done, closed), and the one task set to follow
+# another waits on a plan that is not going anywhere until someone starts it.
+# Opening the demo therefore costs nothing until a button is pressed — and
+# what a press then costs is a haiku, which is what every task and both
+# projects are set to.
+#
+# The project's 'app' service runs this with --force before starting TPS, so
+# that every restart of it opens the same board rather than whatever the last
+# look around left behind. Tests may want the same fixture: point TPS_DEMO_HOME
+# at a directory of their own, and nothing outside it is touched.
 #
 #   demo/seed.sh            seed, unless this home has been seeded already
 #   demo/seed.sh --force    throw the seeded projects and tasks away and redo them
 #
-# Nothing here is TPS-specific beyond the two files it writes: the config
-# (~/.config/tps/projects.json) and the task directories under
+# A demo that has been clicked around in is more than the files seeded here, so
+# --force undoes more than they are: the containers and build caches its tasks
+# left behind go as well, and the daemon holding the board in memory is told to
+# stop (by taking its registry away) rather than left to write that board back.
+# It is safe to run against a live dashboard; the dashboard starts a fresh
+# daemon on the seeded board within a second or two of reconnecting.
+#
+# Seeding itself is not TPS-specific beyond the two things it writes: the
+# config (~/.config/tps/projects.json) and the task directories under
 # ~/.local/share/tps/tasks/<project>/<task>, which hold a workspace clone, the
 # claude session directory, and the condensed chat log the dashboard shows.
 
@@ -27,8 +41,55 @@ DATA="$HOME_DIR/.local/share/tps"
 PROJECTS="$HOME_DIR/projects"
 NOW=$(date +%s)
 
+# dropDaemon: the TPS daemon on this home holds the whole board in memory and
+# writes it back when it saves, so a reseed under a live one would be undone
+# the moment it does. Taking its registry away is how it is told: a daemon
+# whose config file is no longer the one it wrote stops (see
+# quitIfConfigReplaced), and the rm below then has nothing to race with. One
+# with an agent mid-turn finishes that turn first, so this waits a while.
+dropDaemon() {
+	local was i
+	was=$(listener)
+	rm -f "$CONFIG"
+	[ -n "$was" ] || return 0
+	echo "demo/seed.sh: waiting for the TPS daemon on $HOME_DIR to stop…"
+	for i in $(seq 120); do
+		sleep 1
+		[ "$(listener)" = "$was" ] || return 0
+	done
+	# Seeding anyway beats leaving this home without a registry at all: what
+	# is written below is what the daemon reads once its work is done and it
+	# stops over the changed file, or the next daemon after that.
+	echo "demo/seed.sh: it is still there — it has work in hand, or is not a TPS that stops itself" >&2
+}
+
+# listener: which daemon is listening on the socket, as the socket's inode, and
+# nothing at all when none is. The file outlives a daemon that was killed
+# rather than stopped — the container going down with it, say — so its
+# presence says nothing; /proc/net/unix lists what has a listener on it (flags
+# 00010000), which is also how a daemon that has been replaced by the next one
+# tells itself apart from it.
+listener() {
+	awk -v path="$DATA/daemon.sock" '$4 == "00010000" && $NF == path { print $7 }' /proc/net/unix 2>/dev/null
+}
+
+# rmContainers: the container TPS makes per task. It takes those down with it,
+# but not one it never adopted — a stopped leftover from a daemon that was
+# killed rather than stopped. The task that takes its name again would, still
+# bound to the workspace directory this script is about to replace.
+rmContainers() {
+	local ids
+	command -v podman >/dev/null 2>&1 || return 0
+	ids=$(podman ps -aq --filter name=tps-snip- --filter name=tps-standup- 2>/dev/null || true)
+	[ -n "$ids" ] && podman rm -f $ids >/dev/null
+	return 0
+}
+
 if [ "${1:-}" = --force ]; then
-	rm -rf "$PROJECTS/snip" "$PROJECTS/standup" "$DATA/tasks/snip" "$DATA/tasks/standup" "$CONFIG"
+	dropDaemon
+	rmContainers
+	rm -rf "$PROJECTS/snip" "$PROJECTS/standup" "$DATA/tasks/snip" "$DATA/tasks/standup" \
+		"$DATA/cache/snip" "$DATA/cache/standup" "$CONFIG"
 elif [ -e "$CONFIG" ]; then
 	echo "demo/seed.sh: $CONFIG exists, leaving it alone (--force to reseed)"
 	exit 0
@@ -132,8 +193,10 @@ say 2 '"k":"result","text":"turn finished · 71s · $0.34"'
 say 3 '"k":"note","text":"merged into main as 1 commit"'
 
 # snip #3 — waiting to be merged: its work is in the workspace, uncommitted.
+# Two turns, the second one the user coming back with something they spotted:
+# a task the demo opens on has a conversation in it, not a single command.
 workspace snip 3
-cp "$SRC/repos/snip/_work/snip.py" "$SRC/repos/snip/_work/README.md" "$DATA/tasks/snip/3/repo/"
+cp -a "$SRC/repos/snip/_work/." "$DATA/tasks/snip/3/repo/"
 chat snip 3 1
 say 0 '"k":"user","text":"Anything that is not an http(s) link should be refused with a 400, not shortened. A javascript: URL that redirects is a nasty thing to hand out."'
 say 11 '"k":"thinking","text":"The check belongs where the URL arrives, after read_url and before a key is made.","detail":"The check belongs where the URL arrives, after read_url and before a key is made.\n\nread_url already normalises both body shapes, so one test on its result covers the JSON and the form path at once."'
@@ -144,6 +207,14 @@ say 9 '"k":"tool","id":"d4","name":"Bash","text":"post a javascript: url","arg":
 say 6 '"k":"tool","id":"d5","name":"Bash","text":"run the tests","arg":"python3 -m unittest discover","res":"Ran 5 tests in 0.002s — OK"'
 say 4 '"k":"text","text":"`do_POST` now refuses anything that does not start with `http://` or `https://` with a 400 and a short message; the README says so. Checked by hand with a `javascript:` URL, and the suite still passes.\n\nThe scheme list is deliberately a prefix check rather than a urlparse: `urlparse` accepts `javascript:alert(1)` as a scheme too, and the allowlist is what matters here."'
 say 2 '"k":"result","text":"turn finished · 58s · $0.29"'
+say 79200 '"k":"user","text":"Two things before this goes in: HTTPS://EXAMPLE.COM comes back as a 400 here, and none of it is covered by a test."'
+say 10 '"k":"thinking","text":"startswith is case-sensitive; the scheme is the one part of a URL that is not.","detail":"startswith is case-sensitive; the scheme is the one part of a URL that is not.\n\nLower-casing the whole URL only to test its prefix is fine — the URL that gets stored is still the one that came in. A named function is easier to test than a branch inside do_POST, so the check moves out of the handler."'
+say 13 '"k":"tool","id":"d6","name":"Edit","text":"snip.py","arg":"move the check into allowed()","res":"2 edits applied"'
+say 16 '"k":"tool","id":"d7","name":"Edit","text":"test_snip.py","arg":"a SchemeTest for both, the case, and the refusals","res":"2 edits applied"'
+say 8 '"k":"tool","id":"d8","name":"Bash","text":"run the tests","arg":"python3 -m unittest discover","res":"Ran 8 tests in 0.003s — OK"'
+say 5 '"k":"tool","id":"d9","name":"Bash","text":"post an upper-case url","arg":"curl -sd {\"url\": \"HTTPS://EXAMPLE.COM/\"} http://localhost:8000/","res":"201 {\"key\": \"Kp3v\", \"short\": \"http://localhost:8000/Kp3v\"}"'
+say 4 '"k":"text","text":"Good catch — the scheme is the one part of a URL that is not case-sensitive, and `startswith` is. The check is now `allowed(url)`, which lower-cases before comparing and is a function rather than a branch, so the three cases have tests: http and https go through, `HTTPS://` goes through, and `javascript:`, `file:`, `data:` and a bare hostname do not. Eight tests, all green.\n\nThe URL that gets stored is still the one that arrived; only the comparison is lower-cased."'
+say 2 '"k":"result","text":"turn finished · 47s · $0.14"'
 
 # snip #7 — closed without merging. Its workspace is made the way an older TPS
 # left one, and parked by the daemon at startup.
@@ -171,22 +242,23 @@ say 3 '"k":"note","text":"merged into main as 1 commit"'
 
 # --- the config ---------------------------------------------------------------
 
+# Into place in one step: a daemon may be reading it the moment it appears.
 mkdir -p "$(dirname "$CONFIG")"
-cat >"$CONFIG" <<JSON
+cat >"$CONFIG.new" <<JSON
 {
 	"projects": [
 		{
 			"dir": "$PROJECTS/snip",
 			"name": "snip",
 			"color": "#45c4d6",
-			"defaults": { "model": "default" },
+			"defaults": { "model": "haiku" },
 			"activity": $(ms 0 2),
 			"nextTask": 8,
 			"tasks": {
 				"1": {
 					"title": "Shorten a URL, follow it back",
 					"description": "A first cut: POST a URL, get a short key, GET the key to be redirected. One file, standard library only, links in memory.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
@@ -196,7 +268,7 @@ cat >"$CONFIG" <<JSON
 				"2": {
 					"title": "A dev container so tasks can run the tests",
 					"description": "Tasks can't run the tests: the default image has no python. Add a Containerfile.dev with the test suite as a service, and a first test for the key generator.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
@@ -206,17 +278,17 @@ cat >"$CONFIG" <<JSON
 				"3": {
 					"title": "Refuse links that aren't http(s)",
 					"description": "Anything that is not an http(s) link should be refused with a 400 rather than shortened: handing out a redirect to a javascript: URL is a nasty thing to do.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "human",
 					"started": true,
-					"commitMessage": "Only shorten http and https links\n\nA URL with any other scheme is refused with a 400 rather than given a key: a\nshort link that redirects to javascript: is worth more to an attacker than to\nanyone else. The README says what is accepted.",
-					"spent": 0.29,
+					"commitMessage": "Only shorten http and https links\n\nA URL with any other scheme is refused with a 400 rather than given a key: a\nshort link that redirects to javascript: is worth more to an attacker than to\nanyone else. The scheme is compared in lower case, so HTTPS:// is a link like\nany other. The README says what is accepted, and allowed() has tests.",
+					"spent": 0.43,
 					"phaseAt": $(ms 0 3)
 				},
 				"4": {
 					"title": "Keep the links in a file",
 					"description": "The links live in memory, so a restart forgets every short link handed out. Write them to JSON instead, atomically.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
@@ -226,14 +298,14 @@ cat >"$CONFIG" <<JSON
 				"5": {
 					"title": "A /stats page",
 					"description": "A read-only /stats page: links made per day for the last fortnight, and the ten most followed. Plain HTML, no charting library.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "plan",
 					"phaseAt": $(ms 2)
 				},
 				"6": {
 					"title": "Expire links after 90 days",
 					"description": "Links that nobody has followed in 90 days should be dropped on startup, and the count of what went should show up on the stats page.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "plan",
 					"startAfter": ["5"],
 					"phaseAt": $(ms 2)
@@ -241,7 +313,7 @@ cat >"$CONFIG" <<JSON
 				"7": {
 					"title": "Move the store to SQLite",
 					"description": "Put the links in SQLite instead of a JSON file, so more than one process can serve them.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "closed",
 					"started": true,
 					"spent": 0.11,
@@ -253,14 +325,14 @@ cat >"$CONFIG" <<JSON
 			"dir": "$PROJECTS/standup",
 			"name": "standup",
 			"color": "#c8d35a",
-			"defaults": { "model": "default", "budget": 5 },
+			"defaults": { "model": "haiku", "budget": 5 },
 			"activity": $(ms 3),
 			"nextTask": 4,
 			"tasks": {
 				"1": {
 					"title": "A dev container and the first tests",
 					"description": "Give this a Containerfile.dev like snip has, and tests for add and copy.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
@@ -271,7 +343,7 @@ cat >"$CONFIG" <<JSON
 				"2": {
 					"title": "standup week should skip the weekend",
 					"description": "Saturday and Sunday are always empty and push the useful days off the screen: show the last seven weekdays instead.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "plan",
 					"budget": 5,
 					"phaseAt": $(ms 3)
@@ -279,7 +351,7 @@ cat >"$CONFIG" <<JSON
 				"3": {
 					"title": "Publish it to npm",
 					"description": "Work out what it takes to publish this as a package people can npx: the bin entry, the files list, a licence, and a release note in the README.",
-					"model": "default",
+					"model": "haiku",
 					"phase": "muted",
 					"budget": 5,
 					"phaseAt": $(ms 5)
@@ -289,6 +361,7 @@ cat >"$CONFIG" <<JSON
 	]
 }
 JSON
+mv "$CONFIG.new" "$CONFIG"
 
 # The claude login this container shares, where a TPS started in it keeps
 # its own: without it the demo dashboard is there, but its agents cannot run.
