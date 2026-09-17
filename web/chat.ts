@@ -3,7 +3,7 @@ import * as route from 'aberdeen/route';
 import { Marked } from 'marked';
 import * as S from 'staffa';
 import { gitFork, gitMerge, undo2 } from 'staffa/icons.js';
-import { chatLog } from './conn.ts';
+import { $state, chatLog } from './conn.ts';
 import { doneDialog } from './task.ts';
 import { canMerge, cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
 
@@ -44,6 +44,7 @@ export function drawChat(pid: string, tid: string, $t: any): void {
 	// measures them into --tps-overlay): the first entry starts below them
 	// rather than under them, and what scrolls up afterwards passes behind them.
 	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2 padding-top: calc(var(--tps-overlay, 2.5rem) + $2);', () => {
+		A(() => drawRules(pid, tid, $t));
 		A.onEach($chat, ($e: any) => drawEntry($e, pid, tid, $t));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
@@ -55,6 +56,18 @@ export function drawChat(pid: string, tid: string, $t: any): void {
 		void $chat.length;
 		if (stick) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
 	});
+}
+
+/**
+ * The one thing the agent is told that the log itself never holds: the rules
+ * TPS puts above its whole conversation (see daemon/prompts.go). They open
+ * like any note, and are drawn rather than logged — so every task has them,
+ * and always as the ones its next turn will run under.
+ */
+function drawRules(pid: string, tid: string, $t: any): void {
+	const prompt = $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
+	if (!prompt) return;
+	drawEntry({ k: 'note', text: 'the rules the agent works under, above this whole conversation', detail: prompt }, pid, tid, $t);
 }
 
 /** A one-liner with more behind it: the whole row opens the detail dialog. */
@@ -235,14 +248,6 @@ const reqTable = A.insertCss({
 /** A block of verbatim text: wrapped, never clipped, and never a scroller of its own. */
 function codeBlock(text: string): void {
 	A('pre m:0 r:0 white-space:pre-wrap overflow-wrap:anywhere', () => A('code text=', text));
-}
-
-/**
- * A prompt in full: what TPS itself puts in front of claude, which the log
- * shows only the answers to. Wide enough for lines written for a terminal.
- */
-export function promptDialog(header: string, text: string): void {
-	void S.dialog({ header, attrs: 'w:min(94vw,60rem) max-width:min(94vw,60rem)', contentAttrs: 'p:0', content: () => codeBlock(text) });
 }
 
 /**

@@ -41,8 +41,8 @@ func Serve(buildID string) error {
 	}
 	// "home" lets a dashboard show this host's paths the way you would type
 	// them, with ~ standing in for the daemon user's home directory.
-	// "agentPrompt" is what every turn of every agent is worked under, which a
-	// task's settings offer to read (the reviewer's own hangs on the note that
+	// "agentPrompt" is what stands above every agent conversation here, which a
+	// task's log shows at its top (the reviewer's own hangs on the note that
 	// starts a review, being written afresh for each one).
 	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "modelsError": "asking claude…",
 		"build": buildID, "protocol": hub.Protocol, "home": home(), "agentPrompt": systemPrompt})
