@@ -1,18 +1,19 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { paperclip, x } from 'staffa/icons.js';
+import { file as fileGlyph, paperclip, x } from 'staffa/icons.js';
 import { cmd } from './util.ts';
 
 /**
- * Attachments of the message being composed: images pasted into a task's chat
- * input. Until the message is sent they live here — the composer is redrawn
- * whenever the task changes, and leaving the task and coming back must not
- * throw them away — and the message refers to each by the path the agent will
- * read it at. Sending hands them to the daemon, which writes them there.
+ * Attachments of the message being composed: files pasted, dropped or picked
+ * into a task's chat input. Until the message is sent they live here — the
+ * composer is redrawn whenever the task changes, and leaving the task and
+ * coming back must not throw them away — and the message refers to each by the
+ * path the agent will read it at. Sending hands them to the daemon, which
+ * writes them there.
  */
 export type Attachment = {
 	name: string;
-	url: string; // object URL, for the thumbnail; released when the attachment goes
+	url: string; // object URL of an image, for its thumbnail; anything else has none
 	data: string; // base64 of the bytes, which is how it travels
 };
 
@@ -42,9 +43,9 @@ export function attachments(pid: string, tid: string): Attachment[] {
 }
 
 /**
- * Take on the images of a paste (or a drop), one attachment each, and answer
- * with the references the message should carry — in the order they were given,
- * and skipping whatever could not be taken.
+ * Take the files on, one attachment each, and answer with the references the
+ * message should carry — in the order they were given, and skipping whatever
+ * could not be taken.
  */
 export async function addFiles(pid: string, tid: string, files: File[]): Promise<string[]> {
 	const $atts = attachments(pid, tid);
@@ -52,15 +53,11 @@ export async function addFiles(pid: string, tid: string, files: File[]): Promise
 	// What is already waiting counts against the message's weight as well.
 	const taken = A.peek(() => $atts.reduce((sum, a) => sum + bytes(a.data), 0));
 	for (const file of fitting(files, taken)) {
-		let data: string;
-		try {
-			data = base64(await file.arrayBuffer());
-		} catch (e) {
-			S.toast({ title: file.name || 'Attachment', message: (e as Error).message, type: 'danger' });
-			continue;
-		}
-		const name = freeName(A.peek(() => $atts.map(a => a.name)), fileName(file));
-		$atts.push({ name, url: URL.createObjectURL(file), data });
+		const carried = await carry(file);
+		if (!carried) continue;
+		const name = freeName(A.peek(() => $atts.map(a => a.name)), carried.name);
+		// Only an image has a thumbnail to show; the rest of them say their name.
+		$atts.push({ name, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : '', data: carried.data });
 		refs.push(uploadPath(name));
 	}
 	return refs;
@@ -110,8 +107,20 @@ export function takeAttachments(pid: string, tid: string): { name: string; data:
  * what it points at has to be there from the moment it is written down.
  */
 export async function uploadFiles(pid: string, tid: string, files: File[]): Promise<string[]> {
-	const carried = await Promise.all(fitting(files).map(async f => ({ name: fileName(f), data: base64(await f.arrayBuffer()) })));
+	const carried = (await Promise.all(fitting(files).map(carry))).filter(f => f !== undefined);
 	return (await cmd('attach', { pid, tid, files: carried })) || [];
+}
+
+/**
+ * One file as it travels: its name and its bytes — or nothing at all, with a
+ * word about why, when it cannot be read (a folder dropped on the field, say).
+ */
+async function carry(file: File): Promise<{ name: string; data: string } | undefined> {
+	try {
+		return { name: fileName(file), data: base64(await file.arrayBuffer()) };
+	} catch (e) {
+		S.toast({ title: file.name || 'Attachment', message: (e as Error).message, type: 'danger' });
+	}
 }
 
 /** How a field takes files on, answering with the paths its text should carry. */
@@ -127,7 +136,7 @@ const over = A.insertCss({ '&': 'outline: 2px dashed $s-primary; outline-offset:
 export function acceptFiles(zone: HTMLElement, area: () => HTMLTextAreaElement, take: Take): void {
 	const mark = (on: boolean) => zone.classList.toggle(over.slice(1), on);
 	zone.addEventListener('paste', (e: ClipboardEvent) => {
-		const files = imageFiles(e.clipboardData?.files);
+		const files = [...e.clipboardData?.files ?? []];
 		if (!files.length) return; // a plain paste is the browser's to handle
 		e.preventDefault();
 		void putFiles(area, take, files);
@@ -147,29 +156,22 @@ export function acceptFiles(zone: HTMLElement, area: () => HTMLTextAreaElement, 
 		if (!e.dataTransfer?.types.includes('Files')) return;
 		e.preventDefault();
 		mark(false);
-		const files = imageFiles(e.dataTransfer.files);
-		if (files.length) void putFiles(area, take, files);
-		else S.toast({ title: 'Attachment', message: 'Only images can be attached', type: 'danger' });
+		void putFiles(area, take, [...e.dataTransfer.files]);
 	});
 }
 
 /** The paperclip in a field's corner: the way in for a file that is not on the clipboard. */
 export function attachButton(area: () => HTMLTextAreaElement, take: Take): void {
-	const picker = A('input', 'type=file', 'accept=image/*', 'multiple=true', 'display:none',
+	const picker = A('input', 'type=file', 'multiple=true', 'display:none',
 		'change=', () => {
 			void putFiles(area, take, [...picker.files ?? []]);
 			picker.value = ''; // so that picking the same file again is a change again
 		}) as HTMLInputElement;
-	S.iconButton({ icon: paperclip, ariaLabel: 'Attach images', tooltip: 'Attach images', attrs: 'fg:$s-muted', click: () => picker.click() });
+	S.iconButton({ icon: paperclip, ariaLabel: 'Attach files', tooltip: 'Attach files', attrs: 'fg:$s-muted', click: () => picker.click() });
 }
 
 async function putFiles(area: () => HTMLTextAreaElement, take: Take, files: File[]): Promise<void> {
 	for (const ref of await take(files)) insertRef(area(), ref);
-}
-
-/** The images among what was pasted, dropped or picked; anything else is left alone. */
-function imageFiles(files: Iterable<File> | null | undefined): File[] {
-	return [...files ?? []].filter(f => f.type.startsWith('image/'));
 }
 
 /** Put an attachment's path where the cursor is, kept apart from the words around it. */
@@ -202,13 +204,17 @@ export function removeRef(el: HTMLTextAreaElement, ref: string): void {
 const thumb = A.insertCss({
 	'&': 'position:relative w:5rem h:5rem r:$s-radius-sm overflow:hidden border: 1px solid $s-faint',
 	img: 'w:100% h:100% object-fit:cover display:block',
+	// What has no thumbnail wears a glyph and as much of its name as fits.
+	'.doc': 'w:100% h:100% display:flex flex-direction:column align-items:center justify-content:center gap:$1 p:$1 fg:$s-muted',
+	'.doc span': 'max-width:100% overflow:hidden text-overflow:ellipsis white-space:nowrap font-size:0.7em',
 	// The delete button sits on the image, on a scrim so it reads on any of them.
 	'.del': 'position:absolute top:0 right:0 background:rgba(0,0,0,0.55) r:0 border-bottom-left-radius:$s-radius-sm',
 });
 
 /**
  * The strip of what is attached to the message being composed: a thumbnail
- * each, with the button that takes it back off again.
+ * each — or, for what is not an image, its name — with the button that takes
+ * it back off again.
  */
 export function drawAttachments(pid: string, tid: string, onRemove: (name: string) => void): void {
 	const $atts = attachments(pid, tid);
@@ -218,7 +224,11 @@ export function drawAttachments(pid: string, tid: string, onRemove: (name: strin
 			A.onEach($atts, ($a: any) => {
 				A('div', thumb, () => {
 					S.addTooltip({ tip: uploadPath($a.name) });
-					A('img', 'src=', $a.url, 'alt=', $a.name);
+					if ($a.url) A('img', 'src=', $a.url, 'alt=', $a.name);
+					else A('div.doc', () => {
+						fileGlyph({ size: '1.6rem' });
+						A('span text=', $a.name);
+					});
 					S.iconButton({ icon: x, ariaLabel: `Remove ${$a.name}`, attrs: '.small .neutral .del', click: () => onRemove($a.name) });
 				});
 			});
@@ -233,7 +243,10 @@ export function drawAttachments(pid: string, tid: string, onRemove: (name: strin
  * the message is the path the file ends up at.
  */
 function fileName(file: File): string {
-	if (!file.name) return `image.${(file.type.split('/')[1] || 'bin').split('+')[0]}`;
+	if (!file.name) {
+		const ext = (file.type.split('/')[1] || 'bin').split('+')[0];
+		return `${file.type.startsWith('image/') ? 'image' : 'file'}.${ext}`;
+	}
 	const name = file.name.trim().split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
 	return name.slice(0, 80) || 'file';
 }

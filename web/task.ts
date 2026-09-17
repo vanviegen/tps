@@ -445,7 +445,7 @@ async function assignTask(pid: string, tid: string, $t: any, phase: Phase): Prom
 export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 	const store = debounce(600, (description: string) => void cmd('updateTask', { pid, tid, description }));
 	const area = () => box.querySelector('textarea') as HTMLTextAreaElement;
-	// An image dropped, pasted or picked here is stored with the task at once,
+	// A file dropped, pasted or picked here is stored with the task at once,
 	// the description being written long before it is handed over.
 	const take = (files: File[]) => uploadFiles(pid, tid, files);
 	const box = A('div display:flex flex-direction:column h:100%', () => {
@@ -471,7 +471,7 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 
 /** The chat, what is worth acting on right now, and the input. */
 export function drawAgent(pid: string, tid: string, $t: any): void {
-	// The log, the notes and the composer are one drop target: an image let go
+	// The log, the notes and the composer are one drop target: a file let go
 	// anywhere in the column is meant for the message being written.
 	const area = () => zone.querySelector('textarea') as HTMLTextAreaElement;
 	const zone = A('div display:flex flex-direction:column gap:$3 flex:1 min-width:0 min-height:0', () => {
