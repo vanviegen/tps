@@ -10,10 +10,11 @@ import (
 	"strings"
 )
 
-// Attachments: files a user adds to a chat message — a screenshot pasted into
-// the dashboard, most often. They are kept per task, in a directory mounted
-// read-only into its container, and the message refers to them by the path the
-// agent reads them at, so nothing but text ever reaches claude.
+// Attachments: files a user adds to a chat message or to a plan's description
+// — a screenshot pasted into the dashboard, most often. They are kept per
+// task, in a directory mounted read-only into its container, and the text
+// refers to them by the path the agent reads them at, so nothing but text ever
+// reaches claude.
 
 // uploadsMount is where a task's attachments are in its container.
 const uploadsMount = "/uploads"
@@ -32,33 +33,65 @@ type ChatFile struct {
 
 func (t *Task) uploadsDir() string { return filepath.Join(t.dir(), "uploads") }
 
-// saveUploads stores a message's attachments and returns its text with the
-// paths corrected: the name a dashboard picked may be taken here already (by
-// an earlier message, or by another dashboard), and the file is then stored
-// under the next free one, which the text must follow. Nothing is written
-// unless everything can be: a message arrives with all of its files or none.
-func (t *Task) saveUploads(text string, files []ChatFile) (string, error) {
+// storeUploads writes attachments to the task, each under the first name like
+// the one asked for that is free here (an earlier message, or another
+// dashboard, may have taken it), and returns the names they got. Nothing is
+// written unless everything can be: files arrive together or not at all.
+func (t *Task) storeUploads(files []ChatFile) ([]string, error) {
 	if len(files) == 0 {
-		return text, nil
+		return nil, nil
 	}
 	raws := make([][]byte, len(files))
 	total := 0
 	for i, f := range files {
 		raw, err := base64.StdEncoding.DecodeString(f.Data)
 		if err != nil {
-			return text, fmt.Errorf("attachment %q could not be read", f.Name)
+			return nil, fmt.Errorf("attachment %q could not be read", f.Name)
 		}
 		if len(raw) > maxUploadBytes {
-			return text, fmt.Errorf("attachment %q is over %d MB", f.Name, maxUploadBytes>>20)
+			return nil, fmt.Errorf("attachment %q is over %d MB", f.Name, maxUploadBytes>>20)
 		}
 		total += len(raw)
 		if total > maxMessageBytes {
-			return text, fmt.Errorf("the attachments are over %d MB together", maxMessageBytes>>20)
+			return nil, fmt.Errorf("the attachments are over %d MB together", maxMessageBytes>>20)
 		}
 		raws[i] = raw
 	}
 	dir := t.uploadsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	names := make([]string, len(files))
+	for i, f := range files {
+		names[i] = freeUploadName(dir, uploadName(f.Name))
+		if err := os.WriteFile(filepath.Join(dir, names[i]), raws[i], 0o644); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
+}
+
+// Attach stores files no message carries — what a plan's description needs,
+// being written (and saved) long before it is handed to the agent — and
+// answers with the paths the agent will read them at.
+func (t *Task) Attach(files []ChatFile) ([]string, error) {
+	names, err := t.storeUploads(files)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(names))
+	for i, name := range names {
+		paths[i] = uploadsMount + "/" + name
+	}
+	return paths, nil
+}
+
+// saveUploads stores a message's attachments and returns its text with the
+// paths corrected: a file stored under another name than the one the dashboard
+// picked (and wrote into the message) is followed there.
+func (t *Task) saveUploads(text string, files []ChatFile) (string, error) {
+	names, err := t.storeUploads(files)
+	if err != nil {
 		return text, err
 	}
 	// Renames are collected and applied in one pass at the end: replacing them
@@ -66,17 +99,13 @@ func (t *Task) saveUploads(text string, files []ChatFile) (string, error) {
 	var renames []string
 	for i, f := range files {
 		asked := uploadName(f.Name)
-		name := freeUploadName(dir, asked)
-		if err := os.WriteFile(filepath.Join(dir, name), raws[i], 0o644); err != nil {
-			return text, err
-		}
-		if name != asked {
-			renames = append(renames, uploadsMount+"/"+asked, uploadsMount+"/"+name)
+		if names[i] != asked {
+			renames = append(renames, uploadsMount+"/"+asked, uploadsMount+"/"+names[i])
 		}
 		// A client that wrote the name unfolded into its message (this
 		// dashboard folds it the same way beforehand) is followed too.
 		if raw := strings.TrimSpace(f.Name); raw != "" && raw != asked {
-			renames = append(renames, uploadsMount+"/"+raw, uploadsMount+"/"+name)
+			renames = append(renames, uploadsMount+"/"+raw, uploadsMount+"/"+names[i])
 		}
 	}
 	if len(renames) > 0 {

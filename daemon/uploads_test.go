@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,19 +52,25 @@ func TestFreeUploadName(t *testing.T) {
 	}
 }
 
-// Attachments land in the task's uploads dir, and the message follows them
-// there when the name it asked for was taken.
-func TestSaveUploads(t *testing.T) {
+// A task to attach to, with nothing else around it.
+func uploadsTask(t *testing.T) *Task {
 	dir := t.TempDir()
 	m := &Manager{projects: map[string]*Project{}, dataDir: filepath.Join(dir, "data"), hub: hub.New(nil)}
 	p := &Project{m: m, pid: "project", info: &ProjectInfo{Dir: dir}, tasks: map[string]*Task{}, defaultBranch: "main"}
 	m.projects[p.pid] = p
 	task := newTask(p, "1", &TaskInfo{Phase: PhaseAgent})
 	p.tasks[task.tid] = task
+	return task
+}
 
-	file := func(name, body string) ChatFile {
-		return ChatFile{Name: name, Data: base64.StdEncoding.EncodeToString([]byte(body))}
-	}
+func file(name, body string) ChatFile {
+	return ChatFile{Name: name, Data: base64.StdEncoding.EncodeToString([]byte(body))}
+}
+
+// Attachments land in the task's uploads dir, and the message follows them
+// there when the name it asked for was taken.
+func TestSaveUploads(t *testing.T) {
+	task := uploadsTask(t)
 	text, err := task.saveUploads("look at /uploads/image.png", []ChatFile{file("image.png", "first")})
 	if err != nil {
 		t.Fatal(err)
@@ -108,5 +115,24 @@ func TestSaveUploads(t *testing.T) {
 	}
 	if exists(filepath.Join(task.uploadsDir(), "big.png")) {
 		t.Error("an oversized attachment was written")
+	}
+}
+
+// What a description attaches has no text to correct: the paths the files
+// ended up at are the answer.
+func TestAttach(t *testing.T) {
+	task := uploadsTask(t)
+	paths, err := task.Attach([]ChatFile{file("Screen shot.png", "first"), file("Screen shot.png", "second")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/uploads/Screen-shot.png", "/uploads/Screen-shot-2.png"}
+	if !slices.Equal(paths, want) {
+		t.Errorf("attached at %v, want %v", paths, want)
+	}
+	for i, path := range paths {
+		if body, _ := os.ReadFile(filepath.Join(task.uploadsDir(), filepath.Base(path))); string(body) != []string{"first", "second"}[i] {
+			t.Errorf("%s holds %q", path, body)
+		}
 	}
 }

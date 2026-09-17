@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
-import { addFiles, attachments, dropAttachment, drawAttachments, imageFiles, takeAttachments, uploadPath } from './attach.ts';
+import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
@@ -444,10 +444,15 @@ async function assignTask(pid: string, tid: string, $t: any, phase: Phase): Prom
  */
 export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 	const store = debounce(600, (description: string) => void cmd('updateTask', { pid, tid, description }));
+	const area = () => box.querySelector('textarea') as HTMLTextAreaElement;
+	// An image dropped, pasted or picked here is stored with the task at once,
+	// the description being written long before it is handed over.
+	const take = (files: File[]) => uploadFiles(pid, tid, files);
 	const box = A('div display:flex flex-direction:column h:100%', () => {
 		S.textarea({
 			attrs: 'h:100%', inputAttrs: 'flex:1 min-height:0', autoGrow: false, resize: 'none',
 			placeholder: 'What should the agent do?', value: A.peek($t, 'description') ?? '',
+			suffix: () => attachButton(area, take),
 			input: (e: Event) => {
 				const description = (e.target as HTMLTextAreaElement).value;
 				$t.description = description;
@@ -455,6 +460,7 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 			},
 		});
 	}) as HTMLElement;
+	acceptFiles(box, area, take);
 	// A task with nothing written down yet has nothing on its page but this
 	// field, and writing is the whole of what there is to do: it takes the
 	// cursor. One that says something already is arrived at to be read as often
@@ -465,103 +471,109 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 
 /** The chat, what is worth acting on right now, and the input. */
 export function drawAgent(pid: string, tid: string, $t: any): void {
-	// The log fills the column, with the icons floating over its top right
-	// corner: chrome that would otherwise cost the conversation a row.
-	A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
-		drawChat(pid, tid, $t);
-		// A neutral surface, opaque and rounded, so the log scrolls under them
-		// rather than through them. How tall the row is the buttons decide, so it
-		// is measured rather than guessed: the log keeps that much room at its top
-		// (see drawChat) for its first entry to start below them.
-		const bar = A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
-			A(() => { // its own scope: a service arriving must not redraw the row
-				if (!hasServices($t)) return;
-				// Red while something runs: services go on behind a closed console, and this is what brings it back.
-				const running = anyRunning($t);
-				S.iconButton({ icon: play, ariaLabel: running ? 'Services: something is running' : 'Services and ports',
-					tooltip: 'What runs in the container, and the ports it forwards',
-					attrs: running ? 'fg:$s-danger' : '', click: (e: Event) => servicesMenu(e.currentTarget as HTMLElement, pid, tid, $t) });
-			});
-			// Only while the task is yours: rebasing and rebuilding both move the
-			// ground under a running agent, and both are for the human at the wheel.
-			A(() => {
-				if (!waitsForHuman($t) || !$t.behind) return;
-				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-				S.iconButton({ icon: arrowDownToLine, ariaLabel: 'Rebase onto the latest ' + branch,
-					tooltip: () => A('text=', `${branch} has moved on by ${$t.behind} commit${$t.behind === 1 ? '' : 's'}: replay this task's work on top of it`),
-					click: () => rebaseTask(pid, tid, $t) });
-			});
-			A(() => {
-				if (!waitsForHuman($t)) return;
-				S.iconButton({ icon: refreshCw, ariaLabel: 'Rebuild the container',
-					tooltip: 'Rebuild the container from Containerfile.dev',
-					click: () => void cmd('reloadTask', { pid, tid }) });
-			});
-			S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
-			// The phase, worn as the icon it has on the board and in the sidebar,
-			// is the button for everything that is about the phase: a menu needs
-			// no glyph of its own where the state it acts on is one. It breathes
-			// while something is going on, exactly as the sidebar's does.
-			A(() => {
-				const phase = $t.phase as Phase;
-				const icon = PHASE_ICONS[phase] ?? bot;
-				S.iconButton({
-					icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
-					ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
-					tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
-					click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
+	// The log, the notes and the composer are one drop target: an image let go
+	// anywhere in the column is meant for the message being written.
+	const area = () => zone.querySelector('textarea') as HTMLTextAreaElement;
+	const zone = A('div display:flex flex-direction:column gap:$3 flex:1 min-width:0 min-height:0', () => {
+		// The log fills the column, with the icons floating over its top right
+		// corner: chrome that would otherwise cost the conversation a row.
+		A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
+			drawChat(pid, tid, $t);
+			// A neutral surface, opaque and rounded, so the log scrolls under them
+			// rather than through them. How tall the row is the buttons decide, so it
+			// is measured rather than guessed: the log keeps that much room at its top
+			// (see drawChat) for its first entry to start below them.
+			const bar = A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
+				A(() => { // its own scope: a service arriving must not redraw the row
+					if (!hasServices($t)) return;
+					// Red while something runs: services go on behind a closed console, and this is what brings it back.
+					const running = anyRunning($t);
+					S.iconButton({ icon: play, ariaLabel: running ? 'Services: something is running' : 'Services and ports',
+						tooltip: 'What runs in the container, and the ports it forwards',
+						attrs: running ? 'fg:$s-danger' : '', click: (e: Event) => servicesMenu(e.currentTarget as HTMLElement, pid, tid, $t) });
 				});
-			});
-			S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
-				click: () => closeTask(pid, tid) });
-		}) as HTMLElement;
-		const measure = new ResizeObserver(() => bar.parentElement?.style.setProperty('--tps-overlay', `${bar.offsetHeight}px`));
-		measure.observe(bar);
-		A.clean(() => measure.disconnect());
-	});
-	A(() => {
-		if ($t.phase === 'closed') {
-			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-			A('div.s-s.warning.tonal p:$2 text=', $t.changes?.length
-				? `⚠ closed without merging: nothing of this task is on ${branch}; its work is kept as a patch.`
-				: `⚠ closed without merging: nothing of this task is on ${branch}.`);
-			return;
-		}
-		if ($t.phase === 'done') {
-			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-			A('div.s-s.success.tonal p:$2 text=',
-				`✔ merged into ${branch}. Messaging the agent picks the task back up: it keeps everything it `
-				+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
-			return;
-		}
-		if (!waitsForHuman($t)) return;
-		// The last review's feedback is put in the message box, to send on as it
-		// stands, to word differently, or to clear: what the reviewer asks for is
-		// the user's to weigh, and saying it back to the agent is a message like
-		// any other. A message half written wins (see restoreDraft).
-		if ($t.review) {
-			restoreDraft(pid, tid, $t.review);
-			A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
-		}
-		if ($t.conflicts?.length) {
-			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-			A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
-				A('span flex:1 text=', `⚠ conflicts in ${$t.conflicts.join(', ')}: putting this task's work onto the latest ${branch} did not merge cleanly there. `
-					+ 'Resolve the markers in VS Code, or send in the agent, which is told about them.');
-				S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void moveTask(pid, tid, $t, 'agent') });
-			});
-		}
-	});
-	// The merge has no button of its own down here: the agent reporting the
-	// work done is a moment in the log, and the button sits with it (see
-	// drawReady). The key it had reaches it from wherever the log is scrolled.
-	A(() => { if (canMerge($t)) S.bindKey('mod+shift+g', 'Merge this task…', () => doneDialog(pid, tid, $t)); });
-	A(() => {
-		if (!['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
-		const { text, color } = taskActivity(pid, $t);
-		A(`div.s-s.${color}.tonal p:$2 text=`, text);
-	});
-	drawInputBar(pid, tid, $t);
+				// Only while the task is yours: rebasing and rebuilding both move the
+				// ground under a running agent, and both are for the human at the wheel.
+				A(() => {
+					if (!waitsForHuman($t) || !$t.behind) return;
+					const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+					S.iconButton({ icon: arrowDownToLine, ariaLabel: 'Rebase onto the latest ' + branch,
+						tooltip: () => A('text=', `${branch} has moved on by ${$t.behind} commit${$t.behind === 1 ? '' : 's'}: replay this task's work on top of it`),
+						click: () => rebaseTask(pid, tid, $t) });
+				});
+				A(() => {
+					if (!waitsForHuman($t)) return;
+					S.iconButton({ icon: refreshCw, ariaLabel: 'Rebuild the container',
+						tooltip: 'Rebuild the container from Containerfile.dev',
+						click: () => void cmd('reloadTask', { pid, tid }) });
+				});
+				S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
+				// The phase, worn as the icon it has on the board and in the sidebar,
+				// is the button for everything that is about the phase: a menu needs
+				// no glyph of its own where the state it acts on is one. It breathes
+				// while something is going on, exactly as the sidebar's does.
+				A(() => {
+					const phase = $t.phase as Phase;
+					const icon = PHASE_ICONS[phase] ?? bot;
+					S.iconButton({
+						icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
+						ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
+						tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
+						click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
+					});
+				});
+				S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
+					click: () => closeTask(pid, tid) });
+			}) as HTMLElement;
+			const measure = new ResizeObserver(() => bar.parentElement?.style.setProperty('--tps-overlay', `${bar.offsetHeight}px`));
+			measure.observe(bar);
+			A.clean(() => measure.disconnect());
+		});
+		A(() => {
+			if ($t.phase === 'closed') {
+				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+				A('div.s-s.warning.tonal p:$2 text=', $t.changes?.length
+					? `⚠ closed without merging: nothing of this task is on ${branch}; its work is kept as a patch.`
+					: `⚠ closed without merging: nothing of this task is on ${branch}.`);
+				return;
+			}
+			if ($t.phase === 'done') {
+				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+				A('div.s-s.success.tonal p:$2 text=',
+					`✔ merged into ${branch}. Messaging the agent picks the task back up: it keeps everything it `
+					+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
+				return;
+			}
+			if (!waitsForHuman($t)) return;
+			// The last review's feedback is put in the message box, to send on as it
+			// stands, to word differently, or to clear: what the reviewer asks for is
+			// the user's to weigh, and saying it back to the agent is a message like
+			// any other. A message half written wins (see restoreDraft).
+			if ($t.review) {
+				restoreDraft(pid, tid, $t.review);
+				A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
+			}
+			if ($t.conflicts?.length) {
+				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+				A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
+					A('span flex:1 text=', `⚠ conflicts in ${$t.conflicts.join(', ')}: putting this task's work onto the latest ${branch} did not merge cleanly there. `
+						+ 'Resolve the markers in VS Code, or send in the agent, which is told about them.');
+					S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void moveTask(pid, tid, $t, 'agent') });
+				});
+			}
+		});
+		// The merge has no button of its own down here: the agent reporting the
+		// work done is a moment in the log, and the button sits with it (see
+		// drawReady). The key it had reaches it from wherever the log is scrolled.
+		A(() => { if (canMerge($t)) S.bindKey('mod+shift+g', 'Merge this task…', () => doneDialog(pid, tid, $t)); });
+		A(() => {
+			if (!['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
+			const { text, color } = taskActivity(pid, $t);
+			A(`div.s-s.${color}.tonal p:$2 text=`, text);
+		});
+		drawInputBar(pid, tid, $t);
+	}) as HTMLElement;
+	acceptFiles(zone, area, files => addFiles(pid, tid, files));
 }
 
 function drawInputBar(pid: string, tid: string, $t: any): void {
@@ -581,12 +593,6 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		el.dispatchEvent(new Event('input')); // shrink it back down, drop $has.text, and forget the draft
 		void cmd('chat', { pid, tid, text, files });
 	};
-	// Images pasted into the field are attached to the message rather than
-	// pasted as whatever text the clipboard also holds, and the path the agent
-	// will read each at goes in where the cursor was.
-	const pasteImages = async (files: File[]) => {
-		for (const ref of await addFiles(pid, tid, files)) insertRef(area(), ref);
-	};
 	const bar = A('div display:flex flex-direction:column gap:$2', () => {
 		drawAttachments(pid, tid, name => {
 			dropAttachment(pid, tid, name);
@@ -595,29 +601,33 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		S.textarea({
 			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh',
 			value: draft,
-			// One glyph in the field's own bottom-right corner, beside the caret:
-			// send while there is something to send, else stop while claude works.
-			// An inset sizes what it holds `.small`; this is the one thing in the
-			// composer to aim at, so it takes its size back.
-			suffix: () => A(() => {
-				const size = 'w:2.2rem h:2.2rem font-size:1.1rem ';
-				if ($has.text || $atts.length) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
-				else if ($t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
-					click: () => void cmd('stopAgent', { pid, tid }) });
-				// Nothing to send and nothing to stop: how full the agent's window is,
-				// and the button that empties it. What is about the conversation rather
-				// than about this message belongs where the eye already is when nothing
-				// is being typed. Nothing is measured before the agent has run, and a
-				// finished task has no window to look into — an empty ring would be a
-				// button over nothing, so neither draws one.
-				else if (hasWorkspace($t) && contextSlices($t)) S.iconButton({
-					icon: () => drawContextRing($t, '1.4rem'),
-					ariaLabel: 'Compact the agent’s memory',
-					attrs: size + 'fg:$s-muted',
-					tooltip: () => drawContextTip($t, 'Click to have it do that now.'),
-					click: () => void cmd('chat', { pid, tid, text: '/compact' }),
+			// The field's own bottom-right corner, beside the caret: the paperclip
+			// that attaches a file, and then — send while there is something to
+			// send, else stop while claude works. An inset sizes what it holds
+			// `.small`; sending is the one thing in the composer to aim at, so that
+			// button takes its size back.
+			suffix: () => {
+				attachButton(area, files => addFiles(pid, tid, files));
+				A(() => {
+					const size = 'w:2.2rem h:2.2rem font-size:1.1rem ';
+					if ($has.text || $atts.length) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
+					else if ($t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
+						click: () => void cmd('stopAgent', { pid, tid }) });
+					// Nothing to send and nothing to stop: how full the agent's window is,
+					// and the button that empties it. What is about the conversation rather
+					// than about this message belongs where the eye already is when nothing
+					// is being typed. Nothing is measured before the agent has run, and a
+					// finished task has no window to look into — an empty ring would be a
+					// button over nothing, so neither draws one.
+					else if (hasWorkspace($t) && contextSlices($t)) S.iconButton({
+						icon: () => drawContextRing($t, '1.4rem'),
+						ariaLabel: 'Compact the agent’s memory',
+						attrs: size + 'fg:$s-muted',
+						tooltip: () => drawContextTip($t, 'Click to have it do that now.'),
+						click: () => void cmd('chat', { pid, tid, text: '/compact' }),
+					});
 				});
-			}),
+			},
 			input: (e: Event) => {
 				const text = (e.target as HTMLTextAreaElement).value;
 				$has.text = !!text.trim();
@@ -633,39 +643,6 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		el.dispatchEvent(new Event('input')); // grow it, and light the send button
 		el.focus();
 	});
-	area().addEventListener('paste', (e: ClipboardEvent) => {
-		const files = imageFiles(e.clipboardData);
-		if (!files.length) return; // a plain paste is the browser's to handle
-		e.preventDefault();
-		void pasteImages(files);
-	});
-}
-
-/** Put an attachment's path where the cursor is, kept apart from the words around it. */
-function insertRef(el: HTMLTextAreaElement, ref: string): void {
-	const at = el.selectionStart ?? el.value.length;
-	const before = el.value.slice(0, at);
-	const after = el.value.slice(el.selectionEnd ?? at);
-	const lead = before && !/\s$/.test(before) ? ' ' : '';
-	const trail = /^\s/.test(after) ? '' : ' '; // also at the very end: what is typed next is a new word
-	el.value = before + lead + ref + trail + after;
-	const pos = before.length + lead.length + ref.length + trail.length;
-	el.setSelectionRange(pos, pos);
-	el.focus();
-	el.dispatchEvent(new Event('input')); // grow with it, and remember the draft
-}
-
-/** Take the path of a removed attachment back out, with the space it came with. */
-function removeRef(el: HTMLTextAreaElement, ref: string): void {
-	const at = el.value.indexOf(ref);
-	if (at < 0) return;
-	let end = at + ref.length;
-	let start = at;
-	if (el.value[end] === ' ') end++;
-	else if (start > 0 && el.value[start - 1] === ' ') start--;
-	el.value = el.value.slice(0, start) + el.value.slice(end);
-	el.setSelectionRange(start, start);
-	el.dispatchEvent(new Event('input'));
 }
 
 /**

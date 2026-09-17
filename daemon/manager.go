@@ -570,7 +570,7 @@ type ref struct {
 	Fork  bool   `json:"fork"`
 	Chat  bool   `json:"chat"`
 	Work  bool   `json:"work"`
-	// What a dashboard attached to a chat message (see uploads.go).
+	// What a dashboard attached to a message, or to a description (see uploads.go).
 	Files []ChatFile `json:"files"`
 }
 
@@ -652,6 +652,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"updateTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Update(partial) }),
 		"openTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
 		"chat":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
+		"attach":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
 		"stopAgent":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
 		"rebaseTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),

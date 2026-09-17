@@ -1,6 +1,7 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { x } from 'staffa/icons.js';
+import { paperclip, x } from 'staffa/icons.js';
+import { cmd } from './util.ts';
 
 /**
  * Attachments of the message being composed: images pasted into a task's chat
@@ -23,9 +24,10 @@ export function uploadPath(name: string): string {
 	return `${UPLOADS}/${name}`;
 }
 
-// As much as the daemon takes of one file, and of a message's files together
-// (see uploads.go); beyond either, the paste is refused here, where there is
-// somewhere to say so.
+// As much as the daemon takes of one file, and of the files that go over
+// together (see uploads.go); beyond either, the file is refused here, where
+// there is somewhere to say so — and before a batch too big for the websocket
+// to carry breaks the connection instead.
 const MAX_BYTES = 8 << 20;
 const MAX_TOTAL_BYTES = 10 << 20;
 
@@ -47,16 +49,9 @@ export function attachments(pid: string, tid: string): Attachment[] {
 export async function addFiles(pid: string, tid: string, files: File[]): Promise<string[]> {
 	const $atts = attachments(pid, tid);
 	const refs: string[] = [];
-	let total = A.peek(() => $atts.reduce((sum, a) => sum + bytes(a.data), 0));
-	for (const file of files) {
-		if (file.size > MAX_BYTES) {
-			S.toast({ title: file.name || 'Attachment', message: `Larger than ${MAX_BYTES >> 20} MB`, type: 'danger' });
-			continue;
-		}
-		if (total + file.size > MAX_TOTAL_BYTES) {
-			S.toast({ title: file.name || 'Attachment', message: `One message carries no more than ${MAX_TOTAL_BYTES >> 20} MB`, type: 'danger' });
-			continue;
-		}
+	// What is already waiting counts against the message's weight as well.
+	const taken = A.peek(() => $atts.reduce((sum, a) => sum + bytes(a.data), 0));
+	for (const file of fitting(files, taken)) {
 		let data: string;
 		try {
 			data = base64(await file.arrayBuffer());
@@ -67,9 +62,28 @@ export async function addFiles(pid: string, tid: string, files: File[]): Promise
 		const name = freeName(A.peek(() => $atts.map(a => a.name)), fileName(file));
 		$atts.push({ name, url: URL.createObjectURL(file), data });
 		refs.push(uploadPath(name));
-		total += file.size;
 	}
 	return refs;
+}
+
+/**
+ * The files that fit, with a word about each that does not — one too big, or
+ * one that would tip the batch over what goes at once, `taken` bytes of it
+ * being spoken for already.
+ */
+function fitting(files: File[], taken = 0): File[] {
+	const fits: File[] = [];
+	for (const file of files) {
+		if (file.size > MAX_BYTES) {
+			S.toast({ title: file.name || 'Attachment', message: `Larger than ${MAX_BYTES >> 20} MB`, type: 'danger' });
+		} else if (taken + file.size > MAX_TOTAL_BYTES) {
+			S.toast({ title: file.name || 'Attachment', message: `No more than ${MAX_TOTAL_BYTES >> 20} MB can be attached at once`, type: 'danger' });
+		} else {
+			fits.push(file);
+			taken += file.size;
+		}
+	}
+	return fits;
 }
 
 /** Drop one attachment again, before the message it was for was sent. */
@@ -90,9 +104,99 @@ export function takeAttachments(pid: string, tid: string): { name: string; data:
 	return taken.map(({ name, data }) => ({ name, data }));
 }
 
-/** The images among what was pasted or dropped; anything else is left alone. */
-export function imageFiles(data: DataTransfer | null): File[] {
-	return [...(data?.files ?? [])].filter(f => f.type.startsWith('image/'));
+/**
+ * Store files with the task right away, and answer with the paths they are
+ * read at. That is what a description wants: it is saved as it is written, so
+ * what it points at has to be there from the moment it is written down.
+ */
+export async function uploadFiles(pid: string, tid: string, files: File[]): Promise<string[]> {
+	const carried = await Promise.all(fitting(files).map(async f => ({ name: fileName(f), data: base64(await f.arrayBuffer()) })));
+	return (await cmd('attach', { pid, tid, files: carried })) || [];
+}
+
+/** How a field takes files on, answering with the paths its text should carry. */
+type Take = (files: File[]) => Promise<string[]>;
+
+const over = A.insertCss({ '&': 'outline: 2px dashed $s-primary; outline-offset:-2px r:$s-radius' });
+
+/**
+ * A file dropped anywhere on `zone`, or pasted while the focus is in it, goes
+ * to the field. The path it lands at is put in where the cursor is, that being
+ * all the text can say about a file.
+ */
+export function acceptFiles(zone: HTMLElement, area: () => HTMLTextAreaElement, take: Take): void {
+	const mark = (on: boolean) => zone.classList.toggle(over.slice(1), on);
+	zone.addEventListener('paste', (e: ClipboardEvent) => {
+		const files = imageFiles(e.clipboardData?.files);
+		if (!files.length) return; // a plain paste is the browser's to handle
+		e.preventDefault();
+		void putFiles(area, take, files);
+	});
+	// Without this the browser leaves the page for the file that was dropped on
+	// it; a card dragged past is the board's business, and passes through.
+	zone.addEventListener('dragover', (e: DragEvent) => {
+		if (!e.dataTransfer?.types.includes('Files')) return;
+		e.preventDefault();
+		mark(true);
+	});
+	// Crossing from one element inside the zone to another is not leaving it.
+	zone.addEventListener('dragleave', (e: DragEvent) => {
+		if (!zone.contains(e.relatedTarget as Node)) mark(false);
+	});
+	zone.addEventListener('drop', (e: DragEvent) => {
+		if (!e.dataTransfer?.types.includes('Files')) return;
+		e.preventDefault();
+		mark(false);
+		const files = imageFiles(e.dataTransfer.files);
+		if (files.length) void putFiles(area, take, files);
+		else S.toast({ title: 'Attachment', message: 'Only images can be attached', type: 'danger' });
+	});
+}
+
+/** The paperclip in a field's corner: the way in for a file that is not on the clipboard. */
+export function attachButton(area: () => HTMLTextAreaElement, take: Take): void {
+	const picker = A('input', 'type=file', 'accept=image/*', 'multiple=true', 'display:none',
+		'change=', () => {
+			void putFiles(area, take, [...picker.files ?? []]);
+			picker.value = ''; // so that picking the same file again is a change again
+		}) as HTMLInputElement;
+	S.iconButton({ icon: paperclip, ariaLabel: 'Attach images', tooltip: 'Attach images', attrs: 'fg:$s-muted', click: () => picker.click() });
+}
+
+async function putFiles(area: () => HTMLTextAreaElement, take: Take, files: File[]): Promise<void> {
+	for (const ref of await take(files)) insertRef(area(), ref);
+}
+
+/** The images among what was pasted, dropped or picked; anything else is left alone. */
+function imageFiles(files: Iterable<File> | null | undefined): File[] {
+	return [...files ?? []].filter(f => f.type.startsWith('image/'));
+}
+
+/** Put an attachment's path where the cursor is, kept apart from the words around it. */
+function insertRef(el: HTMLTextAreaElement, ref: string): void {
+	const at = el.selectionStart ?? el.value.length;
+	const before = el.value.slice(0, at);
+	const after = el.value.slice(el.selectionEnd ?? at);
+	const lead = before && !/\s$/.test(before) ? ' ' : '';
+	const trail = /^\s/.test(after) ? '' : ' '; // also at the very end: what is typed next is a new word
+	el.value = before + lead + ref + trail + after;
+	const pos = before.length + lead.length + ref.length + trail.length;
+	el.setSelectionRange(pos, pos);
+	el.focus();
+	el.dispatchEvent(new Event('input')); // grow with it, and remember the draft
+}
+
+/** Take the path of a removed attachment back out, with the space it came with. */
+export function removeRef(el: HTMLTextAreaElement, ref: string): void {
+	const at = el.value.indexOf(ref);
+	if (at < 0) return;
+	let end = at + ref.length;
+	let start = at;
+	if (el.value[end] === ' ') end++;
+	else if (start > 0 && el.value[start - 1] === ' ') start--;
+	el.value = el.value.slice(0, start) + el.value.slice(end);
+	el.setSelectionRange(start, start);
+	el.dispatchEvent(new Event('input'));
 }
 
 const thumb = A.insertCss({
