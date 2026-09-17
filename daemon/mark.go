@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,6 +35,38 @@ type Mark struct {
 	Commit  string           `json:"commit"`            // the task clone's HEAD at the point
 	Message string           `json:"message,omitempty"` // the commit message the task was proposing then, if any
 	Claude  map[string]int64 `json:"claude,omitempty"`  // transcript, relative to the claude dir → the length it had
+}
+
+// How long the transcripts must hold still to count as written out, and how
+// long a save point may be held up insisting on it.
+const (
+	transcriptQuiet = 300 * time.Millisecond
+	transcriptWait  = 5 * time.Second
+)
+
+// settleClaude waits for a running claude to finish writing down the turn it
+// has just reported over. The message a turn ends on reaches the transcript
+// some tens of milliseconds after the stream says the turn is done, and a
+// point measured in that window holds a length from before the agent's last
+// words: reverting to it would cut away the very answer it was made at, and
+// the agent would pick the conversation back up without the analysis the user
+// is answering. So the lengths are only taken once the files have gone quiet.
+func (t *Task) settleClaude() {
+	t.lock()
+	running := t.session != nil
+	t.unlock()
+	if !running {
+		return // nothing is writing; whatever is there is all there is
+	}
+	lengths := t.claudeOffsets()
+	for deadline := time.Now().Add(transcriptWait); time.Now().Before(deadline); {
+		time.Sleep(transcriptQuiet)
+		now := t.claudeOffsets()
+		if maps.Equal(now, lengths) {
+			return
+		}
+		lengths = now
+	}
 }
 
 // claudeOffsets measures every session transcript the task has. Paths are
@@ -154,6 +187,7 @@ func (t *Task) mark(by, summary string) {
 		t.noteErr("reading the workspace's commit failed", err)
 		return
 	}
+	t.settleClaude()
 	m := &Mark{Commit: head, Claude: t.claudeOffsets()}
 	e := newEntry("mark")
 	// Its own id, which UsePoint names it by; the tool
