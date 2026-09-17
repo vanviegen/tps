@@ -11,7 +11,7 @@
     "typecheck": "tsc -p web"
   },
   "dependencies": {
-    "aberdeen": "^1.23.0",
+    "aberdeen": "^1.23.1",
     "marked": "^18.0.11",
     "staffa": "^0.22.2",
     "ws": "^8.18.0"
