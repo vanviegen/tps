@@ -1,8 +1,8 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { check, circleX, globe, loaderCircle, play, square } from 'staffa/icons.js';
+import { check, circleX, globe, play, square } from 'staffa/icons.js';
 import { ansiToHtml } from './ansi.ts';
-import { cmd, ELLIPSIS, portUrl } from './util.ts';
+import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
 
 /**
  * A task's services: the named, long-running commands in its container —
@@ -51,7 +51,9 @@ function clock(ms: number): string {
 
 function statusIcon(s: Service): S.MenuItem['icon'] {
 	switch (s.status) {
-		case 'running': return () => loaderCircle({ attrs: 'fg:$s-danger' });
+		// Running is the play the row would have started, breathing: the same
+		// sign of something going on that a task's icon gives (see busyAttrs).
+		case 'running': return () => play({ attrs: `fg:$s-danger ${busyAttrs(play)}` });
 		case 'exited': return s.code ? () => circleX({ attrs: 'fg:$s-danger' }) : check;
 		case 'stopped': return square;
 		default: return play;

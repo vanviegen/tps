@@ -6,7 +6,7 @@ import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { $holds, holdKey, isHeld, release } from './holds.ts';
 import { hostIssue, manageHostsDialog } from './hosts.ts';
-import { addProjectDialog, drawProjectChip, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
+import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
 import { branchLabel, drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
@@ -20,10 +20,11 @@ import { branchLabel, drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, pro
  * at the bottom only the hosts that want something — a login, an update, a
  * connection — as the ones that work have nothing to say.
  *
- * Collapsed, it is a narrow strip: the chip stands for the project, and each
- * task keeps its phase icon and the first word of its title, which the
- * `subject: change` form of titles makes readable. It collapses by itself
- * when VS Code comes on screen (see main.ts), and by the icon beside the logo.
+ * Collapsed, it is a narrow strip: every row keeps its name, cut off where the
+ * strip ends, which the `subject: change` form of task titles makes readable,
+ * and its phase icon. It collapses by itself when VS Code comes on screen (see
+ * main.ts), and by the icon in the corner, which is in the same spot either
+ * way so that one spot folds it both ways.
  */
 export const $ui = A.proxy({ collapsed: false });
 
@@ -36,22 +37,25 @@ A.insertGlobalCss({
 	// project's colour, rather than beside a bar in it: colour behind the rows
 	// costs no width, which is what the collapsed strip has none of to spare.
 	'.tps-side .tps-group': 'margin: 0 $1 $1 $1; r:$s-radius-sm overflow:hidden background: color-mix(in oklab, var(--tps-color), transparent 90%);',
-	'.tps-side .tps-row': 'display:flex align-items:center gap:$2 min-width:0 text-decoration:none fg:$s-text transition: background 0.12s;',
+	// The border every row carries is the room the current one's edge takes, so
+	// that marking it moves nothing.
+	'.tps-side .tps-row': 'display:flex align-items:center gap:$2 min-width:0 text-decoration:none fg:$s-text border-right: 3px solid transparent; transition: background 0.12s, border-color 0.12s;',
 	'.tps-side .tps-row:hover': 'background: color-mix(in oklab, $s-text, transparent 90%);',
-	'.tps-side .tps-row.tps-current': 'background: color-mix(in oklab, $s-text, transparent 82%);',
-	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600',
-	'.tps-side .tps-task': 'pl:1.6em pr:$1 pv:0.15em font-size:0.9em fg:$s-muted',
+	// What you are looking at is an edge in the project's colour, rather than a
+	// lighter background: a row lit up reads as one lifted out of the group,
+	// while the edge belongs to the group as much as the wash under it does.
+	'.tps-side .tps-row.tps-current': 'border-right-color: var(--tps-color);',
+	// The project's colour is on its name, rather than on a chip beside it:
+	// letters are recognised as well as initials are, and cost the strip no width.
+	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600 fg:var(--tps-color)',
+	'.tps-side .tps-task': 'ph:$1 pv:0.15em font-size:0.9em fg:$s-muted',
 	// Waiting for you is said by coming out of the dim the other rows are in:
 	// the colours here belong to the projects, and the phase icon says the rest.
 	'.tps-side .tps-task.tps-human, .tps-side .tps-task.tps-current': 'fg:$s-text',
 	'.tps-side .tps-clip': 'flex:1 min-width:0 white-space:nowrap overflow:hidden text-overflow:ellipsis',
 	'.tps-side.tps-collapsed .tps-group': 'margin: 0 0.3rem $1 0.3rem;',
-	'.tps-side.tps-collapsed .tps-project': 'justify-content:center ph:0 pv:0.35em',
-	'.tps-side.tps-collapsed .tps-task': 'pl:0.3em pr:0 gap:0.3em font-size:0.78em',
-	// Titles are cut off here rather than fitted, so they fade out instead of
-	// ending in an ellipsis: the three dots would cost a character to say what
-	// the fade says for nothing, and a tooltip has the whole title anyway.
-	'.tps-side.tps-collapsed .tps-clip': 'text-overflow:clip -webkit-mask-image: linear-gradient(to right, #000 60%, transparent); mask-image: linear-gradient(to right, #000 60%, transparent);',
+	'.tps-side.tps-collapsed .tps-project': 'ph:0.3em pv:0.35em',
+	'.tps-side.tps-collapsed .tps-task': 'ph:0.3em gap:0.3em',
 });
 
 export function drawSidebar(): void {
@@ -68,19 +72,19 @@ export function drawSidebar(): void {
 	});
 }
 
-/** The logo and the way to fold the sidebar up; collapsed, only the way out. */
+/** The way to fold the sidebar, in the corner it keeps either way, and the logo beside it while there is room for it. */
 function drawHeader(collapsed: boolean): void {
-	if (collapsed) {
-		A('div display:flex justify-content:center pv:$2', () => {
-			S.iconButton({ icon: panelLeftOpen, ariaLabel: 'Expand the sidebar', key: 'mod+shift+l', attrs: '.small', click: () => { $ui.collapsed = false; } });
+	A('div display:flex align-items:center gap:$2 ph:$1 pv:$2', () => {
+		S.iconButton({
+			icon: collapsed ? panelLeftOpen : panelLeftClose,
+			ariaLabel: collapsed ? 'Expand the sidebar' : 'Collapse the sidebar',
+			key: 'mod+b', attrs: '.small',
+			click: () => { $ui.collapsed = !collapsed; },
 		});
-	} else {
-		A('div display:flex align-items:center gap:$2 pl:$2 pr:$1 pv:$2', () => {
-			bot({ size: '1.4em', color: 'var(--s-accent)' });
-			A('b flex:1 #TPS');
-			S.iconButton({ icon: panelLeftClose, ariaLabel: 'Collapse the sidebar', key: 'mod+shift+l', attrs: '.small', click: () => { $ui.collapsed = true; } });
-		});
-	}
+		if (collapsed) return;
+		bot({ size: '1.4em', color: 'var(--s-accent)' });
+		A('b flex:1 #TPS');
+	});
 }
 
 // Browsers can fire a click on the row a drag started from once that drag
@@ -111,13 +115,9 @@ function drawProject(pid: string, $p: any): void {
 			A(() => {
 				if ($ui.collapsed) S.addTooltip({ tip: () => A('text=', $p.name), placement: 'right' });
 			});
-			drawProjectChip($p);
+			A('span.tps-clip text=', A.ref($p, 'name'));
 			A(() => {
-				if ($ui.collapsed) return;
-				A('span.tps-clip text=', A.ref($p, 'name'));
-				A(() => {
-					if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
-				});
+				if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
 			});
 		});
 		A('div', () => {
@@ -160,9 +160,9 @@ function drawTask(pid: string, tid: string, $t: any): void {
 		});
 		A(() => {
 			const collapsed = $ui.collapsed;
-			// Collapsed, the row shows a word or two of the title and the phase
-			// icon; what is left of it, and what the icon's own tooltip would
-			// have said, is what hovering the row is for.
+			// Collapsed, the row shows the phase icon and as much of the title as
+			// the strip holds; the rest of it, and what the icon's own tooltip
+			// would have said, is what hovering the row is for.
 			if (collapsed) {
 				S.addTooltip({ placement: 'right', tip: () => {
 					A('div text=', taskTitle($t));

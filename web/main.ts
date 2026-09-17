@@ -27,7 +27,9 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  *   Code — both on the project page, beside the board.
  * - `ctrl-shift-G` merge the task on screen, while it offers to be merged.
  * - `ctrl-shift-X` close it: VS Code stops and the task is put away.
- * - `ctrl-shift-L` fold the sidebar away, and back out.
+ * - `ctrl-B` fold the sidebar away, and back out: Code's own key for its own
+ *   sidebar, so the gesture is the same one wherever the focus is — and it is
+ *   left to Code while the focus is in there, folding that sidebar instead.
  * - `ctrl-L` the palette (see palette.ts), whose top entry on an empty field
  *   closes what is open — so `ctrl-L enter` is Close from inside VS Code too,
  *   and the only way out of the project's own checkout without the sidebar.
@@ -37,7 +39,8 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  * all, A, B, D, O, P and R are bookmarks and windows, C/I/J/K/M open developer
  * tools, and E and U are the desktop's unicode and emoji input. What is left
  * has to stand for the action rather than spell it — S for start, F for files,
- * G for merGe, X for closing, L for the left-hand column.
+ * G for merGe, X for closing. Extensions take some as well, wherever the user
+ * put them: the password managers' ctrl-shift-L is the one to keep clear of.
  *
  * A task in Agent or Human is mostly VS Code, which owns the keyboard while it
  * has focus and never passes a keystroke out: shortcuts are for the pages
