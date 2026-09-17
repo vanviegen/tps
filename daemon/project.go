@@ -32,8 +32,7 @@ type TaskDefaults struct {
 type ProjectInfo struct {
 	Dir      string               `json:"dir"`
 	Name     string               `json:"name"`
-	Color    string               `json:"color,omitempty"`    // the accent the dashboards show it in, as #rrggbb
-	Initials string               `json:"initials,omitempty"` // one to three letters standing for it where there is no room for the name; empty: made from the name
+	Color    string               `json:"color,omitempty"` // the accent the dashboards show it in, as #rrggbb
 	Defaults TaskDefaults         `json:"defaults"`
 	Activity int64                `json:"activity,omitempty"` // unix ms of the last change to a task
 	NextTask int                  `json:"nextTask,omitempty"`
@@ -128,7 +127,7 @@ func (p *Project) init() error {
 	p.defaultBranch = branch
 	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "name": p.info.Name, "defaults": map[string]any{}, "activity": p.info.Activity, "tasks": map[string]any{}})
 	p.pubDefaults()
-	p.pubLook()
+	p.pub("color", p.info.Color)
 	tids := make([]string, 0, len(p.info.Tasks))
 	for tid := range p.info.Tasks {
 		tids = append(tids, tid)
@@ -314,15 +313,6 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		}
 		p.info.Color = strings.ToLower(color)
 	}
-	// The initials are the user's spelling, or nothing: the dashboard then makes
-	// them from the name, as it does for projects that never got any.
-	if initials, ok := partial["initials"].(string); ok {
-		initials = strings.TrimSpace(initials)
-		if runes := []rune(initials); len(runes) > 3 {
-			initials = string(runes[:3])
-		}
-		p.info.Initials = initials
-	}
 	// The defaults arrive as the task settings they are, one or more at a time.
 	if defaults, ok := partial["defaults"].(map[string]any); ok {
 		d := &p.info.Defaults
@@ -348,18 +338,8 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	p.m.saveL()
 	p.pub("name", p.info.Name)
 	p.pubDefaults()
-	p.pubLook()
-	return nil
-}
-
-// pubLook publishes how the dashboards show the project: its colour and initials.
-func (p *Project) pubLook() {
 	p.pub("color", p.info.Color)
-	if p.info.Initials != "" {
-		p.pub("initials", p.info.Initials)
-	} else {
-		p.pub("initials", nil)
-	}
+	return nil
 }
 
 // pubDefaults publishes the defaults a field at a time, so that setting one

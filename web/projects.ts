@@ -9,7 +9,7 @@ import { $state } from './conn.ts';
 import { hold } from './holds.ts';
 import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { branchLabel, cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, projectInitials, selection, shortDir } from './util.ts';
+import { branchLabel, cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
@@ -98,14 +98,6 @@ export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	];
 }
 
-/** The project's initials in its colour: what stands for it wherever there is little room, and what its rows are recognised by. */
-export function drawProjectChip($p: any): void {
-	A(() => {
-		A('span display:inline-flex align-items:center justify-content:center flex-shrink:0 min-width:2em h:1.5em ph:0.3em r:$s-radius-sm font-size:0.72em font-weight:800 line-height:1 fg:#14161a letter-spacing:0.03em',
-			`bg:${projectColor($p)}`, 'text=', projectInitials($p));
-	});
-}
-
 /**
  * The project's page: its name and facts, what wants attention, what to do
  * with it, and its board of four columns underneath.
@@ -113,10 +105,8 @@ export function drawProjectChip($p: any): void {
 export function drawProjectPage(pid: string, $p: any): void {
 	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
 		A('div display:flex align-items:center gap:$3 flex-wrap:wrap min-width:0', () => {
-			A('h2 m:0 font-size:1.15em display:flex align-items:center gap:$2 min-width:0', () => {
-				drawProjectChip($p);
-				A(`span ${ELLIPSIS} text=`, A.ref($p, 'name'));
-			});
+			// The name in the project's colour, as the sidebar has it.
+			A(() => A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, A.ref($p, 'name')));
 			A(() => drawProjectFacts($p));
 			A('div flex:1');
 			// The keys are on these rather than on the board's ✛ or the menu's
@@ -303,11 +293,6 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 					const name = (e.target as HTMLInputElement).value.trim();
 					if (name) save({ name });
 				}),
-			});
-			S.textline({
-				label: 'Initials', value: A.peek(() => projectInitials($p)),
-				help: 'For where the name does not fit. Empty: made from the name.',
-				input: debounce(600, (e: Event) => save({ initials: (e.target as HTMLInputElement).value.trim().slice(0, 3) })),
 			});
 			drawColorField(pid, $p);
 		});

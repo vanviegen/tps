@@ -46,8 +46,8 @@ A.insertGlobalCss({
 	// lighter background: a row lit up reads as one lifted out of the group,
 	// while the edge belongs to the group as much as the wash under it does.
 	'.tps-side .tps-row.tps-current': 'border-right-color: var(--tps-color);',
-	// The project's colour is on its name, rather than on a chip beside it:
-	// letters are recognised as well as initials are, and cost the strip no width.
+	// The project's colour is on its name, which costs the strip no width and
+	// is what its rows are recognised by, here and on its own page.
 	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600 fg:var(--tps-color)',
 	'.tps-side .tps-task': 'ph:$1 pv:0.15em font-size:0.9em fg:$s-muted',
 	// Waiting for you is said by coming out of the dim the other rows are in:

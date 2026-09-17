@@ -83,23 +83,6 @@ export function projectColor($p: any): string {
 	return PROJECT_COLORS[hash % PROJECT_COLORS.length];
 }
 
-/**
- * What stands for the project where there is no room for its name: the letters
- * the user gave it, or its initials — Aberdeen becomes A, ShoTest ST,
- * wild-mail WM. Words are split on anything that is not a letter or digit,
- * and on the case change inside a camel-cased one.
- */
-export function projectInitials($p: any): string {
-	const initials = ($p?.initials ?? '').trim();
-	if (initials) return initials;
-	const words = ($p?.name ?? '')
-		.split(/[^\p{L}\p{N}]+/u)
-		.flatMap((w: string) => w.split(/(?<=[\p{Ll}\p{N}])(?=\p{Lu})/u))
-		.filter(Boolean);
-	if (!words.length) return '?';
-	return words.slice(0, 2).map((w: string) => w[0].toUpperCase()).join('');
-}
-
 // A strip that is a button all over: it lights up like one under the pointer.
 const clickableStrip = A.insertCss({
 	'&': 'cursor:pointer transition: filter 0.12s;',
