@@ -615,7 +615,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 					ariaLabel: 'Compact the agent’s memory',
 					attrs: size + 'fg:$s-muted',
 					tooltip: () => drawContextTip($t, 'Click to have it do that now.'),
-					click: () => void cmd('compactTask', { pid, tid }),
+					click: () => void cmd('chat', { pid, tid, text: '/compact' }),
 				});
 			}),
 			input: (e: Event) => {

@@ -84,12 +84,17 @@ type SessionOpts struct {
 	// review.go). It starts blank and is never written down, so the task's own
 	// conversation stays the one a later --continue picks back up, and what it
 	// says is marked as its in the log.
-	Review    bool
-	Budget    *float64 // USD this session may spend (--max-budget-usd)
-	OnEntry   func(e *ChatEntry)
-	OnUpdate  func(e *ChatEntry) // an earlier entry (matched by id) changed
-	OnTurnEnd func(end TurnEnd)  // a result event arrived: cost, and the verdict the agent ended on
-	OnExit    func(code int, errTail string)
+	Review   bool
+	Budget   *float64 // USD this session may spend (--max-budget-usd)
+	OnEntry  func(e *ChatEntry)
+	OnUpdate func(e *ChatEntry) // an earlier entry (matched by id) changed
+	// OnTurnStart: claude set to work on a turn. A message sent while a turn
+	// runs steers that turn; one sent while claude compacts is queued, and
+	// starts as a turn of its own the moment the compaction ends — which is
+	// what this hears of, the send having been long ago.
+	OnTurnStart func()
+	OnTurnEnd   func(end TurnEnd) // a result event arrived: cost, and the verdict the agent ended on
+	OnExit      func(code int, errTail string)
 }
 
 type ChatSession struct {
@@ -102,6 +107,7 @@ type ChatSession struct {
 	costReported float64               // cumulative session cost of the last result event
 	pending      map[string]*ChatEntry // tool calls awaiting their result
 	context      int64                 // tokens the last request sent, which is what claude currently remembers
+	summary      int64                 // tokens the turn under way summarised the conversation down to (see TurnEnd)
 	lastText     string                // the latest message of the turn under way, which is the reviewer's answer (see review.go)
 	done         *Done                 // the verdict of the turn under way, from its latest message
 	badDone      string                // why that message's TPS-DONE line was unusable
@@ -245,6 +251,7 @@ type event struct {
 	TotalCostUSD *float64 `json:"total_cost_usd"`
 	DurationMS   float64  `json:"duration_ms"`
 	IsError      bool     `json:"is_error"`
+	NumTurns     int      `json:"num_turns"` // result: how often the turn called the model
 	// A system event about compaction: the boundary one carries the metadata,
 	// a status one that failed says why (see onEvent).
 	CompactMeta  *compactMeta `json:"compact_metadata"`
@@ -350,18 +357,25 @@ func (s *ChatSession) onEvent(ev *event) {
 			}
 		}
 	case "system":
+		switch {
+		case ev.Subtype == "init":
+			s.turnActive.Store(true)
+			s.opts.OnTurnStart()
 		// Compaction: claude replacing everything it remembers with a summary
 		// of it, either because the context window filled up or because
 		// somebody said /compact. It only ever appends to its transcript, so
 		// the save points made before this one still measure the whole
 		// conversation and reverting to one undoes the compaction (see mark).
-		switch {
 		case ev.Subtype == "compact_boundary" && ev.CompactMeta != nil:
 			m := ev.CompactMeta
 			how := "claude's context filled up, so it was compacted"
 			if m.Trigger == "manual" {
 				how = "claude compacted its context on request"
 			}
+			// What the last request sent is no longer what claude holds: the
+			// next request measures that, and until one is made the summary
+			// is the whole of the conversation.
+			s.context, s.summary = 0, m.Post
 			e := s.entry("note")
 			// Claude's own two figures, as it words them. They are not the size
 			// of the window before and after — a request made right after a
@@ -411,8 +425,9 @@ func (s *ChatSession) onEvent(ev *event) {
 		}
 		e.Text += " · " + secs + cost + held
 		s.opts.OnEntry(e)
-		end := TurnEnd{Cost: delta, Context: s.context, Failed: ev.IsError, Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
-		s.lastText, s.done, s.badDone, s.limited, s.limitAt, s.noLogin = "", nil, "", false, time.Time{}, false
+		end := TurnEnd{Cost: delta, Context: s.context, Summary: s.summary, Idle: ev.NumTurns == 0, Failed: ev.IsError,
+			Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
+		s.summary, s.lastText, s.done, s.badDone, s.limited, s.limitAt, s.noLogin = 0, "", nil, "", false, time.Time{}, false
 		s.opts.OnTurnEnd(end)
 	}
 }
@@ -573,7 +588,9 @@ type Done struct {
 // TurnEnd is what a finished claude turn amounts to for the task.
 type TurnEnd struct {
 	Cost    float64   // USD spent since the previous turn
-	Context int64     // tokens the turn's last request sent: what claude remembers now
+	Context int64     // tokens the turn's last request sent: what claude remembers now, or 0 when it compacted and sent nothing since
+	Summary int64     // tokens the turn summarised the conversation down to, when it compacted it
+	Idle    bool      // the model was never called: a /compact's turn, in which nothing was asked of the agent
 	Failed  bool      // claude reported the turn itself as failed
 	Text    string    // the last message of the turn: the reviewer's answer (see review.go)
 	Done    *Done     // the verdict, if the last message carried a usable one

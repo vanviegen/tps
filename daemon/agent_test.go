@@ -365,11 +365,10 @@ func TestCompaction(t *testing.T) {
 	if note.K != "note" || note.Text != "claude's context filled up, so it was compacted: 23k → 2.7k" || note.Detail == "" {
 		t.Errorf("compaction note: %+v", note)
 	}
-	// Claude's post_tokens is not the size of the window afterwards — a request
-	// made right after a compaction sends far more than it — so only what a
-	// turn reports sending may move the figure the dashboard draws.
-	if s.context != 23020 {
-		t.Errorf("a compaction moved the context figure to %d; only a turn may", s.context)
+	// What the last request sent is no longer what claude holds; the summary
+	// is, until a request measures the window again.
+	if s.context != 0 || s.summary != 2734 {
+		t.Errorf("after a compaction: context %d, summary %d", s.context, s.summary)
 	}
 	feed(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":9000,"post_tokens":900}}`)
 	if entries[3].Text != "claude compacted its context on request: 9k → 900" {
@@ -383,6 +382,28 @@ func TestCompaction(t *testing.T) {
 	}
 	if len(entries) != 5 {
 		t.Errorf("got %d entries", len(entries))
+	}
+	// A turn that ends on a compaction says what it summarised the conversation
+	// down to, and that the model was never called in it; one that is measured
+	// again afterwards is measured, whatever it summarised.
+	feed(`{"type":"result","total_cost_usd":0.02,"duration_ms":12000,"is_error":false,"num_turns":0}`)
+	if end := ends[1]; end.Context != 0 || end.Summary != 900 || !end.Idle || entries[5].Text != "turn finished · 12s · $0.01" {
+		t.Errorf("a compaction's turn: %+v, %q", end, entries[5].Text)
+	}
+	if s.summary != 0 {
+		t.Error("the summary outlived the turn it was made in")
+	}
+	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Hi."}],"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":21000}}}`)
+	feed(`{"type":"result","total_cost_usd":0.03,"duration_ms":1000,"is_error":false,"num_turns":1}`)
+	if end := ends[2]; end.Context != 21010 || end.Idle {
+		t.Errorf("a measured turn: %+v", end)
+	}
+	// A turn starts on its own, as one queued behind a compaction does.
+	started := 0
+	s.opts.OnTurnStart = func() { started++ }
+	feed(`{"type":"system","subtype":"init","session_id":"s"}`)
+	if started != 1 || !s.TurnActive() {
+		t.Errorf("a turn starting was not heard of: %d, active %v", started, s.TurnActive())
 	}
 	for _, c := range []struct {
 		n    int64
@@ -415,35 +436,35 @@ func TestContextRecorded(t *testing.T) {
 	}
 }
 
-// A compaction is a turn of claude's session but not one of the task's: what it
-// cost and what it left in the window are counted, and nothing else is read
-// into it — no verdict, no nudge for the line it never had, no handover.
+// A /compact is a turn of claude's session but not one of the task's: what it
+// cost is counted, the window is drawn as holding the summary until a turn
+// measures it, and nothing else is read into it — no verdict, no nudge for the
+// line it never had, no handover — whoever the task was with.
 func TestCompactTurn(t *testing.T) {
 	m := &Manager{projects: map[string]*Project{}, hub: hub.New(nil), saveCh: make(chan []byte, 1)}
 	p := &Project{m: m, pid: "p", info: &ProjectInfo{Dir: t.TempDir(), Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}}
 	m.projects["p"] = p
-	info := &TaskInfo{Phase: PhaseAgent, Context: 120_000}
+	info := &TaskInfo{Phase: PhaseHuman, Context: 120_000, Window: &ContextWindow{Limit: 200_000, Parts: []ContextPart{{"System prompt", 15_000}, {"Tools", 5_000}}}}
 	task := newTask(p, "1", info)
 	p.tasks["1"], p.info.Tasks["1"] = task, info
 
-	task.compacting = true
-	task.onTurnEnd(TurnEnd{Cost: 0.02, Context: 4_000})
-	if info.Spent != 0.02 || info.Context != 4_000 {
-		t.Errorf("a compaction's cost and what it left should both count: %+v", info)
+	task.onTurnEnd(TurnEnd{Cost: 0.02, Summary: 4_000, Idle: true})
+	if info.Spent != 0.02 || info.Context != 24_000 {
+		t.Errorf("a compaction's cost and the summary on top of the fixed parts should both count: %+v", info)
 	}
-	if task.compacting {
-		t.Error("the compaction flag outlived the turn it was for")
+	if info.Phase != PhaseHuman || task.doneNudges != 0 {
+		t.Errorf("the task was moved along by a turn nothing was asked in: %s, %d nudges", info.Phase, task.doneNudges)
 	}
+	// One queued behind a message of the user's ends while the task is the
+	// agent's, and leaves it so: the message's turn is next.
+	info.Phase = PhaseAgent
+	task.onTurnEnd(TurnEnd{Idle: true})
 	if info.Phase != PhaseAgent || task.doneNudges != 0 {
 		t.Errorf("the task was moved along by a turn nothing was asked in: %s, %d nudges", info.Phase, task.doneNudges)
 	}
-	// Stopping one is not cutting the agent off: there is nothing half done to
-	// tell it about, and nothing worth a save point.
-	task.compacting = true
-	if task.stopAgent() {
-		t.Error("stopping a compaction should not count as cutting a turn short")
-	}
-	if task.compacting || len(info.Pending) > 0 {
-		t.Errorf("a stopped compaction left something behind: %+v", info.Pending)
+	// A turn measured after it compacted is measured.
+	task.onTurnEnd(TurnEnd{Context: 30_000, Summary: 4_000, Done: &Done{Next: "user"}})
+	if info.Context != 30_000 {
+		t.Errorf("a measure was passed over for a summary: %d", info.Context)
 	}
 }

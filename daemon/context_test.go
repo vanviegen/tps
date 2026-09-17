@@ -120,16 +120,40 @@ func TestProbeSkipsMeasuredWindow(t *testing.T) {
 	task.probeContextParts(nil)
 }
 
-// Compacting is the agent's own memory: a review's session is nobody's
-// conversation, so the task in review is not somewhere to ask for one.
-func TestCompactRefusesInReview(t *testing.T) {
-	task, _ := markTask(t) // a workspace, so the refusal is about the review and nothing else
-	task.info.Started, task.info.Phase = true, PhaseReview
+// A /compact goes to claude down the same road as a message, but not just
+// anywhere a message may: not into a turn under way, which would drop it, and
+// not to the reviewer, whose session is nobody's conversation.
+func TestCompactRefusals(t *testing.T) {
+	task, _ := markTask(t) // a workspace, so the refusals are about nothing else
+	task.info.Started, task.info.Phase = true, PhaseHuman
 
-	if err := task.Compact(); err == nil {
+	task.session = &ChatSession{}
+	task.session.turnActive.Store(true)
+	if err := task.SendChat("/compact", nil); err == nil {
+		t.Error("a /compact sent into a running turn is lost on it; it should be refused")
+	}
+	task.session = nil
+	task.info.Phase = PhaseReview
+	if err := task.SendChat("/compact keep the file list", nil); err == nil {
 		t.Error("a task in review should not compact: the session it would reach is the reviewer's")
 	}
-	if task.compacting {
-		t.Error("a refused compaction still marked the turn as one")
+	if task.info.Phase != PhaseReview {
+		t.Errorf("a refused /compact moved the task to %s", task.info.Phase)
+	}
+	// Nor into a usage limit being waited out, which a message would call off.
+	task.info.Phase, task.info.LimitUntil = PhaseAgent, 1
+	if err := task.SendChat("/compact", nil); err == nil {
+		t.Error("a /compact should not call off a wait for the limit it would run into")
+	}
+	if task.info.LimitUntil != 1 {
+		t.Error("a refused /compact called the wait off")
+	}
+	// Nor a finished task, which a message would pick back up into a fresh clone.
+	task.info.LimitUntil = 0
+	if err := task.dropWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	if err := task.SendChat("/compact", nil); err == nil {
+		t.Error("a task without a workspace has nothing to compact in")
 	}
 }

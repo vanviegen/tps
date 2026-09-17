@@ -173,7 +173,6 @@ type Task struct {
 	sessionFlight *flight[*ChatSession]
 	sessionBudget *float64 // the budget setting the running claude was started under
 	sessionReview bool     // and whether it is the reviewer rather than the task's own agent (see review.go)
-	compacting    bool     // the turn under way is a /compact of ours, not one the task asked anything in
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
@@ -730,6 +729,15 @@ func (t *Task) Assign(to string) error {
 	return nil
 }
 
+// isCompact: the message is claude's own /compact — the user asking it to
+// summarise what it remembers down to a paragraph, with or without a word on
+// what to keep — rather than a message for the agent. It goes down the same
+// road as one, but nothing is asked of the agent in it: the task stays whose
+// it was, and nothing is read from how the turn ends (see kick, onTurnEnd).
+func isCompact(text string) bool {
+	return text == "/compact" || strings.HasPrefix(text, "/compact ")
+}
+
 // SendChat: a user chat message, shown in the log, then fed to (or starting)
 // claude. Files attached to it are written to the task's uploads directory
 // first, and the message refers to them by the path it reads them at (see
@@ -739,10 +747,33 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	if text == "" && len(files) == 0 {
 		return nil
 	}
+	compact := isCompact(text)
 	t.lock()
-	if t.info.Phase == PhasePlan {
+	switch {
+	case t.info.Phase == PhasePlan:
 		t.unlock()
 		return errors.New("Assign the task to the agent first")
+	// A message sent while claude works steers the turn under way, and one
+	// sent while it compacts is queued behind that; a /compact is neither,
+	// and claude sent one mid-turn drops it without a word.
+	case compact && t.workingL():
+		t.unlock()
+		return errors.New("Claude is busy; wait for the turn to end, or stop it first")
+	// The session a review runs is the reviewer's, and that one is nobody's
+	// conversation (see review.go); the agent has the task back soon enough.
+	case compact && t.info.Phase == PhaseReview:
+		t.unlock()
+		return errors.New("A review is under way; this is the agent's own memory, and it has the task back after")
+	// A message is the turn a wait for the limit was for, or what replaces it
+	// (see kick); a /compact is neither, and would run into the limit itself.
+	case compact && t.info.LimitUntil > 0:
+		t.unlock()
+		return errors.New("Claude is waiting out a usage limit; the compaction would run into it too")
+	// A message picks a finished task back up, into a fresh clone; that is
+	// not what asking claude to forget things is for.
+	case compact && !t.hasWorkspace():
+		t.unlock()
+		return errors.New("This task has no workspace to work from; pick it up first")
 	}
 	t.unlock()
 	text, err := t.saveUploads(text, files)
@@ -752,12 +783,15 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	t.lock()
 	t.touchL()
 	t.p.touchL()
-	t.doneNudges = 0
 	// A word from the user is a fresh start for the automatic review: its
 	// rounds are counted per thing asked for, and the feedback that was waiting
 	// here has been answered, ignored, or sent back in — either way it is said.
-	t.info.ReviewLoop = 0
-	t.setReviewL("")
+	// A /compact says nothing to anyone, and leaves it all standing.
+	if !compact {
+		t.doneNudges = 0
+		t.info.ReviewLoop = 0
+		t.setReviewL("")
+	}
 	// A review is a second opinion, and the user's own word outranks it: the
 	// task is the agent's again, so the kick below swaps the reviewer out for it.
 	if t.info.Phase == PhaseReview {
@@ -792,15 +826,18 @@ func (t *Task) kick(text string) {
 		return
 	}
 	pickedUp := t.finishedL()
+	// A /compact asks nothing of the agent: the task is not its for the
+	// asking, and the notes waiting for it wait for a message (see isCompact).
+	compact := isCompact(text)
 	// The agent is being sent in, rather than carrying on: whatever is in the
 	// tree is not its doing, and becomes a commit of its own before it starts
 	// (see mark), so the point at the end of its run holds its work alone.
-	sendingIn := !t.agentPhaseL()
+	sendingIn := !compact && !t.agentPhaseL()
 	// The phases that run an agent of their own keep it: a merge's turn belongs
 	// to resolving conflicts, a review's to the reviewer. Anything else sent in
 	// means the task is the agent's again — which is how a message of the user's
 	// takes it back from a reviewer (see SendChat).
-	if t.info.Phase != PhaseMerge && t.info.Phase != PhaseReview {
+	if !compact && t.info.Phase != PhaseMerge && t.info.Phase != PhaseReview {
 		t.setPhaseL(PhaseAgent)
 	}
 	// A running claude is the reviewer or the task's own agent, with its
@@ -839,7 +876,7 @@ func (t *Task) kick(text string) {
 		// the workspace is the agent's to hear and none of the reviewer's
 		// business, so a review leaves the notes where they are.
 		t.lock()
-		if !review {
+		if !review && !compact {
 			text = t.takePendingL(text)
 		}
 		t.unlock()
@@ -880,59 +917,6 @@ func (t *Task) StopAgent() error {
 	return nil
 }
 
-// Compact is the user asking claude to summarise what it remembers down to a
-// paragraph, making room for what comes next. It runs as a turn of the agent's
-// session — claude's own /compact — but not as a turn of the task: nothing was
-// asked of the agent, so nothing is read from how it ends and no save point is
-// made of it (see onTurnEnd). The log hears about it from the compaction
-// itself, which reports what it made of what (see onEvent).
-func (t *Task) Compact() error {
-	defer t.p.m.work()()
-	t.lock()
-	switch {
-	case t.workingL():
-		t.unlock()
-		return errors.New("The agent is working; wait for it, or stop it first")
-	case t.info.Phase == PhaseReview:
-		// The session a review starts is the reviewer's, and starting one now
-		// would start that; the agent has the task back soon enough.
-		t.unlock()
-		return errors.New("A review is under way; this is the agent's own memory, and it has the task back after")
-	case !t.info.Started:
-		t.unlock()
-		return errors.New("This task's agent has not run yet, so there is nothing for it to forget")
-	case !t.hasWorkspace():
-		t.unlock()
-		return errors.New("This task has no workspace to work from; pick it up first")
-	}
-	// A review leaves its session running, and that one is nobody's
-	// conversation: compacting it would compact nothing and say it had (see
-	// review.go). Out it goes, the way kick swaps it out, and the agent's own
-	// is picked back up by the session that replaces it.
-	var stale *ChatSession
-	if t.sessionReview {
-		stale = t.session
-	}
-	t.compacting = true
-	t.touchL()
-	t.unlock()
-	go func() {
-		if stale != nil {
-			t.stopSession(stale)
-		}
-		s, err := t.ensureSession()
-		if err != nil {
-			t.lock()
-			t.compacting = false
-			t.unlock()
-			t.noteErr("compacting the agent's memory failed", err)
-			return
-		}
-		s.Send("/compact")
-	}()
-	return nil
-}
-
 // probeContextParts learns what claude's window holds before a word is said in
 // it, and where claude will compact — the two things the dashboard's gauge
 // needs and no turn reports (see context.go). Neither changes while the model
@@ -967,12 +951,11 @@ func (t *Task) probeContextParts(c *Container) {
 func (t *Task) stopAgent() bool {
 	t.lock()
 	s := t.session
-	cutOff := t.workingL()
-	// A compaction of ours is not the agent's work: stopping one leaves nothing
-	// half done for it to be told about, and nothing worth a save point.
-	if t.compacting {
-		t.compacting, cutOff = false, false
-	} else if cutOff {
+	// A turn running while the task is not the agent's is a /compact of the
+	// user's (see isCompact): stopping that leaves nothing half done for the
+	// agent to be told about, and nothing worth a save point.
+	cutOff := t.workingL() && t.agentPhaseL()
+	if cutOff {
 		// Its turn is about to be cut off mid-thought; whatever it was doing
 		// was left half done, which it has no other way of finding out.
 		t.queueL("stopped", stoppedPrompt)
@@ -2143,8 +2126,13 @@ func (t *Task) startSession() (*ChatSession, error) {
 	t.sessionReview = t.info.Phase == PhaseReview
 	opts := SessionOpts{
 		Container: c, Model: t.info.Model, System: systemPrompt, Resume: t.info.Started,
-		OnEntry:   t.addEntry,
-		OnUpdate:  t.updateEntry,
+		OnEntry:  t.addEntry,
+		OnUpdate: t.updateEntry,
+		OnTurnStart: func() {
+			t.lock()
+			t.pubL("working", true)
+			t.unlock()
+		},
 		OnTurnEnd: func(end TurnEnd) { go t.onTurnEnd(end) },
 	}
 	// The reviewer is the same machinery with another mind in it: its own
@@ -2278,22 +2266,37 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.info.Spent = math.Round((t.info.Spent+end.Cost)*10000) / 10000
 		save = true
 	}
-	// How full the agent's head is, as of the request it just made. The
-	// reviewer's context is nobody's but its own: it starts blank every time
-	// and is never written down (see review.go).
-	if end.Context > 0 && !t.sessionReview {
-		t.info.Context = end.Context
-		save = true
+	// How full the agent's head is, as of the request it just made. A turn
+	// that compacted and made no request after says only what the summary
+	// came to: that, on top of what is in the window whatever is said, stands
+	// in for a measure until the next turn makes one. The reviewer's context
+	// is nobody's but its own: it starts blank every time and is never
+	// written down (see review.go).
+	if !t.sessionReview {
+		switch {
+		case end.Context > 0:
+			t.info.Context = end.Context
+			save = true
+		case end.Summary > 0:
+			t.info.Context = end.Summary
+			if t.info.Window != nil {
+				for _, p := range t.info.Window.Parts {
+					t.info.Context += p.Tokens
+				}
+			}
+			save = true
+		}
 	}
 	if save {
 		t.p.m.saveL()
 	}
 	t.publishL()
-	// A compaction is a turn of claude's session but not one of the task's: the
-	// agent was asked for nothing, so there is no verdict to read out of how it
-	// ended and no run to make a save point of (see Compact).
-	if t.compacting {
-		t.compacting = false
+	// A turn the model was never called in — a /compact's — is a turn of
+	// claude's session but not one of the task's: the agent was asked for
+	// nothing, so there is no verdict to read out of how it ended and no run
+	// to make a save point of (see isCompact). The log heard about the
+	// compaction from claude itself (see onEvent).
+	if end.Idle && !end.Failed {
 		t.unlock()
 		return
 	}
