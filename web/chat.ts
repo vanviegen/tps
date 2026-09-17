@@ -84,8 +84,9 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 			break;
 		case 'text':
 			// The reviewer's messages stand among the agent's own, so they are
-			// set apart the way the user's are.
-			if ($e.rev) A('div.s-s.neutral.outlined pv:$1 ph:$3', markdown, 'html=', md.parse($e.text) as string);
+			// set apart the way the user's are, in the colour the rest of its
+			// run wears.
+			if ($e.rev) A('div.s-s.link.outlined pv:$1 ph:$3', markdown, 'html=', md.parse($e.text) as string);
 			else A('div', markdown, 'html=', md.parse($e.text) as string);
 			break;
 		case 'thinking':
