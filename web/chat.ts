@@ -74,7 +74,10 @@ const markdown = A.insertCss({
 function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 	const line = (draw: () => void, opens = false) =>
 		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', () => detailDialog($e), draw) : A(`small ${ELLIPSIS}`, draw);
-	const prefix = (text: string) => A('b fg:$s-accent text=', text);
+	// The reviewer works in the task's own log, so what it leaves there wears a
+	// colour of its own: everything between the note that starts a review and
+	// the save point that ends it is what that second mind read and did.
+	const prefix = (text: string) => A(`b fg:${$e.rev ? '$s-link' : '$s-accent'} text=`, text);
 	switch ($e.k) {
 		case 'user':
 			A('div.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', markdown, 'html=', md.parse($e.text) as string);
@@ -231,6 +234,14 @@ const reqTable = A.insertCss({
 /** A block of verbatim text: wrapped, never clipped, and never a scroller of its own. */
 function codeBlock(text: string): void {
 	A('pre m:0 r:0 white-space:pre-wrap overflow-wrap:anywhere', () => A('code text=', text));
+}
+
+/**
+ * A prompt in full: what TPS itself puts in front of claude, which the log
+ * shows only the answers to. Wide enough for lines written for a terminal.
+ */
+export function promptDialog(header: string, text: string): void {
+	void S.dialog({ header, attrs: 'w:min(94vw,60rem) max-width:min(94vw,60rem)', contentAttrs: 'p:0', content: () => codeBlock(text) });
 }
 
 /**

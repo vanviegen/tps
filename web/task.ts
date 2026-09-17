@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
-import { drawChat } from './chat.ts';
+import { drawChat, promptDialog } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
@@ -247,10 +247,19 @@ function modelsError(pid: string): string {
  */
 export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
 	// The two models stand together: a task is often worth a different mind from
-	// the one that reads its work over. The help under either is the reason its
-	// list is the built-in one, and nothing at all while it is claude's own.
+	// the one that reads its work over. Under either, the reason its list is the
+	// built-in one, if it is not claude's own.
 	A(() => S.select({
-		label: 'Agent model', options: () => modelOptions(pid, $t), help: modelsError(pid) || undefined,
+		label: 'Agent model', options: () => modelOptions(pid, $t),
+		// The rules every one of the agent's turns is worked under are the one
+		// thing it is told that never shows in the log, and this is where the
+		// mind they are told to is chosen. The reviewer's own are in the log,
+		// on the note that starts a review (see review.go).
+		help: () => {
+			A('a cursor:pointer #What TPS tells the agent…', 'click=', () => promptDialog('What TPS tells the agent', $state.agentPrompt));
+			const err = modelsError(pid);
+			if (err) A('div text=', err);
+		},
 		bind: {
 			get value() { return $t.model ?? 'default'; },
 			set value(model: string) { if (model) save({ model }); },

@@ -93,8 +93,12 @@ func (t *Task) beginReview() {
 	t.setReviewL("") // what is about to be said replaces what was said before
 	t.setPhaseL(PhaseReview)
 	t.unlock()
-	t.note("reading the work over: automated review")
-	t.kick(reviewPrompt(base, message, said))
+	prompt := reviewPrompt(base, message, said)
+	// The note carries the whole of what the reviewer is given, so that the
+	// one thing in the log with no conversation behind it can still be read in
+	// full: opening it is how you see what this verdict was formed on.
+	t.note("reading the work over: automated review", reviewSystem+"\n\n"+prompt)
+	t.kick(prompt)
 }
 
 // finishReview acts on the reviewer's turn: the save point its own fixes need,
