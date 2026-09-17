@@ -36,6 +36,7 @@ type Manager struct {
 	usedAt     time.Time   // when a dashboard was last connected; Start and quitIfUnused are all that touch it
 	quitting   atomic.Bool // a stop is under way; both quit tickers can ask for one
 	loginGone  atomic.Bool // claude's login here stopped being accepted (see loginExpired)
+	identity   Identity    // who the commits made here are by (see setIdentity)
 
 	savedMu sync.Mutex // serialises writing the registry file with reading it back (see quitIfConfigReplaced)
 	saved   []byte     // what the file held when this daemon last wrote or read it
@@ -43,6 +44,55 @@ type Manager struct {
 	modelsMu     sync.Mutex // guards the model detection
 	modelsFound  bool
 	modelsFailed bool
+}
+
+// Identity is who the commits TPS makes are authored by: the git identity of
+// the machine the dashboard runs on, handed over whenever one connects (see
+// ui/relay.go), so that work done on any host is committed as the person
+// steering it. It is kept with the registry, because agents go on committing
+// while no dashboard is connected.
+type Identity struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// tpsIdentity is who commits are by until a dashboard hands one over.
+var tpsIdentity = Identity{Name: "TPS", Email: "tps@localhost"}
+
+func (m *Manager) gitIdentity() Identity {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.identity.Name == "" || m.identity.Email == "" {
+		return tpsIdentity
+	}
+	return m.identity
+}
+
+// setIdentity makes a dashboard's git identity this host's. Workspaces that
+// exist already are given it too, so that a task in flight does not go on
+// committing as whoever the last dashboard was.
+func (m *Manager) setIdentity(id Identity) error {
+	if id.Name == "" || id.Email == "" {
+		return errors.New("a git identity needs both a name and an email")
+	}
+	m.mu.Lock()
+	if id == m.identity {
+		m.mu.Unlock()
+		return nil
+	}
+	m.identity = id
+	m.saveL()
+	tasks := m.allTasksL()
+	m.mu.Unlock()
+	logf("commits here are by %s <%s>", id.Name, id.Email)
+	for _, t := range tasks {
+		if t.hasWorkspace() {
+			if err := t.setIdentity(t.repoDir()); err != nil {
+				logf("task %s: %v", t.tid, err)
+			}
+		}
+	}
+	return nil
 }
 
 // work brackets an operation a restart must not interrupt.
@@ -174,11 +224,13 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 func (m *Manager) Start() error {
 	var saved struct {
 		Projects []*ProjectInfo `json:"projects"`
+		Identity Identity       `json:"identity"`
 	}
 	if data, err := os.ReadFile(m.configFile); err == nil {
 		if err := json.Unmarshal(data, &saved); err != nil {
 			return fmt.Errorf("%s: %w", m.configFile, err)
 		}
+		m.identity = saved.Identity
 		m.savedMu.Lock()
 		m.saved = data // what this daemon is the daemon for (see quitIfConfigReplaced)
 		m.savedMu.Unlock()
@@ -216,7 +268,7 @@ func (m *Manager) saveL() {
 	for _, p := range m.sortedProjectsL() {
 		projects = append(projects, p.info)
 	}
-	data, err := json.MarshalIndent(map[string]any{"projects": projects}, "", "\t")
+	data, err := json.MarshalIndent(map[string]any{"projects": projects, "identity": m.identity}, "", "\t")
 	if err != nil {
 		return
 	}
@@ -681,6 +733,14 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"stop": func(raw json.RawMessage) (any, error) {
 			go func() { time.Sleep(200 * time.Millisecond); m.Shutdown(); m.exit(0) }()
 			return nil, nil
+		},
+		// The git identity of the machine the dashboard runs on (see Identity).
+		"setIdentity": func(raw json.RawMessage) (any, error) {
+			var id Identity
+			if err := json.Unmarshal(raw, &id); err != nil {
+				return nil, errors.New("bad arguments")
+			}
+			return nil, m.setIdentity(id)
 		},
 		// A login the dashboard signed in for, as the credentials claude wrote (see login.go).
 		"setLogin": func(raw json.RawMessage) (any, error) {

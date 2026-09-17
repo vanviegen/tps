@@ -84,7 +84,8 @@ stops a couple of minutes after the last dashboard has gone, taking its
 workspace containers with it, and is back the moment you connect again.
 
 **Clean linear history.** Your repository only ever receives the squashed
-commits, each on top of the branch as it stands.
+commits, each on top of the branch as it stands, authored by you: the git
+identity of the machine you steer from is handed to every host it connects to.
 
 And of course TPS also handles the usual: an agent chat that allow mid-run steering
 and pasting screenshots and other files, a choice of model per task, cost tracking with a

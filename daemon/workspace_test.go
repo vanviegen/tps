@@ -198,6 +198,33 @@ func TestCloneReplacesLeftover(t *testing.T) {
 	}
 }
 
+// The dashboard's identity is what a workspace commits as: the ones made after
+// it arrived, and the ones that were there before it did.
+func TestIdentityReachesWorkspaces(t *testing.T) {
+	task, _ := testTask(t)
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRun(t, task.repoDir(), "config", "user.email"); got != tpsIdentity.Email {
+		t.Errorf("a workspace made without a dashboard commits as %q", got)
+	}
+	if err := task.p.m.setIdentity(Identity{Name: "Ada", Email: "ada@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRun(t, task.repoDir(), "config", "user.email"); got != "ada@example.com" {
+		t.Errorf("the workspace in flight still commits as %q", got)
+	}
+	if err := task.dropWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRun(t, task.repoDir(), "config", "user.name"); got != "Ada" {
+		t.Errorf("a fresh clone commits as %q", got)
+	}
+}
+
 // commitUpstream lands a change on the project's branch behind the task's back.
 func commitUpstream(t *testing.T, origin, message string, files map[string]string) {
 	t.Helper()

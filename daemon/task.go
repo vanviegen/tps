@@ -1787,13 +1787,21 @@ func (t *Task) clone() error {
 	if _, err := runCmd([]string{"git", "clone", "--quiet", "-b", t.p.defaultBranch, t.p.dir(), tmp}, RunOpts{}); err != nil {
 		return err
 	}
-	if _, err := git(tmp, "config", "user.name", "TPS"); err != nil {
-		return err
-	}
-	if _, err := git(tmp, "config", "user.email", "tps@localhost"); err != nil {
+	if err := t.setIdentity(tmp); err != nil {
 		return err
 	}
 	return os.Rename(tmp, t.repoDir())
+}
+
+// setIdentity gives a clone the identity its commits are made under: TPS's own
+// ones, and whatever is committed by hand in its container.
+func (t *Task) setIdentity(repo string) error {
+	id := t.p.m.gitIdentity()
+	if _, err := git(repo, "config", "user.name", id.Name); err != nil {
+		return err
+	}
+	_, err := git(repo, "config", "user.email", id.Email)
+	return err
 }
 
 // Open is a dashboard's retry after a workspace failure: bring the workspace

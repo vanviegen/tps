@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -404,6 +406,7 @@ func (l *Link) onHello(state map[string]any) {
 		l.drop(pid)
 	}
 	l.renewWatches()
+	l.handOverIdentity()
 	l.handOverNames(projects)
 	l.setStatus("connected", "")
 	// A daemon of another build reports stale state (the model list included)
@@ -418,6 +421,41 @@ func (l *Link) onHello(state map[string]any) {
 	if outdated {
 		go func() { _ = l.upgrade() }()
 	}
+}
+
+// handOverIdentity gives the daemon this machine's git identity, so that the
+// commits it makes are by whoever steers it from here rather than by TPS
+// itself. A machine that has none leaves the host the identity it has.
+func (l *Link) handOverIdentity() {
+	name, email := gitIdentity()
+	if name == "" || email == "" {
+		return
+	}
+	l.call("setIdentity", map[string]any{"name": name, "email": email}, func(_ json.RawMessage, err error) {
+		if err != nil {
+			log.Printf("host %s: handing over the git identity failed: %v", l.hid, err)
+		}
+	})
+}
+
+// gitIdentity is who a commit made on this machine would be authored by. It is
+// git's own answer — its config, the GIT_AUTHOR_* environment, and the account
+// and host it falls back on — as "Name <email> <timestamp>". Nothing comes back
+// when git is not installed, or when it would have to make an identity up: it
+// refuses to, and so do we.
+func gitIdentity() (string, string) {
+	cmd := exec.Command("git", "var", "GIT_AUTHOR_IDENT")
+	cmd.Dir, _ = os.UserHomeDir() // the machine's identity, not that of a repository tps was started in
+	out, err := cmd.Output()
+	if err != nil {
+		return "", ""
+	}
+	name, rest, _ := strings.Cut(string(out), " <")
+	email, _, ok := strings.Cut(rest, ">")
+	if !ok {
+		return "", ""
+	}
+	return name, email
 }
 
 // handOverNames gives the daemon the names an older dashboard kept for its
