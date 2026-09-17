@@ -8,7 +8,7 @@ import { $holds, holdKey, isHeld, release } from './holds.ts';
 import { hostIssue, manageHostsDialog } from './hosts.ts';
 import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { branchLabel, drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
+import { branchLabel, BREATHE, drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskBusy, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -20,11 +20,12 @@ import { branchLabel, drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, pro
  * at the bottom only the hosts that want something — a login, an update, a
  * connection — as the ones that work have nothing to say.
  *
- * Collapsed, it is a narrow strip: every row keeps its name, cut off where the
- * strip ends, which the `subject: change` form of task titles makes readable,
- * and its phase icon. It collapses by itself when VS Code comes on screen (see
- * main.ts), and by the icon in the corner, which is in the same spot either
- * way so that one spot folds it both ways.
+ * Collapsed, it is a narrow strip of names and nothing else, each cut off at
+ * its edge, which the `subject: change` form of task titles makes readable;
+ * what is said there beyond the name is said by the name itself, breathing
+ * while the task is at work. It collapses by itself when VS Code comes on
+ * screen (see main.ts), and by the icon in the corner, which is in the same
+ * spot either way so that one spot folds it both ways.
  */
 export const $ui = A.proxy({ collapsed: false });
 
@@ -50,12 +51,19 @@ A.insertGlobalCss({
 	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600 fg:var(--tps-color)',
 	'.tps-side .tps-task': 'ph:$1 pv:0.15em font-size:0.9em fg:$s-muted',
 	// Waiting for you is said by coming out of the dim the other rows are in:
-	// the colours here belong to the projects, and the phase icon says the rest.
+	// the colours here belong to the projects, and the phase icon, where there is
+	// room for one, says the rest.
 	'.tps-side .tps-task.tps-human, .tps-side .tps-task.tps-current': 'fg:$s-text',
 	'.tps-side .tps-clip': 'flex:1 min-width:0 white-space:nowrap overflow:hidden text-overflow:ellipsis',
 	'.tps-side.tps-collapsed .tps-group': 'margin: 0 0.3rem $1 0.3rem;',
 	'.tps-side.tps-collapsed .tps-project': 'ph:0.3em pv:0.35em',
 	'.tps-side.tps-collapsed .tps-task': 'ph:0.3em gap:0.3em',
+	// Every character the strip holds is a character of the name, so a title
+	// runs off its edge rather than spending three of them on saying that it does.
+	'.tps-side.tps-collapsed .tps-clip': 'text-overflow:clip',
+	// With the phase icon gone there is nothing left to breathe but the title,
+	// so at work is what it does itself (see BREATHE).
+	'.tps-side.tps-collapsed .tps-at-work .tps-clip': BREATHE,
 });
 
 export function drawSidebar(): void {
@@ -154,22 +162,24 @@ function drawTask(pid: string, tid: string, $t: any): void {
 			return taskMenuItems(pid, tid, $t, extra);
 		}});
 		A(() => A('.tps-human=', $t.phase === 'human'));
+		A(() => A('.tps-at-work=', taskBusy($t)));
 		A(() => {
 			const { pid: shown, tid: shownTid } = selection();
 			A('.tps-current=', shown === pid && shownTid === tid);
 		});
 		A(() => {
-			const collapsed = $ui.collapsed;
-			// Collapsed, the row shows the phase icon and as much of the title as
-			// the strip holds; the rest of it, and what the icon's own tooltip
-			// would have said, is what hovering the row is for.
-			if (collapsed) {
+			// Collapsed, the row is the title and nothing else: the icon's width is
+			// a word of the title, and what it says — the phase, and the work going
+			// on — the title says by breathing and the tooltip spells out, along
+			// with the rest of the title itself.
+			if ($ui.collapsed) {
 				S.addTooltip({ placement: 'right', tip: () => {
 					A('div text=', taskTitle($t));
 					A('div font-size:0.85em fg:$s-muted text=', taskTip(pid, $t));
 				} });
+				return;
 			}
-			drawTaskIcon(pid, $t, { tip: !collapsed, color: '$s-text' });
+			drawTaskIcon(pid, $t, { color: '$s-text' });
 		});
 		A('span.tps-clip', () => A('text=', taskTitle($t)));
 	});

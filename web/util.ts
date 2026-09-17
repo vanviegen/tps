@@ -131,13 +131,16 @@ export function drawStrip(color: string, text: string, action?: () => void, clic
 // needs — some of what it marks lasts a phase long, not the moment of an action.
 A.insertGlobalCss({ '@keyframes pulse': { '50%': 'opacity:0.35' } });
 
+/** The breath itself, for whatever says it without being an icon — a title, where there is no room for one. */
+export const BREATHE = 'animation: pulse 1.6s ease-in-out infinite;';
+
 /**
  * The attrs that make an icon say it: every glyph breathes, the robot included
  * — it types and thinks besides (see bot.ts), but the breath is what says it is
  * at work, so that no phase is marked by a colour of its own instead.
  */
 export function busyAttrs(icon: typeof bot): string {
-	return `${icon === bot ? '.tps-busy ' : ''}animation: pulse 1.6s ease-in-out infinite;`;
+	return `${icon === bot ? '.tps-busy ' : ''}${BREATHE}`;
 }
 
 /**
