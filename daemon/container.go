@@ -270,6 +270,9 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkNetworkDNS(); err != nil {
+		return nil, err
+	}
 	if err := nest.EnsureNetwork(context.Background()); err != nil {
 		return nil, fmt.Errorf("creating the task's network: %w", err)
 	}
@@ -373,6 +376,24 @@ func runContainer(name, nestDir string, args []string, rmErr error) error {
 func podmanRun(args []string) error {
 	_, err := runCmd(append([]string{"podman"}, args...), RunOpts{})
 	return err
+}
+
+// checkNetworkDNS fails when podman's network backend has no DNS server to
+// run. Every task container sits on a network of its own, so the containers it
+// starts can reach each other by name (see nest.go), and podman points it at
+// that server for everything it resolves. Missing, the queries are dropped
+// rather than refused: nothing in the container can resolve a name and nothing
+// says why, an agent's every turn ending in a timeout minutes later. Podman is
+// asked rather than the host searched for a package, and only a podman that
+// answers and names no server counts as a no — the `podman` a TPS running in a
+// TPS task has is the docker CLI in disguise (see Containerfile.dev) and knows
+// nothing of this, which is not the host's failing.
+func checkNetworkDNS() error {
+	r, err := runCmd([]string{"podman", "info", "--format", "{{.Host.NetworkBackendInfo.DNS.Path}}"}, RunOpts{Timeout: 30 * time.Second})
+	if err != nil || strings.TrimSpace(r.Out) != "" {
+		return nil
+	}
+	return errors.New("this host's podman has no DNS server for container networks: install the aardvark-dns package")
 }
 
 // nameTaken reports whether podman refused to start the container because
