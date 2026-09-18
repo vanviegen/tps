@@ -11,7 +11,7 @@ import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } fr
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
-import { branchLabel, hasWorkspace, isFinished, isOpenable, pathTo, selection, taskTitle } from './util.ts';
+import { branchLabel, hasWorkspace, isFinished, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -30,6 +30,9 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  * - `ctrl-B` fold the sidebar away, and back out: Code's own key for its own
  *   sidebar, so the gesture is the same one wherever the focus is — and it is
  *   left to Code while the focus is in there, folding that sidebar instead.
+ * - `ctrl-P` and `ctrl-shift-P` are VS Code's own palettes, handed to it from
+ *   wherever the focus is while a workspace is on screen (see code.ts), rather
+ *   than printing the page.
  * - `ctrl-L` the palette (see palette.ts), whose top entry on an empty field
  *   closes what is open — so `ctrl-L enter` is Close from inside VS Code too,
  *   and the only way out of the project's own checkout without the sidebar.
@@ -60,15 +63,6 @@ A(() => { A.cssVars.sidew = $ui.collapsed ? SIDEBAR_CLOSED : SIDEBAR_OPEN; });
 A('div display:flex h:100dvh align-items:stretch', () => {
 	A('div flex:none w:var(--sidew) min-width:0 transition: width 0.15s;', drawSidebar);
 	A('div flex:1 min-width:0 display:flex align-items:stretch', drawMain);
-});
-
-// VS Code coming on screen folds the sidebar up: the code wants the room, and
-// the strip that is left still says where you are. It stays wherever it was
-// put otherwise, so the icon is the way back out.
-A(() => {
-	const { pid, tid, base } = selection();
-	const $t = pid && tid ? $state.projects[pid]?.tasks?.[tid] : undefined;
-	if (base || ($t && isOpenable($t))) $ui.collapsed = true;
 });
 
 // The tab's title says where you are, now that nothing on the page does.

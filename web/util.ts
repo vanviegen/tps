@@ -263,8 +263,9 @@ export function taskTip(pid: string, $t: any): string {
  * `tip: false` is for where something around it already tells that story — the
  * collapsed sidebar, whose rows carry it themselves. `color` is for where the
  * icon belongs to something it should look part of — the sidebar again, where
- * it sits in the row's text — and gives way to the status colour when the
- * workspace is in trouble, which no cohesion is worth hiding.
+ * it wears the project's colour like the rest of the group — and gives way to
+ * the status colour when the workspace is in trouble, which no cohesion is
+ * worth hiding.
  */
 export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?: boolean; color?: string } = {}): void {
 	A(() => {

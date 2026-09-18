@@ -70,6 +70,17 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 	shown.el.style.width = `calc(100% - ${left})`;
 	shown.uses++;
 	sync();
+	// Ctrl-P and ctrl-shift-P are VS Code's palettes wherever the focus is: the
+	// browser would print the page instead, and a keystroke the page swallows
+	// never reaches the frame, so it is dispatched again inside it. For as long
+	// as this frame is up, the listener going with the scope that showed it.
+	A.mount(document.body, () => A('keydown=', (e: KeyboardEvent) => {
+		if (e.key.toLowerCase() !== 'p' || !(e.ctrlKey || e.metaKey)) return;
+		e.preventDefault();
+		shown.el.focus();
+		const win = shown.el.contentWindow as any;
+		win.document.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', e));
+	}));
 	setTimeout(() => shown.el.focus(), 100);
 	A.clean(() => {
 		if (--shown.uses) return;

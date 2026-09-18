@@ -23,9 +23,9 @@ import { branchLabel, BREATHE, drawStrip, drawTaskIcon, hostName, pathTo, phaseO
  * Collapsed, it is a narrow strip of names and nothing else, each cut off at
  * its edge, which the `subject: change` form of task titles makes readable;
  * what is said there beyond the name is said by the name itself, breathing
- * while the task is at work. It collapses by itself when VS Code comes on
- * screen (see main.ts), and by the icon in the corner, which is in the same
- * spot either way so that one spot folds it both ways.
+ * while the task is at work. It folds by the icon in the corner, which is in
+ * the same spot either way so that one spot folds it both ways, and stays
+ * wherever it was put.
  */
 export const $ui = A.proxy({ collapsed: false });
 
@@ -179,7 +179,7 @@ function drawTask(pid: string, tid: string, $t: any): void {
 				} });
 				return;
 			}
-			drawTaskIcon(pid, $t, { color: '$s-text' });
+			drawTaskIcon(pid, $t, { color: 'var(--tps-color)' });
 		});
 		A('span.tps-clip', () => A('text=', taskTitle($t)));
 	});
@@ -196,13 +196,11 @@ function drawBase(pid: string, $p: any): void {
 			A('.tps-current=', shown === pid && !!base);
 		});
 		A(() => {
-			const branch = $p.defaultBranch ?? 'main';
-			const label = branchLabel($p);
-			// Collapsed there is room for a word: the icon beside it already says
-			// which word it is, so the branch goes without "branch" behind it.
-			if ($ui.collapsed) S.addTooltip({ tip: label, placement: 'right' });
-			A('span display:inline-flex flex-shrink:0 fg:var(--tps-color)', () => gitBranch({ size: '1.1em' }));
-			A('span.tps-clip text=', $ui.collapsed ? branch : label);
+			// Collapsed the row is its text and nothing else, as a task's is; the
+			// italic is what tells the checkout from a task either way.
+			if ($ui.collapsed) S.addTooltip({ tip: branchLabel($p), placement: 'right' });
+			else A('span display:inline-flex flex-shrink:0 fg:var(--tps-color)', () => gitBranch({ size: '1.1em' }));
+			A('span.tps-clip font-style:italic text=', branchLabel($p));
 		});
 	});
 }

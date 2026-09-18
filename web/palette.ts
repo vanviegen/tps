@@ -53,10 +53,10 @@ const CREATE = 'create:';
 
 /**
  * Closing what is on screen, as an entry — the task, or the project's own
- * checkout. VS Code fills the window while one of those is open, and folds the
- * sidebar away with it, so the palette is the way back out: this stands at the
- * top of an untouched list, where ctrl-L enter lands on it, and is filtered
- * away by anything typed that isn't the start of its own words.
+ * checkout. VS Code owns the keyboard while one of those is open, so the
+ * palette is the way back out: this stands at the top of an untouched list,
+ * where ctrl-L enter lands on it, and is filtered away by anything typed that
+ * isn't the start of its own words.
  */
 function closeEntry(): { label: string; act: () => void } | undefined {
 	const { pid, tid, base } = selection();
@@ -71,7 +71,9 @@ function closeEntry(): { label: string; act: () => void } | undefined {
  * projects with something waiting first, and under each its own checkout —
  * named for its branch, as the sidebar and the tab title name it — then the
  * task to start, which is the one entry here that makes its destination
- * rather than going to it, and then its tasks. A finished one — merged, or
+ * rather than going to it, and then its tasks. The two that open something
+ * rather than going somewhere say so, as "main branch" on its own reads as a
+ * place and Create task set the pattern. A finished one — merged, or
  * closed without it — is left out: it is done with, and what the board keeps
  * of it is a record rather than somewhere to go. The label carries the
  * project's name and the task's phase, as matching is on the label alone —
@@ -91,7 +93,7 @@ function destinations(): Destination[] {
 		if (pid === here) blocks.unshift(out);
 		else blocks.push(out);
 		out.push({ value: pathTo(pid), label: $p.name });
-		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › ${branchLabel($p)}` });
+		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › Open ${branchLabel($p)}` });
 		out.push({ value: CREATE + pid, label: `${$p.name} › Create task` });
 		const tasks = (Object.entries($p.tasks ?? {}) as [string, any][]).filter(([, $t]) => !isFinished($t));
 		tasks.sort((a, b) => {
