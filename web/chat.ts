@@ -40,10 +40,7 @@ export function drawChat(pid: string, tid: string, $t: any): void {
 	// clip their overflow) would be squashed to nothing once the log overflows.
 	// The single column is capped at the space available, so nothing in the log
 	// can push the left column wider than it is.
-	// Room at the top for the buttons floating over the log (see drawTask, which
-	// measures them into --tps-overlay): the first entry starts below them
-	// rather than under them, and what scrolls up afterwards passes behind them.
-	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2 padding-top: calc(var(--tps-overlay, 2.5rem) + $2);', () => {
+	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2', () => {
 		A(() => drawRules(pid, tid, $t));
 		A.onEach($chat, ($e: any) => drawEntry($e, pid, tid, $t));
 	}) as HTMLElement;

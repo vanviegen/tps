@@ -1,6 +1,6 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { check, circleX, globe, play, square } from 'staffa/icons.js';
+import { check, circleX, play, square } from 'staffa/icons.js';
 import { ansiToHtml } from './ansi.ts';
 import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
 
@@ -9,10 +9,11 @@ import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
  * the project's dev server (the Containerfile's CMD, as 'app'), a test suite,
  * a review app — declared by Containerfile.dev or started ad hoc, by the
  * agent (tps-service-manager) or from here. The play button opens a menu of
- * them, with the forwarded ports below; a service opens a console with its
- * output and the buttons to start, stop and restart it. A service belongs to
- * the task, not to its container: a replaced container ends what ran, and
- * leaves every service idle with the command it runs, ready to start again.
+ * them; a service opens a console with its output and the buttons to start,
+ * stop and restart it. The ports the container forwards need no menu: they are
+ * in the task's header (see drawTaskHeader). A service belongs to the task,
+ * not to its container: a replaced container ends what ran, and leaves every
+ * service idle with the command it runs, ready to start again.
  */
 export interface Service {
 	name: string;
@@ -31,9 +32,9 @@ export function anyRunning($t: any): boolean {
 	return ($t.services ?? []).some((s: Service) => s.status === 'running');
 }
 
-/** Whether the task has anything for the menu: a service, or a forwarded port. */
+/** Whether the task has services: what the play button opens the menu of. */
 export function hasServices($t: any): boolean {
-	return !!($t.services?.length || $t.ports?.length);
+	return !!$t.services?.length;
 }
 
 function statusText(s: Service): string {
@@ -61,15 +62,12 @@ function statusIcon(s: Service): S.MenuItem['icon'] {
 }
 
 /**
- * The play button's menu: a row per service (a click opens its console, and
- * starts one that is not started), then a row per forwarded port — "8080 →
- * 56123", the port inside the container and the one it is on here — that
- * opens the page in a new tab once something answers HTTP there.
+ * The play button's menu: a row per service, a click opening its console — and
+ * starting one that is not started.
  */
 export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: any): void {
 	// Plain copies: the menu is built once, as it opens, off the state of that moment.
 	const services: Service[] = A.peek(() => ($t.services ?? []).map((s: Service) => ({ ...s })));
-	const ports: Port[] = A.peek(() => ($t.ports ?? []).map((p: Port) => ({ ...p })));
 	const items: S.MenuEntry[] = [];
 	for (const s of services) {
 		items.push({
@@ -83,25 +81,30 @@ export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: 
 			click: () => serviceDialog(pid, tid, $t, s.name, s.status === 'idle'),
 		});
 	}
-	if (!services.length) {
-		items.push(() => A('div p:$2 fg:$s-muted font-size:0.9em max-width:24rem text=',
-			'No services. A CMD line in Containerfile.dev is the service "app"; a LABEL tps.service.<name>="command" line declares another.'));
-	}
-	items.push({ separator: true });
-	for (const p of ports) {
-		const label = `${p.port} → ${p.host}`;
-		if (p.live) {
-			items.push({ icon: globe, label, href: portUrl(p), target: '_blank', tooltip: 'Open in a new tab' });
-		} else {
-			items.push({ icon: globe, label: () => { A('span text=', label); A('span fg:$s-muted text=', p.open ? ' · open, not HTTP' : ' · nothing listening'); }, disabled: true });
-		}
-	}
-	if (!ports.length) {
-		items.push(() => A('div p:$2 fg:$s-muted font-size:0.9em max-width:24rem text=',
-			'No forwarded ports: the EXPOSE lines of Containerfile.dev name them (a change takes a rebuild).'));
-	}
 	S.showFloatingMenu({ anchor, items });
 }
+
+/**
+ * The forwarded ports as "8080 → 56123", the port inside the container and the
+ * one it is on here: a link that opens the page in a new tab once something
+ * answers HTTP there, and what is in the way of that until then.
+ */
+export function drawPortLinks($t: any): void {
+	A('small display:flex flex-wrap:wrap gap:$2 min-width:0', () => {
+		for (const p of ($t.ports ?? []) as Port[]) {
+			const label = portLabel(p);
+			if (p.live) {
+				A('a fg:$s-link text-decoration:none', 'href=', portUrl(p), 'target=_blank', 'text=', label,
+					() => S.addTooltip({ tip: 'Open in a new tab' }));
+			} else {
+				A('span fg:$s-muted text=', label, () => S.addTooltip({ tip: portTip(p) }));
+			}
+		}
+	});
+}
+
+const portLabel = (p: Port) => `${p.port} → ${p.host}`;
+const portTip = (p: Port) => p.live ? 'Open in a new tab' : p.open ? 'Something listens here, but does not answer HTTP' : 'Nothing listens here yet';
 
 /**
  * One service's console: its output, following new output unless scrolled
@@ -168,12 +171,11 @@ function drawConsole($t: any, name: string, find: () => Service | undefined, $st
 	});
 }
 
-/** One button per forwarded port, live once something answers HTTP there. */
+/** One button per forwarded port, live once something answers HTTP there: the dialog covers the header they are in otherwise. */
 function drawPorts($t: any): void {
 	A(() => {
 		for (const p of ($t.ports ?? []) as Port[]) {
-			S.button({ content: `${p.port} → ${p.host}`, attrs: '.neutral', disabled: !p.live,
-				tooltip: p.live ? 'Open in a new tab' : p.open ? 'Something listens here, but does not answer HTTP' : 'Nothing listens here yet',
+			S.button({ content: portLabel(p), attrs: '.neutral', disabled: !p.live, tooltip: portTip(p),
 				click: () => window.open(portUrl(p), '_blank') });
 		}
 	});

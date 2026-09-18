@@ -9,8 +9,8 @@ import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
-import { anyRunning, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { anyRunning, drawPortLinks, hasServices, servicesMenu } from './services.ts';
+import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, ELLIPSIS, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, projectColor, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Keep the task's chat streaming for as long as the calling scope lives, and
@@ -488,66 +488,73 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 	if (!(A.peek($t, 'description') ?? '').trim()) requestAnimationFrame(() => (box.querySelector('textarea') as HTMLTextAreaElement | null)?.focus());
 }
 
+/**
+ * What sits above the log: the project in its colour, with the icons that act
+ * on the task in the corner beside it; under those the task's own title, on one
+ * line; and under that the ports its container forwards, to reach what runs in
+ * there without opening a menu for the number.
+ */
+function drawTaskHeader(pid: string, tid: string, $t: any): void {
+	A('div display:flex flex-direction:column min-width:0', () => {
+		A('div display:flex align-items:center gap:$2 min-width:0', () => {
+			A(() => {
+				const $p = $state.projects[pid];
+				A(`b flex:1 min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, $p?.name ?? '');
+			});
+			A(() => { // its own scope: a service arriving must not redraw the row
+				if (!hasServices($t)) return;
+				// Red while something runs: services go on behind a closed console, and this is what brings it back.
+				const running = anyRunning($t);
+				S.iconButton({ icon: play, ariaLabel: running ? 'Services: something is running' : 'Services',
+					tooltip: 'What runs in the container',
+					attrs: running ? 'fg:$s-danger' : '', click: (e: Event) => servicesMenu(e.currentTarget as HTMLElement, pid, tid, $t) });
+			});
+			// Only while the task is yours: rebasing and rebuilding both move the
+			// ground under a running agent, and both are for the human at the wheel.
+			A(() => {
+				if (!waitsForHuman($t) || !$t.behind) return;
+				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+				S.iconButton({ icon: arrowDownToLine, ariaLabel: 'Rebase onto the latest ' + branch,
+					tooltip: () => A('text=', `${branch} has moved on by ${$t.behind} commit${$t.behind === 1 ? '' : 's'}: replay this task's work on top of it`),
+					click: () => rebaseTask(pid, tid, $t) });
+			});
+			A(() => {
+				if (!waitsForHuman($t)) return;
+				S.iconButton({ icon: refreshCw, ariaLabel: 'Rebuild the container',
+					tooltip: 'Rebuild the container from Containerfile.dev',
+					click: () => void cmd('reloadTask', { pid, tid }) });
+			});
+			S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
+			// The phase, worn as the icon it has on the board and in the sidebar,
+			// is the button for everything that is about the phase: a menu needs
+			// no glyph of its own where the state it acts on is one. It breathes
+			// while something is going on, exactly as the sidebar's does.
+			A(() => {
+				const phase = $t.phase as Phase;
+				const icon = PHASE_ICONS[phase] ?? bot;
+				S.iconButton({
+					icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
+					ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
+					tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
+					click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
+				});
+			});
+			S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
+				click: () => closeTask(pid, tid) });
+		});
+		A(() => A(`small ${ELLIPSIS} min-width:0 text=`, taskTitle($t)));
+		drawPortLinks($t);
+	});
+}
+
 /** The chat, what is worth acting on right now, and the input. */
 export function drawAgent(pid: string, tid: string, $t: any): void {
 	// The log, the notes and the composer are one drop target: a file let go
 	// anywhere in the column is meant for the message being written.
 	const area = () => zone.querySelector('textarea') as HTMLTextAreaElement;
 	const zone = A('div display:flex flex-direction:column gap:$3 flex:1 min-width:0 min-height:0', () => {
-		// The log fills the column, with the icons floating over its top right
-		// corner: chrome that would otherwise cost the conversation a row.
-		A('div position:relative display:flex flex-direction:column flex:1 min-width:0 min-height:0', () => {
-			drawChat(pid, tid, $t);
-			// A neutral surface, opaque and rounded, so the log scrolls under them
-			// rather than through them. How tall the row is the buttons decide, so it
-			// is measured rather than guessed: the log keeps that much room at its top
-			// (see drawChat) for its first entry to start below them.
-			const bar = A('div.s-s.neutral.shadow position:absolute top:0 right:0 display:flex align-items:center p:0.15rem r:99em', () => {
-				A(() => { // its own scope: a service arriving must not redraw the row
-					if (!hasServices($t)) return;
-					// Red while something runs: services go on behind a closed console, and this is what brings it back.
-					const running = anyRunning($t);
-					S.iconButton({ icon: play, ariaLabel: running ? 'Services: something is running' : 'Services and ports',
-						tooltip: 'What runs in the container, and the ports it forwards',
-						attrs: running ? 'fg:$s-danger' : '', click: (e: Event) => servicesMenu(e.currentTarget as HTMLElement, pid, tid, $t) });
-				});
-				// Only while the task is yours: rebasing and rebuilding both move the
-				// ground under a running agent, and both are for the human at the wheel.
-				A(() => {
-					if (!waitsForHuman($t) || !$t.behind) return;
-					const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-					S.iconButton({ icon: arrowDownToLine, ariaLabel: 'Rebase onto the latest ' + branch,
-						tooltip: () => A('text=', `${branch} has moved on by ${$t.behind} commit${$t.behind === 1 ? '' : 's'}: replay this task's work on top of it`),
-						click: () => rebaseTask(pid, tid, $t) });
-				});
-				A(() => {
-					if (!waitsForHuman($t)) return;
-					S.iconButton({ icon: refreshCw, ariaLabel: 'Rebuild the container',
-						tooltip: 'Rebuild the container from Containerfile.dev',
-						click: () => void cmd('reloadTask', { pid, tid }) });
-				});
-				S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
-				// The phase, worn as the icon it has on the board and in the sidebar,
-				// is the button for everything that is about the phase: a menu needs
-				// no glyph of its own where the state it acts on is one. It breathes
-				// while something is going on, exactly as the sidebar's does.
-				A(() => {
-					const phase = $t.phase as Phase;
-					const icon = PHASE_ICONS[phase] ?? bot;
-					S.iconButton({
-						icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
-						ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
-						tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
-						click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
-					});
-				});
-				S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
-					click: () => closeTask(pid, tid) });
-			}) as HTMLElement;
-			const measure = new ResizeObserver(() => bar.parentElement?.style.setProperty('--tps-overlay', `${bar.offsetHeight}px`));
-			measure.observe(bar);
-			A.clean(() => measure.disconnect());
-		});
+		drawTaskHeader(pid, tid, $t);
+		drawChat(pid, tid, $t);
 		A(() => {
 			if ($t.phase === 'closed') {
 				const branch = $state.projects[pid]?.defaultBranch ?? 'main';

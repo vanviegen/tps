@@ -85,7 +85,7 @@ A('div display:flex h:100dvh align-items:stretch', () => {
 	A('div flex:1 min-width:0 display:flex align-items:stretch', drawMain);
 });
 
-// The tab's title says where you are, now that nothing on the page does.
+// The tab's title says where you are.
 A(() => {
 	const { pid, tid, base } = selection();
 	const $p = pid ? $state.projects[pid] : undefined;
