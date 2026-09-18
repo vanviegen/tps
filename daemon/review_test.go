@@ -130,7 +130,7 @@ func TestFinishReview(t *testing.T) {
 		t.Errorf("the last round's feedback is the user's: %s", task.info.Phase)
 	}
 	// Kept for the message box, under a line saying it is a machine's reading
-	// rather than the user's own word (see reviewBoxPrompt).
+	// rather than the user's own word (see reviewFeedbackPrompt).
 	if !strings.Contains(task.info.Review, "- the naming is off") || !strings.Contains(task.info.Review, "automated review") {
 		t.Errorf("the feedback should be kept for the message box, marked as a review's: %q", task.info.Review)
 	}

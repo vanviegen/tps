@@ -193,35 +193,10 @@ func reviewPrompt(base, message string, said []string) string {
 	return b.String()
 }
 
-// reviewBoxPrompt wraps a review that is waiting for the user in the message
-// box. Sent on, it becomes a message of the user's like any other: what reads
-// it afterwards — the agent, and the review that comes after that, which is
-// given the user's messages as the whole of what was wanted — would otherwise
-// take a machine's reading of the work for the user's own word. The line says
-// whose it is, and the user can cut it like anything else in the box.
-func reviewBoxPrompt(feedback string) string {
-	return `[From an automated review of the work, not the user's own words: it never spoke to them,
-and may have misread what the task is for. Take on what it is right about, and say which and
-why where it is not.]
+func reviewFeedbackPrompt(feedback string) string {
+	return `[What follows comes from an automated review, not the user's own words. The reviewer may be wrong, and may be misinterpreting the user's wishes. Therefore, do not take this feedback as gospel.]
 
 ` + feedback
-}
-
-// reviewFeedbackPrompt hands the agent what a review asked for. The reviewer
-// never spoke to the user and read the work cold, so the agent — which knows
-// what was asked and what was tried — is the one to weigh what it says.
-func reviewFeedbackPrompt(feedback string) string {
-	return `You reported this task ready, and TPS had a second agent read the work over before committing it.
-Against what the user asked for, it asks for this:
-
-` + feedback + `
-
-That review is automated: it never spoke to the user, and it may well have misread what the task
-is for. Take on what it is right about and leave what does not match what the user actually wants,
-saying which and why in a line. Where it asks for code to go, though, lean towards letting it go:
-keep what it wants removed only if you can say what the task needs it for, and take the chance to
-cut anything else you put in that the task does not. Then end your turn as usual: 'merge' when the
-work is ready (it is reviewed once more), or 'user' if this needs the user rather than you.`
 }
 
 // changesPrompt asks for the one thing a verdict was missing: what the turn

@@ -134,7 +134,7 @@ func (t *Task) finishReview(end TurnEnd) {
 			t.kick(reviewFeedbackPrompt(text))
 			return
 		}
-		t.setReviewL(reviewBoxPrompt(text))
+		t.setReviewL(reviewFeedbackPrompt(text))
 		t.note("the review asks for changes; they are waiting in the message box")
 		if t.overBudgetL() {
 			t.noteBudgetL()
