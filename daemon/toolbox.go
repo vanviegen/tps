@@ -15,23 +15,31 @@ import (
 	"sync"
 )
 
-// The toolbox: code-server, claude and a tiny init, downloaded once per host
-// and mounted read-only into every task container at /tps. Images stay free
-// of anything TPS-specific, and updating the tools (bump the versions here)
-// never needs an image rebuild. Layout: bin/{code-server,claude,tini}, the
-// code-server release under code-server/, and two things of our own: the
-// default Containerfile.dev, and this binary as bin/tps-service-manager (see
-// servicetool.go), refreshed whenever the daemon is a new build.
+// The toolbox: code-server, the agent CLIs and a tiny init, downloaded once
+// per host and mounted read-only into every task container at /tps. Images
+// stay free of anything TPS-specific, and updating the tools (bump the
+// versions here, or a provider's in its own file) never needs an image
+// rebuild. Layout: bin/{code-server,claude,pi,tini}, the releases that are
+// more than a binary under directories of their own, and two things of ours:
+// the default Containerfile.dev, and this binary as bin/tps-service-manager
+// (see servicetool.go), refreshed whenever the daemon is a new build.
 const (
 	codeServerVersion = "4.135.0"
-	claudeVersion     = "2.1.263"
 	tiniVersion       = "0.19.0"
 )
 
-var toolboxKey = "code-server-" + codeServerVersion + "_claude-" + claudeVersion + "_tini-" + tiniVersion
+// toolboxKey names the exact set of tools a toolbox holds, so that a container
+// says which one it runs on and a bumped version is a new directory.
+func toolboxKey() string {
+	key := "code-server-" + codeServerVersion + "_tini-" + tiniVersion
+	for _, p := range providers {
+		key += "_" + p.Name() + "-" + p.Version()
+	}
+	return key
+}
 
 func toolboxRoot() string    { return filepath.Join(home(), ".local", "share", "tps", "toolbox") }
-func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey) }
+func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey()) }
 func toolboxInstalled() bool { return exists(toolboxDir()) }
 
 // claudeBin is the claude binary in this host's toolbox.
@@ -84,7 +92,7 @@ func ensureToolbox() (string, error) {
 	if ps, err := runCmd([]string{"podman", "ps", "--format", `{{index .Labels "tps.config"}}`}, RunOpts{}); err == nil {
 		entries, _ := os.ReadDir(toolboxRoot())
 		for _, e := range entries {
-			if e.Name() != toolboxKey && !strings.HasPrefix(e.Name(), ".") && !strings.Contains(ps.Out, `"`+e.Name()+`"`) { // dot: a download under way
+			if e.Name() != toolboxKey() && !strings.HasPrefix(e.Name(), ".") && !strings.Contains(ps.Out, `"`+e.Name()+`"`) { // dot: a download under way
 				os.RemoveAll(filepath.Join(toolboxRoot(), e.Name()))
 			}
 		}
@@ -94,10 +102,6 @@ func ensureToolbox() (string, error) {
 
 func downloadToolbox(dir string) error {
 	arch := runtime.GOARCH // containers share the host's kernel and architecture
-	claudeArch, ok := map[string]string{"amd64": "x64", "arm64": "arm64"}[arch]
-	if !ok {
-		return fmt.Errorf("no code-server/claude builds for %s", arch)
-	}
 	bin := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		return err
@@ -108,12 +112,14 @@ func downloadToolbox(dir string) error {
 	}); err != nil {
 		return err
 	}
-	for _, f := range [][2]string{
-		{"https://downloads.claude.ai/claude-code-releases/" + claudeVersion + "/linux-" + claudeArch + "/claude", "claude"},
-		{"https://github.com/krallin/tini/releases/download/v" + tiniVersion + "/tini-static-" + arch, "tini"},
-	} {
-		if err := fetch(f[0], func(r io.Reader) error { return writeFile(filepath.Join(bin, f[1]), r, 0o755) }); err != nil {
-			return err
+	if err := fetch("https://github.com/krallin/tini/releases/download/v"+tiniVersion+"/tini-static-"+arch, func(r io.Reader) error {
+		return writeFile(filepath.Join(bin, "tini"), r, 0o755)
+	}); err != nil {
+		return err
+	}
+	for _, p := range providers {
+		if err := p.Install(dir); err != nil {
+			return fmt.Errorf("installing %s: %w", p.Name(), err)
 		}
 	}
 	return os.Symlink("../code-server/bin/code-server", filepath.Join(bin, "code-server"))

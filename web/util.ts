@@ -251,7 +251,7 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 /** Where the task stands, in one line: its phase, whether claude is on it, and what its workspace is doing. */
 export function taskTip(pid: string, $t: any): string {
 	const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
-	return `${phase}${$t.working ? ', claude is working' : ''} · ${taskActivity(pid, $t).text}`;
+	return `${phase}${$t.working ? ', the agent is working' : ''} · ${taskActivity(pid, $t).text}`;
 }
 
 /**
@@ -373,7 +373,7 @@ export function drawContextTip($t: any, action = ''): void {
 				A('span text=', tokenText(slice.tokens));
 			});
 		}
-		A('small text=', 'Claude sums the conversation up in a paragraph and forgets the rest when the window fills up.'
+		A('small text=', 'The agent sums the conversation up in a paragraph and forgets the rest when the window fills up.'
 			+ (action ? ' ' + action : ''));
 	});
 }

@@ -220,8 +220,9 @@ export async function addTask(pid: string): Promise<void> {
 
 /**
  * The models to choose from for one of the task's two model settings: what the
- * claude on the project's host offers, plus whatever the task is set to, so a
- * model that host no longer lists still shows.
+ * agents on the project's host offer, each named by the one it belongs to,
+ * plus whatever the task is set to, so a model that host no longer lists still
+ * shows.
  */
 function modelOptions(pid: string, $t: any, field = 'model'): string[] {
 	const host = $state.hosts[$state.projects[pid]?.host];
@@ -231,12 +232,12 @@ function modelOptions(pid: string, $t: any, field = 'model'): string[] {
 	return models;
 }
 
-/** Why the list is the built-in one rather than what claude offers, if it is. */
+/** Why models are missing from the list, where one of the agents could not be asked. */
 function modelsError(pid: string): string {
 	const hid = $state.projects[pid]?.host;
 	const host = $state.hosts[hid];
 	if (!host?.modelsError) return '';
-	return `claude on ${hostName(hid)} could not be asked which models it offers, so this is the built-in list: ${host.modelsError}`;
+	return `on ${hostName(hid)}, ${host.modelsError} — so its models are missing here`;
 }
 
 /**
@@ -247,19 +248,21 @@ function modelsError(pid: string): string {
  */
 export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
 	// The two models stand together: a task is often worth a different mind from
-	// the one that reads its work over. Under either, the reason its list is the
-	// built-in one, if it is not claude's own.
-	A(() => S.select({
-		label: 'Agent model', options: () => modelOptions(pid, $t), help: modelsError(pid) || undefined,
+	// the one that reads its work over. Typed into rather than picked from: the
+	// list is every model every agent on the host offers, which runs to hundreds
+	// with a gateway logged in. Under either, why an agent's models are missing
+	// from the list, where they are.
+	A(() => S.autocomplete({
+		label: 'Agent model', options: () => modelOptions(pid, $t), allowCustom: false, help: modelsError(pid) || undefined,
 		bind: {
-			get value() { return $t.model ?? 'default'; },
+			get value() { return $t.model ?? 'claude: default'; },
 			set value(model: string) { if (model) save({ model }); },
 		},
 	}));
-	A(() => S.select({
-		label: 'Review model', options: () => modelOptions(pid, $t, 'reviewModel'), help: modelsError(pid) || undefined,
+	A(() => S.autocomplete({
+		label: 'Review model', options: () => modelOptions(pid, $t, 'reviewModel'), allowCustom: false, help: modelsError(pid) || undefined,
 		bind: {
-			get value() { return $t.reviewModel ?? 'default'; },
+			get value() { return $t.reviewModel ?? 'claude: default'; },
 			set value(model: string) { if (model) save({ reviewModel: model }); },
 		},
 	}));

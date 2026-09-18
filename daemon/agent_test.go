@@ -14,7 +14,8 @@ func TestSessionEvents(t *testing.T) {
 	var entries []*ChatEntry
 	var updates []*ChatEntry
 	var ends []TurnEnd
-	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+	s := &claudeSession{pending: map[string]*ChatEntry{}}
+	s.agentProc = &agentProc{opts: SessionOpts{
 		OnEntry:   func(e *ChatEntry) { entries = append(entries, e) },
 		OnUpdate:  func(e *ChatEntry) { updates = append(updates, e) },
 		OnTurnEnd: func(e TurnEnd) { ends = append(ends, e) },
@@ -108,7 +109,8 @@ func TestDoneLine(t *testing.T) {
 
 	var entries []*ChatEntry
 	var end TurnEnd
-	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+	s := &claudeSession{pending: map[string]*ChatEntry{}}
+	s.agentProc = &agentProc{opts: SessionOpts{
 		OnEntry:   func(e *ChatEntry) { entries = append(entries, e) },
 		OnUpdate:  func(*ChatEntry) {},
 		OnTurnEnd: func(e TurnEnd) { end = e },
@@ -169,7 +171,8 @@ func TestLimitLine(t *testing.T) {
 	}
 
 	var end TurnEnd
-	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+	s := &claudeSession{pending: map[string]*ChatEntry{}}
+	s.agentProc = &agentProc{opts: SessionOpts{
 		OnEntry:   func(*ChatEntry) {},
 		OnUpdate:  func(*ChatEntry) {},
 		OnTurnEnd: func(e TurnEnd) { end = e },
@@ -273,7 +276,8 @@ func TestAuthGone(t *testing.T) {
 	}
 
 	var end TurnEnd
-	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+	s := &claudeSession{pending: map[string]*ChatEntry{}}
+	s.agentProc = &agentProc{opts: SessionOpts{
 		OnEntry:   func(*ChatEntry) {},
 		OnUpdate:  func(*ChatEntry) {},
 		OnTurnEnd: func(e TurnEnd) { end = e },
@@ -336,7 +340,8 @@ func TestLoginFailed(t *testing.T) {
 func TestCompaction(t *testing.T) {
 	var entries []*ChatEntry
 	var ends []TurnEnd
-	s := &ChatSession{pending: map[string]*ChatEntry{}, opts: SessionOpts{
+	s := &claudeSession{pending: map[string]*ChatEntry{}}
+	s.agentProc = &agentProc{opts: SessionOpts{
 		OnEntry:   func(e *ChatEntry) { entries = append(entries, e) },
 		OnUpdate:  func(*ChatEntry) {},
 		OnTurnEnd: func(e TurnEnd) { ends = append(ends, e) },

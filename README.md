@@ -3,7 +3,7 @@
 TPS is your all-in-one dashboard for working on many tasks across many
 projects at once. For each task you get an agent chat and a VS Code instance
 side-by-side, backed by its own lightweight sandbox container and repository.
-Claude Code only, for now.
+The agent is Claude Code or pi, per task.
 
 <p>
 <a href="doc/tps1.png"><img src="doc/tps1.png" width="49%" alt="A project's board, with the sidebar listing every project"></a>
@@ -90,7 +90,7 @@ identity of the machine you steer from is handed to every host it connects to.
 And of course TPS also handles the usual: an agent chat that allow mid-run steering
 and pasting screenshots and other files, a choice of model per task, cost tracking with a
 budget that parks a task when it is reached, a ring beside the message box showing what fills the agent's
-context window and a click to have claude summarise it away, opt-in desktop notifications when a task
+context window and a click to have the agent summarise it away, opt-in desktop notifications when a task
 needs you, and keyboard shortcuts for the things you do all day.
 
 ## Installing
@@ -99,12 +99,14 @@ TPS runs on Linux, any distribution. Every machine that runs projects needs:
 
 - **podman**, 4 or later, set up rootless (the distro package normally does
   that), and **git**;
-- a **Claude login**: a host without one says so at the bottom of the sidebar,
-  and clicking that signs in through your browser, here, and hands the login to
-  that host. Every host gets one of its own this way, over SSH as much as here,
-  and keeps it in `~/.local/share/tps/claude`, shared by all of its tasks;
-  `ANTHROPIC_API_KEY` in the environment does instead. No claude CLI is needed
-  anywhere: TPS brings its own.
+- a **login for the agent you run**: for Claude Code, a host without one says
+  so at the bottom of the sidebar, and clicking that signs in through your
+  browser, here, and hands the login to that host. Every host gets one of its
+  own this way, over SSH as much as here, and keeps it in
+  `~/.local/share/tps/claude`, shared by all of its tasks; `ANTHROPIC_API_KEY`
+  in the environment does instead. For pi, it is the `~/.pi/agent` you log in
+  with on that host, mounted into every task of its own. No CLI is needed
+  anywhere: TPS brings both.
 
 A host over SSH works best with lingering on for your user (`loginctl
 enable-linger`): its daemon and containers then carry on with the work they

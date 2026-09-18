@@ -102,10 +102,10 @@ type TaskInfo struct {
 	OnAccept      Answer         `json:"onAccept,omitempty"`    // and of work a review accepts
 	ReviewLoops   int            `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent
 	ReviewLoop    int            `json:"reviewLoop,omitempty"`  // how often it has, since the user last said something
-	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is claude's own default
+	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is DefaultModel
 	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
 	Phase         Phase          `json:"phase"`
-	Started       bool           `json:"started,omitempty"`       // a claude session exists in the task's claude dir
+	Started       bool           `json:"started,omitempty"`       // the agent has a session in the task's state dir to pick back up
 	CommitMessage string         `json:"commitMessage,omitempty"` // the message the agent proposed for the merge, last time it reported one
 	Ready         bool           `json:"ready,omitempty"`         // that report still stands: nothing has been asked of the task since (see noteReadyL)
 	Spent         float64        `json:"spent,omitempty"`         // USD spent on agent runs so far
@@ -169,9 +169,9 @@ type Task struct {
 	autoStarting bool // an auto-start is under way, so it isn't started twice
 	behind       int  // commits on the default branch the workspace doesn't have yet (see refreshBehind)
 
-	session       *ChatSession
-	sessionFlight *flight[*ChatSession]
-	sessionBudget *float64 // the budget setting the running claude was started under
+	session       Session
+	sessionFlight *flight[Session]
+	sessionBudget *float64 // the budget setting the running agent was started under
 	sessionReview bool     // and whether it is the reviewer rather than the task's own agent (see review.go)
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
@@ -194,13 +194,28 @@ func newTask(p *Project, tid string, info *TaskInfo) *Task {
 func (t *Task) key() string           { return t.p.pid + "/" + t.tid }
 func (t *Task) dir() string           { return filepath.Join(t.p.tasksDir(), t.tid) }
 func (t *Task) repoDir() string       { return filepath.Join(t.dir(), "repo") }
-func (t *Task) claudeDir() string     { return filepath.Join(t.dir(), "claude") }
 func (t *Task) chatFile() string      { return filepath.Join(t.dir(), "chat.jsonl") }
 func (t *Task) patchFile() string     { return filepath.Join(t.dir(), "work.patch") }
 func (t *Task) archiveFile() string   { return filepath.Join(t.dir(), "archive.tar.gz") }
 func (t *Task) containerName() string { return "tps-" + t.p.pid + "-" + t.tid }
 func (t *Task) workingL() bool        { return t.session != nil && t.session.TurnActive() }
 func (t *Task) touchL()               { t.lastActivity = time.Now() }
+
+// agentDir is where the task keeps what one of the agents remembers: its
+// session transcripts, and whatever else that CLI writes beside them (see
+// Provider.Mounts). One per provider, so that they are each other's memory
+// as little as two tasks are.
+func (t *Task) agentDir(p Provider) string { return filepath.Join(t.dir(), p.Name()) }
+
+// agentL is the agent the task runs on, and the model to run it on: its model
+// setting names both (see splitModel).
+func (t *Task) agentL() (Provider, string) { return splitModel(t.info.Model) }
+
+func (t *Task) agent() (Provider, string) {
+	t.lock()
+	defer t.unlock()
+	return t.agentL()
+}
 
 // hasWorkspace: the task has a clone to work in. A bare directory is not one
 // and must not pass for one: podman makes the mount point back whenever a
@@ -654,7 +669,7 @@ func (t *Task) noteBudgetL() {
 // --- phase transitions ---
 
 // ensureTitle names a task on its way out of Plan. It has been calling itself
-// after its description all along (see applyL), which will do; claude is asked
+// after its description all along (see applyL), which will do; the agent is asked
 // for something better in the background, so nothing waits on the naming. That
 // happens once in a task's life, and the answer is adopted only while the
 // stand-in is still there — a rename meanwhile wins.
@@ -662,6 +677,7 @@ func (t *Task) ensureTitle() error {
 	t.lock()
 	defer t.unlock()
 	desc := t.info.Description
+	agent, _ := t.agentL()
 	if strings.TrimSpace(desc) == "" {
 		return errors.New("Give the task a description first")
 	}
@@ -678,7 +694,7 @@ func (t *Task) ensureTitle() error {
 		return nil // named by hand already: leave it be
 	}
 	go func() {
-		title := generateTitle(desc)
+		title := agent.Title(desc)
 		t.lock()
 		defer t.unlock()
 		if title != "" && t.info.Title == stand && t.p.tasks[t.tid] == t { // not renamed, not deleted meanwhile
@@ -729,7 +745,7 @@ func (t *Task) Assign(to string) error {
 	return nil
 }
 
-// isCompact: the message is claude's own /compact — the user asking it to
+// isCompact: the message is the agent's own /compact — the user asking it to
 // summarise what it remembers down to a paragraph, with or without a word on
 // what to keep — rather than a message for the agent. It goes down the same
 // road as one, but nothing is asked of the agent in it: the task stays whose
@@ -739,7 +755,7 @@ func isCompact(text string) bool {
 }
 
 // SendChat: a user chat message, shown in the log, then fed to (or starting)
-// claude. Files attached to it are written to the task's uploads directory
+// the agent. Files attached to it are written to the task's uploads directory
 // first, and the message refers to them by the path it reads them at (see
 // uploads.go).
 func (t *Task) SendChat(text string, files []ChatFile) error {
@@ -753,12 +769,12 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	case t.info.Phase == PhasePlan:
 		t.unlock()
 		return errors.New("Assign the task to the agent first")
-	// A message sent while claude works steers the turn under way, and one
+	// A message sent while the agent works steers the turn under way, and one
 	// sent while it compacts is queued behind that; a /compact is neither,
-	// and claude sent one mid-turn drops it without a word.
+	// and an agent sent one mid-turn drops it without a word.
 	case compact && t.workingL():
 		t.unlock()
-		return errors.New("Claude is busy; wait for the turn to end, or stop it first")
+		return errors.New("The agent is busy; wait for the turn to end, or stop it first")
 	// The session a review runs is the reviewer's, and that one is nobody's
 	// conversation (see review.go); the agent has the task back soon enough.
 	case compact && t.info.Phase == PhaseReview:
@@ -768,9 +784,9 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	// (see kick); a /compact is neither, and would run into the limit itself.
 	case compact && t.info.LimitUntil > 0:
 		t.unlock()
-		return errors.New("Claude is waiting out a usage limit; the compaction would run into it too")
+		return errors.New("The task is waiting out a usage limit; the compaction would run into it too")
 	// A message picks a finished task back up, into a fresh clone; that is
-	// not what asking claude to forget things is for.
+	// not what asking the agent to forget things is for.
 	case compact && !t.hasWorkspace():
 		t.unlock()
 		return errors.New("This task has no workspace to work from; pick it up first")
@@ -809,7 +825,7 @@ func sameBudget(a, b *float64) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
-// kick makes sure a claude session is running and feeds it text, in the
+// kick makes sure an agent session is running and feeds it text, in the
 // background. A task being merged stays in that phase: the agent then works
 // on the merge. A finished task picks the conversation up where it ended, in a
 // workspace freshly made from the branch (see ensureWorkspace); the notes
@@ -840,7 +856,7 @@ func (t *Task) kick(text string) {
 	if !compact && t.info.Phase != PhaseMerge && t.info.Phase != PhaseReview {
 		t.setPhaseL(PhaseAgent)
 	}
-	// A running claude is the reviewer or the task's own agent, with its
+	// A running session is the reviewer's or the task's own agent's, with its
 	// spending cap fixed at start: either changing needs a new process.
 	review := t.info.Phase == PhaseReview
 	old := t.session
@@ -898,7 +914,7 @@ func (t *Task) failKick(prefix string, err error) {
 	}
 }
 
-func (t *Task) stopSession(s *ChatSession) {
+func (t *Task) stopSession(s Session) {
 	t.lock()
 	t.stopping = true
 	t.unlock()
@@ -917,26 +933,27 @@ func (t *Task) StopAgent() error {
 	return nil
 }
 
-// probeContextParts learns what claude's window holds before a word is said in
-// it, and where claude will compact — the two things the dashboard's gauge
-// needs and no turn reports (see context.go). Neither changes while the model
-// does not, so a window already measured for it is left alone; the asking is
-// done in the background, a task waiting on it waiting on nothing it needs.
+// probeContextParts learns what the agent's window holds before a word is said
+// in it, and where the agent will compact — the two things the dashboard's
+// gauge needs and no turn reports (see context.go). Neither changes while the
+// model does not, so a window already measured for it is left alone; the asking
+// is done in the background, a task waiting on it waiting on nothing it needs.
 func (t *Task) probeContextParts(c *Container) {
 	t.lock()
-	model := t.info.Model
+	name := t.info.Model
+	agent, model := t.agentL()
 	// The reviewer's window is its own, and starts empty every time (see
 	// review.go): what it holds says nothing about the task's conversation.
-	if t.sessionReview || (t.info.Window != nil && t.info.Window.Model == model) {
+	if t.sessionReview || (t.info.Window != nil && t.info.Window.Model == name) {
 		t.unlock()
 		return
 	}
 	t.unlock()
-	p, ok := probeContext(c, model, systemPrompt)
+	p, ok := agent.Window(c, model, systemPrompt)
 	if !ok {
 		return
 	}
-	p.Model = model // in the task's own words, which is what the guard above reads
+	p.Model = name // in the task's own words, which is what the guard above reads
 	t.lock()
 	t.info.Window = &p
 	t.p.m.saveL()
@@ -1384,9 +1401,17 @@ func (t *Task) markedFiles(repo string) ([]string, error) {
 // --- finished tasks: parked, and picked up again ---
 
 // archived is what a finished task keeps besides its patch, compressed into
-// one archive: claude's state, the chat log, the files the user attached, and
-// the services' last output.
-var archived = []string{"claude", "chat.jsonl", "uploads", "services"}
+// one archive: what its agents remember, the chat log, the files the user
+// attached, and the services' last output.
+var archived = archivedNames()
+
+func archivedNames() []string {
+	names := []string{"chat.jsonl", "uploads", "services"}
+	for _, p := range providers {
+		names = append(names, p.Name())
+	}
+	return names
+}
 
 // park puts a finished task's data away, so that a task nobody looks at costs
 // as little disk as it can: the workspace goes — with its work kept as a
@@ -1772,9 +1797,6 @@ func (t *Task) clone() error {
 			return err
 		}
 	}
-	if err := os.MkdirAll(t.claudeDir(), 0o755); err != nil {
-		return err
-	}
 	// A local git clone hardlinks the object store (objects are immutable,
 	// so sharing them is safe): nearly free even for big repos. It is made
 	// beside its place and moved there once complete, so that the directory
@@ -2047,7 +2069,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	t.setStatusL(StatusStarting, "starting container")
 	t.unlock()
 	_, caches := containerfileDeclarations(cf)
-	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir()), cacheDir: t.p.cacheDir(), caches: caches})
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), agentDir: t.agentDir, servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir()), cacheDir: t.p.cacheDir(), caches: caches})
 }
 
 func (t *Task) down() {
@@ -2099,9 +2121,9 @@ func (t *Task) Reload() error {
 	return nil
 }
 
-// --- the claude session ---
+// --- the agent session ---
 
-func (t *Task) ensureSession() (*ChatSession, error) {
+func (t *Task) ensureSession() (Session, error) {
 	t.lock()
 	if s := t.session; s != nil {
 		t.unlock()
@@ -2109,7 +2131,7 @@ func (t *Task) ensureSession() (*ChatSession, error) {
 	}
 	f := t.sessionFlight
 	if f == nil {
-		f = &flight[*ChatSession]{done: make(chan struct{})}
+		f = &flight[Session]{done: make(chan struct{})}
 		t.sessionFlight = f
 		go func() {
 			f.val, f.err = t.startSession()
@@ -2124,7 +2146,7 @@ func (t *Task) ensureSession() (*ChatSession, error) {
 	return f.val, f.err
 }
 
-func (t *Task) startSession() (*ChatSession, error) {
+func (t *Task) startSession() (Session, error) {
 	c, err := t.up()
 	if err != nil {
 		return nil, err
@@ -2132,8 +2154,9 @@ func (t *Task) startSession() (*ChatSession, error) {
 	t.lock()
 	t.sessionBudget = t.info.Budget
 	t.sessionReview = t.info.Phase == PhaseReview
+	agent, model := t.agentL()
 	opts := SessionOpts{
-		Container: c, Model: t.info.Model, System: systemPrompt, Resume: t.info.Started,
+		Container: c, Model: model, System: systemPrompt, Resume: t.info.Started,
 		OnEntry:  t.addEntry,
 		OnUpdate: t.updateEntry,
 		OnTurnStart: func() {
@@ -2146,7 +2169,8 @@ func (t *Task) startSession() (*ChatSession, error) {
 	// The reviewer is the same machinery with another mind in it: its own
 	// system prompt and model, and a session that is nobody's (see review.go).
 	if t.sessionReview {
-		opts.Model, opts.System, opts.Review, opts.Resume = cmp.Or(t.info.ReviewModel, DefaultModel), reviewSystem, true, false
+		agent, opts.Model = splitModel(cmp.Or(t.info.ReviewModel, DefaultModel))
+		opts.System, opts.Review, opts.Resume = reviewSystem, true, false
 	}
 	if t.info.Budget != nil {
 		left := max(0.01, *t.info.Budget-t.info.Spent)
@@ -2157,13 +2181,13 @@ func (t *Task) startSession() (*ChatSession, error) {
 		t.p.m.saveL()
 	}
 	t.unlock()
-	var s *ChatSession
+	var s Session
 	ready := make(chan struct{})
 	opts.OnExit = func(code int, errTail string) {
 		<-ready
 		t.onSessionExit(s, code, errTail)
 	}
-	s, err = newChatSession(opts)
+	s, err = agent.Start(opts)
 	close(ready)
 	if err != nil {
 		return nil, err
@@ -2467,7 +2491,7 @@ func (t *Task) endRunL(changes string) {
 	t.unlock()
 }
 
-func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
+func (t *Task) onSessionExit(s Session, code int, errTail string) {
 	t.lock()
 	defer t.unlock()
 	if t.session == s {
@@ -2475,23 +2499,23 @@ func (t *Task) onSessionExit(s *ChatSession, code int, errTail string) {
 	}
 	t.publishL()
 	if t.info.LimitUntil > 0 {
-		// Waiting out a usage limit: claude's process is not what the task is
+		// Waiting out a usage limit: the agent's process is not what the task is
 		// waiting for (the container may well be recycled for idling before
 		// the reset), and the resume starts one of its own.
 		return
 	}
 	if t.agentPhaseL() && !t.stopping {
-		// A claude that could not sign in dies before a turn of it ever runs,
+		// An agent that could not sign in dies before a turn of it ever runs,
 		// and says so on its way out: that is the host's login rather than
 		// this task, and there is nothing half-done to keep.
 		if code != 0 && authGone(errTail) {
 			t.p.m.loginExpired()
 			t.note(loginNote)
 		} else if code != 0 {
-			t.note(fmt.Sprintf("claude exited unexpectedly (%d)", code), errTail)
+			t.note(fmt.Sprintf("the agent exited unexpectedly (%d)", code), errTail)
 			// Whatever it had got to is in the tree and nowhere else; a point
 			// of its own is what makes it something to come back to.
-			go t.mark("Agent", "claude exited part-way")
+			go t.mark("Agent", "the agent exited part-way")
 		}
 		t.setPhaseL(PhaseHuman)
 	}

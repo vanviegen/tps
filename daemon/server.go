@@ -44,7 +44,7 @@ func Serve(buildID string) error {
 	// "agentPrompt" is what stands above every agent conversation here, which a
 	// task's log shows at its top (the reviewer's own hangs on the note that
 	// starts a review, being written afresh for each one).
-	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "modelsError": "asking claude…",
+	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "modelsError": "asking the agent CLIs…",
 		"build": buildID, "protocol": hub.Protocol, "home": home(), "agentPrompt": systemPrompt})
 	m := NewManager(h, exit)
 	h.Cmds = m.Cmds()

@@ -252,70 +252,70 @@ cat >"$CONFIG.new" <<JSON
 			"dir": "$PROJECTS/snip",
 			"name": "snip",
 			"color": "#45c4d6",
-			"defaults": { "model": "haiku" },
+			"defaults": { "model": "claude: haiku" },
 			"activity": $(ms 0 2),
 			"nextTask": 8,
 			"tasks": {
 				"1": {
 					"title": "Shorten a URL, follow it back",
 					"description": "A first cut: POST a URL, get a short key, GET the key to be redirected. One file, standard library only, links in memory.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
 					"spent": 1.87,
 					"context": 118000,
-					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 23)
 				},
 				"2": {
 					"title": "A dev container so tasks can run the tests",
 					"description": "Tasks can't run the tests: the default image has no python. Add a Containerfile.dev with the test suite as a service, and a first test for the key generator.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
 					"spent": 0.34,
 					"context": 31000,
-					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 9)
 				},
 				"3": {
 					"title": "Refuse links that aren't http(s)",
 					"description": "Anything that is not an http(s) link should be refused with a 400 rather than shortened: handing out a redirect to a javascript: URL is a nasty thing to do.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "human",
 					"started": true,
 					"ready": true,
 					"commitMessage": "Only shorten http and https links\n\nA URL with any other scheme is refused with a 400 rather than given a key: a\nshort link that redirects to javascript: is worth more to an attacker than to\nanyone else. The scheme is compared in lower case, so HTTPS:// is a link like\nany other. The README says what is accepted, and allowed() has tests.",
 					"spent": 0.43,
 					"context": 46000,
-					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 0 3)
 				},
 				"4": {
 					"title": "Keep the links in a file",
 					"description": "The links live in memory, so a restart forgets every short link handed out. Write them to JSON instead, atomically.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
 					"spent": 1.12,
 					"context": 87000,
-					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 4)
 				},
 				"5": {
 					"title": "A /stats page",
 					"description": "A read-only /stats page: links made per day for the last fortnight, and the ten most followed. Plain HTML, no charting library.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "plan",
 					"phaseAt": $(ms 2)
 				},
 				"6": {
 					"title": "Expire links after 90 days",
 					"description": "Links that nobody has followed in 90 days should be dropped on startup, and the count of what went should show up on the stats page.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "plan",
 					"startAfter": ["5"],
 					"phaseAt": $(ms 2)
@@ -323,12 +323,12 @@ cat >"$CONFIG.new" <<JSON
 				"7": {
 					"title": "Move the store to SQLite",
 					"description": "Put the links in SQLite instead of a JSON file, so more than one process can serve them.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "closed",
 					"started": true,
 					"spent": 0.11,
 					"context": 12000,
-					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 12)
 				}
 			}
@@ -337,27 +337,27 @@ cat >"$CONFIG.new" <<JSON
 			"dir": "$PROJECTS/standup",
 			"name": "standup",
 			"color": "#c8d35a",
-			"defaults": { "model": "haiku", "budget": 5 },
+			"defaults": { "model": "claude: haiku", "budget": 5 },
 			"activity": $(ms 3),
 			"nextTask": 4,
 			"tasks": {
 				"1": {
 					"title": "A dev container and the first tests",
 					"description": "Give this a Containerfile.dev like snip has, and tests for add and copy.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
 					"merged": true,
 					"spent": 0.27,
 					"context": 24500,
-					"window": {"model": "haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"budget": 5,
 					"phaseAt": $(ms 6)
 				},
 				"2": {
 					"title": "standup week should skip the weekend",
 					"description": "Saturday and Sunday are always empty and push the useful days off the screen: show the last seven weekdays instead.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "plan",
 					"budget": 5,
 					"phaseAt": $(ms 3)
@@ -365,7 +365,7 @@ cat >"$CONFIG.new" <<JSON
 				"3": {
 					"title": "Publish it to npm",
 					"description": "Work out what it takes to publish this as a package people can npx: the bin entry, the files list, a licence, and a release note in the README.",
-					"model": "haiku",
+					"model": "claude: haiku",
 					"phase": "muted",
 					"budget": 5,
 					"phaseAt": $(ms 5)

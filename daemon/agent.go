@@ -16,20 +16,12 @@ import (
 	"unicode/utf8"
 )
 
-// A live `claude` process inside a task's container, talking stream-json on
-// both ends: user/steering messages go in over stdin, events come out and are
-// condensed into chat entries. The process stays alive between turns, so
-// follow-up messages are instant; after it dies, Resume (--continue) picks
-// the conversation back up from the state in the mounted claude dir.
-
-const startScript = `
-mkdir -p "$CLAUDE_CONFIG_DIR"
-export PATH=/tps/bin:$PATH
-echo $$ >/tmp/tps-agent.pid
-exec /tps/bin/claude -p --input-format stream-json --output-format stream-json --verbose \
-	--dangerously-skip-permissions ${TPS_MODEL:+--model "$TPS_MODEL"} --append-system-prompt "$TPS_SYSTEM" \
-	${TPS_BUDGET:+--max-budget-usd "$TPS_BUDGET"} $TPS_EXTRA
-`
+// A live agent process inside a task's container, talking JSON on both ends:
+// user/steering messages go in over stdin, events come out and are condensed
+// into chat entries. The process stays alive between turns, so follow-up
+// messages are instant; after it dies, Resume picks the conversation back up
+// from the state in the mounted state directory. Which CLI it is, and what
+// its events look like, is its provider's (see provider.go).
 
 const killScript = `
 p=$(cat /tmp/tps-agent.pid 2>/dev/null) && [ -n "$p" ] || exit 0
@@ -69,81 +61,72 @@ func newEntry(k string) *ChatEntry {
 
 // entry is newEntry for what this session says, which is the reviewer's or the
 // task's agent's own.
-func (s *ChatSession) entry(k string) *ChatEntry {
+func (p *agentProc) entry(k string) *ChatEntry {
 	e := newEntry(k)
-	e.Rev = s.opts.Review
+	e.Rev = p.opts.Review
 	return e
 }
 
 type SessionOpts struct {
 	Container *Container
-	Model     string
+	Model     string // the provider's own name for it, without the provider (see splitModel)
 	System    string
-	Resume    bool // --continue the task's most recent session
+	Resume    bool // pick the task's most recent session back up
 	// Review: this session is the reviewer's rather than the task's own (see
 	// review.go). It starts blank and is never written down, so the task's own
-	// conversation stays the one a later --continue picks back up, and what it
+	// conversation stays the one a later Resume picks back up, and what it
 	// says is marked as its in the log.
 	Review   bool
-	Budget   *float64 // USD this session may spend (--max-budget-usd)
+	Budget   *float64 // USD this session may spend, where the CLI can be told
 	OnEntry  func(e *ChatEntry)
 	OnUpdate func(e *ChatEntry) // an earlier entry (matched by id) changed
-	// OnTurnStart: claude set to work on a turn. A message sent while a turn
-	// runs steers that turn; one sent while claude compacts is queued, and
+	// OnTurnStart: the agent set to work on a turn. A message sent while a turn
+	// runs steers that turn; one sent while the agent compacts is queued, and
 	// starts as a turn of its own the moment the compaction ends — which is
 	// what this hears of, the send having been long ago.
 	OnTurnStart func()
-	OnTurnEnd   func(end TurnEnd) // a result event arrived: cost, and the verdict the agent ended on
+	OnTurnEnd   func(end TurnEnd) // a turn ended: cost, and the verdict the agent ended on
 	OnExit      func(code int, errTail string)
 }
 
-type ChatSession struct {
-	turnActive   atomic.Bool
-	cmd          *exec.Cmd
-	stdin        io.WriteCloser
-	writeMu      sync.Mutex
-	errMu        sync.Mutex
-	errTail      string
-	costReported float64               // cumulative session cost of the last result event
-	pending      map[string]*ChatEntry // tool calls awaiting their result
-	context      int64                 // tokens the last request sent, which is what claude currently remembers
-	summary      int64                 // tokens the turn under way summarised the conversation down to (see TurnEnd)
-	lastText     string                // the latest message of the turn under way, which is the reviewer's answer (see review.go)
-	done         *Done                 // the verdict of the turn under way, from its latest message
-	badDone      string                // why that message's TPS-DONE line was unusable
-	limited      bool                  // that message was claude reporting a usage limit
-	limitAt      time.Time             // and when it says that limit resets
-	noLogin      bool                  // the turn ran into claude being unable to authenticate at all
-	opts         SessionOpts
-	exited       chan struct{}
+// Session is a task's conversation with a running agent.
+type Session interface {
+	// Send puts a message to the agent: a turn of its own, or steering for the
+	// turn under way.
+	Send(text string)
+	TurnActive() bool
+	// Stop interrupts the current turn, then makes sure the process is gone.
+	// Returns only after the exit was processed (OnExit has run).
+	Stop()
+	// Kill ends just the client process (the container side dies with the container).
+	Kill()
 }
 
-func newChatSession(opts SessionOpts) (*ChatSession, error) {
-	extra, budget := "", ""
-	if opts.Resume {
-		extra = "--continue"
+// agentProc is the process itself: a podman exec into the task's container,
+// fed JSON lines on stdin and read line by line. What those lines say is the
+// provider's to know.
+type agentProc struct {
+	turnActive atomic.Bool
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     io.ReadCloser
+	writeMu    sync.Mutex
+	errMu      sync.Mutex
+	errTail    string
+	opts       SessionOpts
+	exited     chan struct{}
+}
+
+// newAgentProc starts the CLI in the task's container, with the environment
+// its start script reads. The session reading its output is built around the
+// process and then set going with run.
+func newAgentProc(opts SessionOpts, env []string, script string) (*agentProc, error) {
+	args := []string{"exec", "-i"}
+	for _, e := range env {
+		args = append(args, "-e", e)
 	}
-	if opts.Review {
-		// Nobody's conversation: it starts blank and is never written to the
-		// claude dir, so the session a later --continue picks back up is still
-		// the task's own.
-		extra = "--no-session-persistence"
-	}
-	if opts.Budget != nil {
-		budget = fmt.Sprintf("%.2f", *opts.Budget)
-	}
-	// The default model is claude's own: pass no --model at all.
-	model := opts.Model
-	if model == DefaultModel {
-		model = ""
-	}
-	cmd := exec.Command("podman", "exec", "-i",
-		"-e", "TZ=UTC", // the zone claude words its usage-limit resets in; see parseReset
-		"-e", "TPS_MODEL="+model,
-		"-e", "TPS_SYSTEM="+opts.System,
-		"-e", "TPS_EXTRA="+extra,
-		"-e", "TPS_BUDGET="+budget,
-		opts.Container.Name, "bash", "-lc", startScript)
+	args = append(args, opts.Container.Name, "bash", "-lc", script)
+	cmd := exec.Command("podman", args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -159,278 +142,77 @@ func newChatSession(opts SessionOpts) (*ChatSession, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	s := &ChatSession{cmd: cmd, stdin: stdin, pending: map[string]*ChatEntry{}, opts: opts, exited: make(chan struct{})}
+	p := &agentProc{cmd: cmd, stdin: stdin, stdout: stdout, opts: opts, exited: make(chan struct{})}
 	go func() {
 		buf := make([]byte, 64<<10)
 		for {
 			n, err := stderr.Read(buf)
 			if n > 0 {
-				s.errMu.Lock()
-				s.errTail += string(buf[:n])
-				if len(s.errTail) > 4000 {
-					s.errTail = s.errTail[len(s.errTail)-4000:]
+				p.errMu.Lock()
+				p.errTail += string(buf[:n])
+				if len(p.errTail) > 4000 {
+					p.errTail = p.errTail[len(p.errTail)-4000:]
 				}
-				s.errMu.Unlock()
+				p.errMu.Unlock()
 			}
 			if err != nil {
 				return
 			}
 		}
 	}()
+	return p, nil
+}
+
+// run reads the CLI's events, one line at a time, until it exits.
+func (p *agentProc) run(onLine func(line []byte)) {
 	go func() {
-		sc := bufio.NewScanner(stdout)
+		sc := bufio.NewScanner(p.stdout)
 		sc.Buffer(make([]byte, 1<<20), 256<<20)
 		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if line == "" {
-				continue
-			}
-			var ev event
-			if json.Unmarshal([]byte(line), &ev) == nil {
-				s.onEvent(&ev)
+			if line := strings.TrimSpace(sc.Text()); line != "" {
+				onLine([]byte(line))
 			}
 		}
-		code := exitCode(cmd.Wait())
-		s.turnActive.Store(false)
-		s.errMu.Lock()
-		tail := strings.TrimSpace(s.errTail)
-		s.errMu.Unlock()
-		opts.OnExit(code, tail)
-		close(s.exited)
+		code := exitCode(p.cmd.Wait())
+		p.turnActive.Store(false)
+		p.errMu.Lock()
+		tail := strings.TrimSpace(p.errTail)
+		p.errMu.Unlock()
+		p.opts.OnExit(code, tail)
+		close(p.exited)
 	}()
-	return s, nil
 }
 
-func (s *ChatSession) TurnActive() bool { return s.turnActive.Load() }
+func (p *agentProc) TurnActive() bool { return p.turnActive.Load() }
 
-func (s *ChatSession) Send(text string) {
-	s.turnActive.Store(true)
-	s.lastText = ""
-	s.limited, s.limitAt, s.noLogin = false, time.Time{}, false
-	s.write(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": text}}}})
-}
-
-// Stop interrupts the current turn, then makes sure the process is gone.
-// Returns only after the exit was processed (OnExit has run).
-func (s *ChatSession) Stop() {
-	s.write(map[string]any{"type": "control_request", "request_id": "stop", "request": map[string]any{"subtype": "interrupt"}})
-	for i := 0; i < 40 && s.turnActive.Load(); i++ {
+// stop sends the CLI whatever it takes for an interrupt, then makes sure the
+// process is gone.
+func (p *agentProc) stop(interrupt any) {
+	p.write(interrupt)
+	for i := 0; i < 40 && p.turnActive.Load(); i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
 	// The podman exec client can't signal into the container; kill from within.
-	go s.opts.Container.Exec(killScript)
+	go p.opts.Container.Exec(killScript)
 	time.Sleep(300 * time.Millisecond)
-	s.Kill()
-	<-s.exited
+	p.Kill()
+	<-p.exited
 }
 
-// Kill ends just the client process (the container side dies with the container).
-func (s *ChatSession) Kill() {
-	if s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
+func (p *agentProc) Kill() {
+	if p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
 	}
 }
 
-func (s *ChatSession) write(msg any) {
+func (p *agentProc) write(msg any) {
 	raw, _ := json.Marshal(msg)
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	_, _ = s.stdin.Write(append(raw, '\n'))
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	_, _ = p.stdin.Write(append(raw, '\n'))
 }
 
-// --- stream-json events → chat entries ---
-
-type event struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-	Message *struct {
-		Content []block `json:"content"`
-		Usage   *usage  `json:"usage"`
-	} `json:"message"`
-	Result       string   `json:"result"` // why a failed turn failed, where claude says it here rather than in a message
-	TotalCostUSD *float64 `json:"total_cost_usd"`
-	DurationMS   float64  `json:"duration_ms"`
-	IsError      bool     `json:"is_error"`
-	NumTurns     int      `json:"num_turns"` // result: how often the turn called the model
-	// A system event about compaction: the boundary one carries the metadata,
-	// a status one that failed says why (see onEvent).
-	CompactMeta  *compactMeta `json:"compact_metadata"`
-	CompactRes   string       `json:"compact_result"`
-	CompactError string       `json:"compact_error"`
-}
-
-// usage is what one request to claude was billed for, in tokens. The three
-// input figures together are the context it sent: what was fresh, what was
-// freshly cached, and what was read back from cache.
-type usage struct {
-	Input         int64 `json:"input_tokens"`
-	CacheCreation int64 `json:"cache_creation_input_tokens"`
-	CacheRead     int64 `json:"cache_read_input_tokens"`
-}
-
-func (u *usage) context() int64 { return u.Input + u.CacheCreation + u.CacheRead }
-
-// compactMeta is what claude reports about a compaction it just did.
-type compactMeta struct {
-	Trigger string `json:"trigger"` // auto: the window filled up · manual: someone said /compact
-	Pre     int64  `json:"pre_tokens"`
-	Post    int64  `json:"post_tokens"`
-}
-
-type block struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	Thinking  string          `json:"thinking"`
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Input     map[string]any  `json:"input"`
-	ToolUseID string          `json:"tool_use_id"`
-	Content   json.RawMessage `json:"content"` // a string, or a list of content blocks
-	IsError   bool            `json:"is_error"`
-}
-
-func (s *ChatSession) onEvent(ev *event) {
-	switch ev.Type {
-	case "assistant":
-		if ev.Message == nil {
-			return
-		}
-		// Every message says what the request that produced it sent, which is
-		// the size of the conversation as claude now holds it.
-		if ev.Message.Usage != nil {
-			if n := ev.Message.Usage.context(); n > 0 {
-				s.context = n
-			}
-		}
-		for _, b := range ev.Message.Content {
-			switch b.Type {
-			case "text":
-				// The verdict lives in the agent's last message, so a later one
-				// (without a line of its own) drops what an earlier one said.
-				text, done, bad := parseDone(strings.TrimSpace(b.Text))
-				s.done, s.badDone = done, bad
-				s.limited, s.limitAt = limitOf(b.Text)
-				s.noLogin = s.noLogin || authGone(b.Text)
-				if text = strings.TrimSpace(text); text != "" {
-					s.lastText = text
-					e := s.entry("text")
-					e.Text = text
-					s.opts.OnEntry(e)
-				}
-			case "thinking":
-				if text := strings.TrimSpace(b.Thinking); text != "" {
-					e := s.entry("thinking")
-					e.Text, e.Detail = oneLine(text, 110), clip(text)
-					s.opts.OnEntry(e)
-				}
-			case "tool_use":
-				e := s.entry("tool")
-				e.ID, e.Name = b.ID, b.Name
-				e.Text, e.Arg = toolBits(b.Name, b.Input)
-				e.Req = reqFields(b.Input)
-				if b.ID != "" {
-					s.pending[b.ID] = e
-				}
-				s.opts.OnEntry(e)
-			}
-		}
-	case "user":
-		if ev.Message == nil {
-			return
-		}
-		for _, b := range ev.Message.Content {
-			if b.Type != "tool_result" {
-				continue
-			}
-			text := resultText(b.Content)
-			if text == "" {
-				text = "(no output)"
-			}
-			if e := s.pending[b.ToolUseID]; e != nil && b.ToolUseID != "" {
-				delete(s.pending, b.ToolUseID)
-				e.Res, e.ResDetail, e.Error = oneLine(text, 140), clip(resultText(b.Content)), b.IsError
-				s.opts.OnUpdate(e)
-			} else { // result without a tracked call (shouldn't normally happen)
-				e := s.entry("tool")
-				e.Name, e.Res, e.ResDetail, e.Error = "result", oneLine(text, 140), clip(resultText(b.Content)), b.IsError
-				s.opts.OnEntry(e)
-			}
-		}
-	case "system":
-		switch {
-		case ev.Subtype == "init":
-			s.turnActive.Store(true)
-			s.opts.OnTurnStart()
-		// Compaction: claude replacing everything it remembers with a summary
-		// of it, either because the context window filled up or because
-		// somebody said /compact. It only ever appends to its transcript, so
-		// the save points made before this one still measure the whole
-		// conversation and reverting to one undoes the compaction (see mark).
-		case ev.Subtype == "compact_boundary" && ev.CompactMeta != nil:
-			m := ev.CompactMeta
-			how := "claude's context filled up, so it was compacted"
-			if m.Trigger == "manual" {
-				how = "claude compacted its context on request"
-			}
-			// What the last request sent is no longer what claude holds: the
-			// next request measures that, and until one is made the summary
-			// is the whole of the conversation.
-			s.context, s.summary = 0, m.Post
-			e := s.entry("note")
-			// Claude's own two figures, as it words them. They are not the size
-			// of the window before and after — a request made right after a
-			// compaction sends far more than the second one — so they are given
-			// as what they are and nothing is read into them (see compactNote).
-			e.Text = fmt.Sprintf("%s: %s → %s", how, tokens(m.Pre), tokens(m.Post))
-			e.Detail = compactNote
-			s.opts.OnEntry(e)
-		case ev.CompactRes == "failed":
-			e := s.entry("note")
-			e.Text, e.Error = "compacting claude's context failed", true
-			if why := strings.TrimSpace(ev.CompactError); why != "" {
-				e.Text += ": " + oneLine(why, 200)
-			}
-			s.opts.OnEntry(e)
-		}
-	case "result":
-		s.turnActive.Store(false)
-		// A turn that went fine carries the agent's own last words here, which
-		// may well be about logins: only a failed one is read for the reason.
-		s.noLogin = s.noLogin || (ev.IsError && authGone(ev.Result))
-		total := s.costReported
-		if ev.TotalCostUSD != nil {
-			total = *ev.TotalCostUSD
-		}
-		delta := max(0, total-s.costReported)
-		s.costReported = total
-		secs, cost, held, why := "", "", "", ""
-		if ev.DurationMS > 0 {
-			secs = fmt.Sprintf("%ds", int(ev.DurationMS/1000+0.5))
-		}
-		if delta > 0 {
-			cost = fmt.Sprintf(" · $%.2f", delta)
-		}
-		if s.context > 0 {
-			held = " · " + tokens(s.context) + " in context"
-		}
-		if ev.IsError && ev.Subtype != "" && ev.Subtype != "success" { // an auth failure comes labeled 'success'
-			why = " (" + strings.ReplaceAll(strings.TrimPrefix(ev.Subtype, "error_"), "_", " ") + ")"
-		}
-		e := s.entry("result")
-		e.Error = ev.IsError
-		if ev.IsError {
-			e.Text = "turn failed" + why
-		} else {
-			e.Text = "turn finished"
-		}
-		e.Text += " · " + secs + cost + held
-		s.opts.OnEntry(e)
-		end := TurnEnd{Cost: delta, Context: s.context, Summary: s.summary, Idle: ev.NumTurns == 0, Failed: ev.IsError,
-			Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
-		s.summary, s.lastText, s.done, s.badDone, s.limited, s.limitAt, s.noLogin = 0, "", nil, "", false, time.Time{}, false
-		s.opts.OnTurnEnd(end)
-	}
-}
+// --- what a turn amounts to ---
 
 // resultText flattens a tool result's content (a string or content blocks).
 func resultText(raw json.RawMessage) string {
@@ -498,12 +280,28 @@ func tokens(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
 
-// compactNote is what the compaction note says when it is opened: the two
+// turnLine is the one-line result every turn ends the log with: how long it
+// took, what it cost, and how full the agent's head is now.
+func turnLine(secs float64, cost float64, context int64) string {
+	line := ""
+	if secs > 0 {
+		line += fmt.Sprintf("%ds", int(secs+0.5))
+	}
+	if cost > 0 {
+		line += fmt.Sprintf(" · $%.2f", cost)
+	}
+	if context > 0 {
+		line += " · " + tokens(context) + " in context"
+	}
+	return line
+}
+
+// compactNote is what a compaction note says when it is opened: the two
 // things about it that are not obvious from the line itself.
-const compactNote = `The two figures are claude's own report of the compaction, not the size of its window ` +
+const compactNote = `The two figures are the agent's own report of the compaction, not the size of its window ` +
 	`before and after; what it really holds is what the ring beside the message box shows, from the next turn on.
 
-The agent has forgotten, but the task has not: claude only ever adds to its transcript, so the save points ` +
+The agent has forgotten, but the task has not: it only ever adds to its transcript, so the save points ` +
 	`above still measure the whole conversation. Putting the task back to one — or forking from it — gives the ` +
 	`agent its memory back as it was.`
 
@@ -512,29 +310,46 @@ func str(v any) string {
 	return s
 }
 
-// toolBits gives a tool call's description and main argument, for the one-line rendering.
+// first of these keys the input has, for tools we know nothing else about.
+func firstOf(input map[string]any, keys ...string) any {
+	for _, k := range keys {
+		if v, ok := input[k]; ok && v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+// toolBits gives a tool call's description and main argument, for the one-line
+// rendering. The tools are each agent's own, and are named and shaped a little
+// differently by each, so both spellings of the handful worth rendering
+// specially are read here.
 func toolBits(name string, input map[string]any) (text, arg string) {
 	text = str(input["description"])
+	path := firstOf(input, "file_path", "path")
 	var a any
-	switch name {
-	case "Bash":
+	switch strings.ToLower(name) {
+	case "bash":
 		a = input["command"]
-	case "Edit":
-		a = fmt.Sprintf("%s: %s → %s", str(input["file_path"]), oneLine(input["old_string"], 40), oneLine(input["new_string"], 40))
-	case "Write":
-		a = fmt.Sprintf("%s ← %s", str(input["file_path"]), oneLine(input["content"], 60))
-	case "Grep":
+	case "edit":
+		from, to := str(input["old_string"]), str(input["new_string"])
+		// An agent that takes several replacements in the one call names them
+		// under edits; the first stands for the lot.
+		if edits, ok := input["edits"].([]any); ok && len(edits) > 0 {
+			if first, ok := edits[0].(map[string]any); ok {
+				from, to = str(first["oldText"]), str(first["newText"])
+			}
+		}
+		a = fmt.Sprintf("%s: %s → %s", str(path), oneLine(from, 40), oneLine(to, 40))
+	case "write":
+		a = fmt.Sprintf("%s ← %s", str(path), oneLine(input["content"], 60))
+	case "grep":
 		a = str(input["pattern"])
 		if p := str(input["path"]); p != "" {
 			a = a.(string) + " in " + p
 		}
 	default:
-		for _, k := range []string{"file_path", "path", "pattern", "url", "query", "prompt"} {
-			if v, ok := input[k]; ok && v != nil {
-				a = v
-				break
-			}
-		}
+		a = firstOf(input, "file_path", "path", "pattern", "url", "query", "prompt", "command")
 		if a == nil {
 			var parts []string
 			for _, k := range sortedKeys(input) {
@@ -585,19 +400,19 @@ type Done struct {
 	Changes string `json:"changes,omitempty"` // what this turn changed, for the save point's commit (see mark)
 }
 
-// TurnEnd is what a finished claude turn amounts to for the task.
+// TurnEnd is what a finished agent turn amounts to for the task.
 type TurnEnd struct {
 	Cost    float64   // USD spent since the previous turn
-	Context int64     // tokens the turn's last request sent: what claude remembers now, or 0 when it compacted and sent nothing since
+	Context int64     // tokens the turn's last request sent: what the agent remembers now, or 0 when it compacted and sent nothing since
 	Summary int64     // tokens the turn summarised the conversation down to, when it compacted it
 	Idle    bool      // the model was never called: a /compact's turn, in which nothing was asked of the agent
-	Failed  bool      // claude reported the turn itself as failed
+	Failed  bool      // the agent reported the turn itself as failed
 	Text    string    // the last message of the turn: the reviewer's answer (see review.go)
 	Done    *Done     // the verdict, if the last message carried a usable one
 	Bad     string    // why a TPS-DONE line that was there could not be used
-	Limited bool      // the last message was claude reporting a usage limit
+	Limited bool      // the last message was the agent reporting a usage limit
 	LimitAt time.Time // when that limit resets; zero when it named no time we could read
-	NoLogin bool      // the turn ran into claude not being able to authenticate (see authGone)
+	NoLogin bool      // the turn ran into the agent not being able to authenticate (see authGone)
 }
 
 // parseDone splits a TPS-DONE line off the end of an agent message: the text
@@ -644,65 +459,4 @@ func parseDone(text string) (rest string, done *Done, bad string) {
 func isFence(line string) bool {
 	line = strings.TrimSpace(line)
 	return line == "" || strings.HasPrefix(line, "```")
-}
-
-// --- claude's usage limits ---
-
-// A turn that runs into one of claude's usage limits ends with a message from
-// claude itself — "You've hit your session limit · resets 4:40pm (UTC)" — and
-// a failed result right behind it. TPS reads the reset out of that message and
-// waits for it rather than handing the task to the user (see armLimitL).
-var (
-	limitHit   = regexp.MustCompile(`(?i)you'?ve hit your [a-z' ]*limit\b`)
-	limitReset = regexp.MustCompile(`(?i)\bresets ([^·\n]+)`)
-)
-
-// limitOf reports whether a message is claude saying a usage limit stopped it,
-// and when that limit resets — zero when it names no time, or none we can read.
-func limitOf(text string) (bool, time.Time) {
-	if !limitHit.MatchString(text) {
-		return false, time.Time{}
-	}
-	m := limitReset.FindStringSubmatch(text)
-	if m == nil {
-		return true, time.Time{}
-	}
-	return true, parseReset(strings.TrimSpace(m[1]), time.Now())
-}
-
-// --- claude's login ---
-
-// A turn whose credentials no longer work ends much like one that ran into a
-// limit: a message from claude itself — "Failed to authenticate: OAuth session
-// expired and could not be refreshed" — and a failed result behind it. What
-// needs fixing is the host's login rather than anything about the task, so TPS
-// reads that out and asks for a sign-in where the user is, instead of leaving
-// them to work out what the message meant (see loginExpired). An agent whose
-// own words happen to match — this file's would — is why nothing acts on this
-// without the turn having failed as well: see onTurnEnd and reviewMissing.
-var authWords = regexp.MustCompile(`(?i)failed to authenticate|oauth (session|token) (has )?expired|invalid api key|please run ` + "`?" + `/?(claude )?(auth )?login`)
-
-// authGone reports whether a message is claude saying it could not sign in.
-func authGone(text string) bool { return text != "" && authWords.MatchString(text) }
-
-// parseReset reads the clock claude names in that message: "4:40pm (UTC)", in
-// UTC because that is the zone the process is given (see newChatSession) —
-// claude words these in its own locale and zone, and only the zone is ours to
-// pin. A reset it dates instead ("Mar 5, 4:40pm") is more than a day out,
-// which is no wait TPS takes on anyway, so the clock is all that is read.
-func parseReset(s string, now time.Time) time.Time {
-	s = strings.TrimSuffix(s, " (UTC)")
-	for _, layout := range []string{"3:04pm", "3pm"} { // "4:40pm", and "4pm" on the hour
-		at, err := time.Parse(layout, s)
-		if err != nil {
-			continue
-		}
-		day := now.UTC()
-		at = time.Date(day.Year(), day.Month(), day.Day(), at.Hour(), at.Minute(), 0, 0, time.UTC)
-		if at.Before(day) { // an hour already gone today is tomorrow's
-			at = at.AddDate(0, 0, 1)
-		}
-		return at
-	}
-	return time.Time{}
 }

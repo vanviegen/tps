@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
-// What fills claude's context window, and where it stops filling. Claude's
+// What fills an agent's context window, and where it stops filling: the two
+// things the dashboard's gauge needs, whichever agent the task runs (see
+// Provider.Window). The types are shared; the asking below is claude's. Its
 // `/context` is a local command — no API call, no cost — that prints a table
 // of what its window holds and how much of it is left, so TPS asks for one and
 // reads it. The asking is done by a throwaway claude of its own in the task's
@@ -32,7 +34,7 @@ exec /tps/bin/claude -p --output-format json --dangerously-skip-permissions \
 // one with something else wrong with it.
 const probeTimeout = 90 * time.Second
 
-// ContextPart is one named share of claude's context window: a category
+// ContextPart is one named share of an agent's context window: a category
 // /context breaks it down into, or the conversation itself (see contextL).
 type ContextPart struct {
 	Name   string `json:"name"`
@@ -43,16 +45,16 @@ type ContextPart struct {
 // growing, and what is in the window besides it.
 type ContextWindow struct {
 	Model string        `json:"model"` // the model it was measured for; another model has another window
-	Limit int64         `json:"limit"` // tokens the conversation may reach before claude compacts it
-	Parts []ContextPart `json:"parts"` // what is in there whatever has been said, in claude's own order
+	Limit int64         `json:"limit"` // tokens the conversation may reach before the agent compacts it
+	Parts []ContextPart `json:"parts"` // what is in there whatever has been said, in the agent's own order
 }
 
 // probeContext asks the claude in a container to break its context down.
 func probeContext(c *Container, model, system string) (ContextWindow, bool) {
 	// The default model is claude's own: pass no --model at all (see
-	// newChatSession). Which model the window that comes back was measured for
+	// claudeCLI.Start). Which model the window that comes back was measured for
 	// is the caller's to record, in the words it asked in (see probeContextParts).
-	if model == DefaultModel {
+	if model == defaultModel {
 		model = ""
 	}
 	r, err := runCmd([]string{"podman", "exec",

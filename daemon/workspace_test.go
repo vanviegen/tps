@@ -52,6 +52,7 @@ func TestDropAndPickUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.note("hello") // the chat log lives beside the clone, not in it
+	transcript(t, task, "s.jsonl", "what the agent remembers, likewise")
 	leftover := filepath.Join(task.repoDir(), "scratch.txt")
 	if err := os.WriteFile(leftover, []byte("never committed\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func TestDropAndPickUp(t *testing.T) {
 	if exists(task.repoDir()) {
 		t.Error("the clone survived the merge")
 	}
-	if !exists(task.claudeDir()) || !exists(task.chatFile()) {
+	if !exists(task.agentDir(claudeCLI{})) || !exists(task.chatFile()) {
 		t.Error("the conversation did not survive the merge")
 	}
 
@@ -351,6 +352,7 @@ func TestCloseKeepsAPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.note("before the close")
+	transcript(t, task, "s.jsonl", "what the agent remembers")
 	writeWork(t, task, "a.txt", "one task\n")
 	writeWork(t, task, "new.txt", "new\n")
 	if err := task.Close(); err != nil {
@@ -362,7 +364,7 @@ func TestCloseKeepsAPatch(t *testing.T) {
 	if !strings.HasPrefix(readFile(task.patchFile()), "base "+gitRun(t, origin, "rev-parse", "HEAD")+"\n") {
 		t.Error("the patch does not name its base")
 	}
-	if !exists(task.archiveFile()) || exists(task.chatFile()) || exists(task.claudeDir()) {
+	if !exists(task.archiveFile()) || exists(task.chatFile()) || exists(task.agentDir(claudeCLI{})) {
 		t.Error("the data was not compressed")
 	}
 	changes, err := task.changes()
@@ -387,7 +389,7 @@ func TestCloseKeepsAPatch(t *testing.T) {
 			t.Errorf("%s: %q", name, got)
 		}
 	}
-	if exists(task.patchFile()) || exists(task.archiveFile()) || !exists(task.chatFile()) || !exists(task.claudeDir()) {
+	if exists(task.patchFile()) || exists(task.archiveFile()) || !exists(task.chatFile()) || !exists(task.agentDir(claudeCLI{})) {
 		t.Error("the task's data did not come back out of the archive")
 	}
 	log := readFile(task.chatFile())

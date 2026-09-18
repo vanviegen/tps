@@ -41,9 +41,9 @@ type Manager struct {
 	savedMu sync.Mutex // serialises writing the registry file with reading it back (see quitIfConfigReplaced)
 	saved   []byte     // what the file held when this daemon last wrote or read it
 
-	modelsMu     sync.Mutex // guards the model detection
-	modelsFound  bool
-	modelsFailed bool
+	modelsMu     sync.Mutex          // guards the model detection
+	models       map[string][]string // per provider, what it answered when asked (see refreshModels)
+	modelsFailed map[string]bool     // and for which the failure has been logged
 }
 
 // Identity is who the commits TPS makes are authored by: the git identity of
@@ -178,12 +178,14 @@ func (m *Manager) scheduleRestart() {
 
 func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 	m := &Manager{
-		projects:   map[string]*Project{},
-		dataDir:    filepath.Join(home(), ".local", "share", "tps"),
-		configFile: filepath.Join(home(), ".config", "tps", "projects.json"),
-		hub:        h,
-		saveCh:     make(chan []byte, 1),
-		exit:       exit,
+		projects:     map[string]*Project{},
+		dataDir:      filepath.Join(home(), ".local", "share", "tps"),
+		configFile:   filepath.Join(home(), ".config", "tps", "projects.json"),
+		hub:          h,
+		saveCh:       make(chan []byte, 1),
+		exit:         exit,
+		models:       map[string][]string{},
+		modelsFailed: map[string]bool{},
 	}
 	// A watch is a dashboard holding something open: a task (its chat
 	// streams, its workspace stays up, and VS Code runs in it), or, under the
@@ -245,7 +247,7 @@ func (m *Manager) Start() error {
 	m.publishLogin()
 	go m.parkFinished()
 	go m.refreshModels()
-	go m.ticker(60*time.Second, m.refreshModels) // until claude answers
+	go m.ticker(60*time.Second, m.refreshModels) // until the CLIs answer
 	go m.ticker(60*time.Second, m.sweep)
 	go m.ticker(time.Second, m.quitIfUnused)
 	go m.ticker(time.Second, m.quitIfConfigReplaced)

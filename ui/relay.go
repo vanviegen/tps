@@ -52,7 +52,7 @@ type Link struct {
 	homeDir         string // the daemon user's home there, for showing paths as ~/…
 	protocol        int
 	restarting      bool
-	models          []any  // the models this host's claude offers
+	models          []any  // the models the agents on this host offer
 	modelsError     string // why they are the built-in fallback instead
 	agentPrompt     string // the rules its daemon puts above every agent conversation
 	login           string // what its claude login needs, if anything (see daemon/login.go)

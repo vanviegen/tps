@@ -23,11 +23,11 @@ import (
 // will do.
 //
 // It is the task's one agent slot with another mind in it, not a second agent
-// beside it: the phase says whose turn it is, kick puts the claude the phase
+// beside it: the phase says whose turn it is, kick puts the session the phase
 // asks for in the container (see startSession), and its turn ends in
 // onTurnEnd like any other. So everything that holds a task together already —
 // stopping, budgets, save points, a container that must not be recycled under a
-// running claude, a daemon that restarts — holds here without knowing about it.
+// running agent, a daemon that restarts — holds here without knowing about it.
 // What differs is the prompt it is started with and what is made of its answer.
 
 // loopBackWantedL: a review asking for changes may send the work back to the

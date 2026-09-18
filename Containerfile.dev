@@ -2,7 +2,7 @@
 #
 # TPS builds it with the task's repo clone as the (only) build context, and
 # runs the task in it as uid 1000 with that clone mounted at /work. code-server
-# and claude are mounted in at run time, so nothing here is TPS-specific: use
+# and the agent are mounted in at run time, so nothing here is TPS-specific: use
 # whatever base suits the project, as long as it has bash and git, and a user
 # with uid 1000 who owns a home directory. A CMD line that starts what the
 # project serves gives the dashboard a play button that runs it (as the service

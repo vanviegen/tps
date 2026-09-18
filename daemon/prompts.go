@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// systemPrompt goes to claude's own system prompt (--append-system-prompt, see
-// startScript), so it stands above the agent's whole conversation.
+// systemPrompt goes to the agent's own system prompt (--append-system-prompt, see
+// claudeScript and piScript), so it stands above the agent's whole conversation.
 const systemPrompt = `You are the coding agent of one task in TPS, a kanban manager for AI coding work.
 
 Your cwd /work is a private clone of the project repository. Your output is shown to the

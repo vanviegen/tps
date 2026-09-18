@@ -13,7 +13,7 @@ import (
 // claude keeps one: a JSONL file under the config dir's projects directory.
 func transcript(t *testing.T, task *Task, name string, lines ...string) string {
 	t.Helper()
-	dir := filepath.Join(task.claudeDir(), "projects", "-work")
+	dir := filepath.Join(task.agentDir(claudeCLI{}), "projects", "-work")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestMarkCommits(t *testing.T) {
 	if dirty, _ := dirtyTree(task.repoDir()); dirty {
 		t.Error("the tree is still dirty after the point was taken")
 	}
-	if got := points[0].Mark.Claude["projects/-work/s.jsonl"]; got != 8 {
+	if got := points[0].Mark.Sessions["projects/-work/s.jsonl"]; got != 8 {
 		t.Errorf("the transcript was measured at %d bytes, want 8", got)
 	}
 
@@ -143,7 +143,7 @@ func TestRevert(t *testing.T) {
 	if body := readFile(path); body != "one\ntwo\n" {
 		t.Errorf("the transcript is %q after the revert", body)
 	}
-	if exists(filepath.Join(task.claudeDir(), "projects", "-work", "later.jsonl")) {
+	if exists(filepath.Join(task.agentDir(claudeCLI{}), "projects", "-work", "later.jsonl")) {
 		t.Error("a session that only existed after the point survived the revert")
 	}
 	if points := marks(t, task); len(points) != 1 || points[0].ID != id {
@@ -195,7 +195,7 @@ func TestForkFull(t *testing.T) {
 	if !fork.info.Started {
 		t.Error("the fork does not carry the conversation on")
 	}
-	if body := readFile(filepath.Join(fork.claudeDir(), "projects", "-work", "s.jsonl")); body != "one\ntwo\n" {
+	if body := readFile(filepath.Join(fork.agentDir(claudeCLI{}), "projects", "-work", "s.jsonl")); body != "one\ntwo\n" {
 		t.Errorf("the fork's transcript is %q", body)
 	}
 	if len(fork.info.Pending) != 0 {
@@ -233,7 +233,7 @@ func TestForkFromTheStart(t *testing.T) {
 	if fork.info.Phase != PhaseHuman {
 		t.Errorf("the fork waits in %q, want the human", fork.info.Phase)
 	}
-	if exists(filepath.Join(fork.claudeDir(), "projects", "-work", "s.jsonl")) {
+	if exists(filepath.Join(fork.agentDir(claudeCLI{}), "projects", "-work", "s.jsonl")) {
 		t.Error("the fork kept a transcript from after the point")
 	}
 	if body := readFile(filepath.Join(fork.repoDir(), "a.txt")); body != "one\n" {
@@ -412,7 +412,7 @@ func TestPointWithoutASession(t *testing.T) {
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "what the human wrote\n")
 	task.mark("Human", "")
 	points := marks(t, task)
-	if len(points) != 1 || len(points[0].Mark.Claude) != 0 {
+	if len(points) != 1 || len(points[0].Mark.Sessions) != 0 {
 		t.Fatalf("the point should hold no transcripts: %+v", points)
 	}
 

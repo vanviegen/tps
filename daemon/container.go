@@ -118,7 +118,7 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 #
 # TPS builds it with the task's repo clone as the (only) build context, and
 # runs the task in it as uid 1000 with that clone mounted at /work. code-server
-# and claude are mounted in at run time, so nothing here is TPS-specific: use
+# and the agent are mounted in at run time, so nothing here is TPS-specific: use
 # whatever base suits the project, as long as it has bash and git, and a user
 # with uid 1000 who owns a home directory. A CMD line that starts what the
 # project serves gives the dashboard a play button that runs it (as the service
@@ -192,10 +192,6 @@ func buildImage(tag, containerfile, contextDir string, onLog func(string)) error
 
 const codePort = 9000 // code-server inside the container
 
-// authMount is where the daemon's claude directory, the login every task
-// shares, is in a container (see login.go); the task's own claude dir is /claude.
-const authMount = "/claude-auth"
-
 type Container struct {
 	Name     string
 	CodePort int       // code-server's port, published on the host loopback
@@ -241,17 +237,18 @@ func splitPortSpec(spec string) (port int, proto string) {
 }
 
 type containerOpts struct {
-	name, image, toolbox, repoDir, claudeDir string
-	servicesDir                              string   // the task's services (see services.go), mounted at /services
-	uploadsDir                               string   // what the user attached to its messages (see uploads.go), mounted read-only at /uploads
-	nestDir                                  string   // the task's control directory for its docker socket, see nest.go
-	cacheDir                                 string   // the project's cache directories live in here (see caches)
-	caches                                   []string // container paths the Containerfile declares as caches (see cacheLabel): package and build caches, kept per project on the host and mounted into every task's container, so a task starts warm
+	name, image, toolbox, repoDir string
+	agentDir                      func(p Provider) string // where the task keeps its state for an agent, mounted where that agent expects it (see Provider.Mounts)
+	servicesDir                   string                  // the task's services (see services.go), mounted at /services
+	uploadsDir                    string                  // what the user attached to its messages (see uploads.go), mounted read-only at /uploads
+	nestDir                       string                  // the task's control directory for its docker socket, see nest.go
+	cacheDir                      string                  // the project's cache directories live in here (see caches)
+	caches                        []string                // container paths the Containerfile declares as caches (see cacheLabel): package and build caches, kept per project on the host and mounted into every task's container, so a task starts warm
 }
 
 // ensureContainer makes sure a container by this name, based on this image
-// and toolbox, is running with the task's repo clone mounted at /work and its
-// claude state dir at /claude. Reuses a running match; otherwise replaces.
+// and toolbox, is running with the task's repo clone mounted at /work and an
+// agent state dir for every provider. Reuses a running match; otherwise replaces.
 func ensureContainer(o containerOpts) (*Container, error) {
 	// The socket for sub-containers is served before the container starts, and a container found running gets it too.
 	nest, err := nestFor(o.name, o.nestDir)
@@ -290,14 +287,21 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-e", "DOCKER_BUILDKIT=0", // podman builds without buildkit
 		"-v", o.toolbox + ":/tps:ro",
 		"-v", o.repoDir + ":/work",
-		"-v", o.claudeDir + ":/claude",
 		"-v", o.servicesDir + ":" + servicesMount,
 		// Read-only: what the user attached is theirs, and the agent only reads it.
 		"-v", o.uploadsDir + ":" + uploadsMount + ":ro",
 		"-v", vscode + ":/vscode",
-		"-e", "CLAUDE_CONFIG_DIR=/claude",
-		"-e", "DISABLE_AUTOUPDATER=1", // the toolbox is read-only, and versioned by TPS
 		"-w", "/work",
+	}
+	// Every agent's state directory and login, whichever of them the task's
+	// model turns out to name: the container is made before that is asked, and
+	// a model changed in the settings must not need a new one (see Mounts).
+	for _, p := range providers {
+		dir := o.agentDir(p)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+		args = append(args, p.Mounts(dir)...)
 	}
 	// Each cache directory is one of the project's, named after its path in
 	// the container, and ours to make: uid 1000 in there is us.
@@ -314,15 +318,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	for _, port := range append([]int{codePort}, exposed...) {
 		args = append(args, "-p", fmt.Sprintf("127.0.0.1::%d", port))
 	}
-	// The host's claude login, shared with every task (see login.go): the
-	// daemon's claude directory is where claude in the container keeps its
-	// credentials, while its config dir stays the task's own. The directory, not
-	// the one file, as claude writes it by replacing it and locks beside it.
-	args = append(args, "-v", authDir()+":"+authMount, "-e", "CLAUDE_SECURESTORAGE_CONFIG_DIR="+authMount)
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
-		args = append(args, "-e", "ANTHROPIC_API_KEY")
-	}
-	// The container idles under the toolbox's init: claude, the project's
+	// The container idles under the toolbox's init: the agent, the project's
 	// CMD and code-server are all exec'd into it, so each comes and goes on
 	// its own — VS Code in particular is started when a dashboard holds the
 	// task open and stopped when none does (see StartCode), which must not
