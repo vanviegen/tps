@@ -83,11 +83,17 @@ func seedVscodeDir(dir string) error {
 	return nil
 }
 
-// vscodeDefaults go into settings that don't set them: a dark theme, and no
-// port-forward popups (the ports the Containerfile exposes are what TPS forwards).
+// vscodeDefaults go into settings that don't set them: a dark theme, a terminal
+// instead of the welcome screen when nothing is left open, no secondary side bar,
+// no port-forward popups (the ports the Containerfile exposes are what TPS
+// forwards), and none of the editor's own AI features, as the task's agent is what
+// edits this checkout.
 var vscodeDefaults = map[string]any{
-	"workbench.colorTheme":    "Default Dark Modern",
-	"remote.autoForwardPorts": false,
+	"workbench.colorTheme":                         "Default Dark Modern",
+	"workbench.startupEditor":                      "terminal",
+	"workbench.secondarySideBar.defaultVisibility": "hidden",
+	"remote.autoForwardPorts":                      false,
+	"chat.disableAIFeatures":                       true,
 }
 
 func home() string {
