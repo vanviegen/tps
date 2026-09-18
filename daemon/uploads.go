@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/base64"
 	"fmt"
+	"mime"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -84,6 +85,26 @@ func (t *Task) Attach(files []ChatFile) ([]string, error) {
 		paths[i] = uploadsMount + "/" + name
 	}
 	return paths, nil
+}
+
+// Preview answers with one of the task's attachments as a data URL. A
+// description's files are stored here the moment they are picked, so the
+// dashboard has no copy of its own to show a thumbnail of and asks for this
+// one. Nothing at all where there is no thumbnail to be had — a name that is
+// no attachment of this task (a description may say /uploads/whatever without
+// one) or a file no browser would draw — which the dashboard shows as the
+// file's name rather than as a failure.
+func (t *Task) Preview(name string) string {
+	file := filepath.Join(t.uploadsDir(), uploadName(name))
+	ctype := mime.TypeByExtension(filepath.Ext(file))
+	if !strings.HasPrefix(ctype, "image/") {
+		return ""
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	return "data:" + ctype + ";base64," + base64.StdEncoding.EncodeToString(raw)
 }
 
 // saveUploads stores a message's attachments and returns its text with the

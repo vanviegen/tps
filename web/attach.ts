@@ -221,18 +221,73 @@ export function drawAttachments(pid: string, tid: string, onRemove: (name: strin
 	A(() => {
 		if (!$atts.length) return;
 		A('div display:flex flex-wrap:wrap gap:$2', () => {
-			A.onEach($atts, ($a: any) => {
-				A('div', thumb, () => {
-					S.addTooltip({ tip: uploadPath($a.name) });
-					if ($a.url) A('img', 'src=', $a.url, 'alt=', $a.name);
-					else A('div.doc', () => {
-						fileGlyph({ size: '1.6rem' });
-						A('span text=', $a.name);
-					});
-					S.iconButton({ icon: x, ariaLabel: `Remove ${$a.name}`, attrs: '.small .neutral .del', click: () => onRemove($a.name) });
-				});
+			A.onEach($atts, ($a: any) => drawTile($a.name, () => $a.url, () => onRemove($a.name)));
+		});
+	});
+}
+
+/**
+ * The strip under a description: the attachments its text points at. A
+ * description's files are stored with the task the moment they are picked, so
+ * its text is the whole record of them — the strip is a view of it, and taking
+ * one off takes its path back out of the text.
+ */
+export function drawRefs(pid: string, tid: string, text: () => string, onRemove: (ref: string) => void): void {
+	// The paths are derived into a line of their own — none of them holds a
+	// space — so that the strip is redrawn when what the text points at changes
+	// rather than on every keystroke.
+	const $refs = A.proxy({ value: '' });
+	A(() => { $refs.value = (text().match(refPattern) ?? []).join(' '); });
+	A(() => {
+		if (!$refs.value) return;
+		A('div display:flex flex-wrap:wrap gap:$2', () => {
+			for (const ref of $refs.value.split(' ')) {
+				const name = ref.slice(UPLOADS.length + 1);
+				drawTile(name, () => preview(pid, tid, name), () => onRemove(ref));
+			}
+		});
+	});
+}
+
+const previews = new Map<string, { value: string }>();
+
+/**
+ * The thumbnail of an attachment stored with the task, which this browser has
+ * no bytes of: asked for the first time it is shown, and kept for the page's
+ * life — the strip is drawn again whenever what the text points at changes,
+ * and an attachment never changes under its name. Empty until it arrives, and
+ * for what is no image.
+ */
+function preview(pid: string, tid: string, name: string): string {
+	const key = `${pid}/${tid}/${name}`;
+	if (!previews.has(key)) {
+		const $url = A.proxy({ value: '' });
+		previews.set(key, $url);
+		void cmd('preview', { pid, tid, name }).then(url => {
+			if (typeof url === 'string') $url.value = url;
+		});
+	}
+	return previews.get(key)!.value;
+}
+
+// An attachment path where a word begins, which is how one is written into the
+// text (see insertRef): a path that merely ends in one, `web/uploads/index.ts`,
+// is about the project rather than about an attachment.
+const refPattern = new RegExp(`(?<=^|\\s)${UPLOADS}/[A-Za-z0-9._-]+`, 'g');
+
+/** One attachment in a strip: its thumbnail, or its name while there is none to show. */
+function drawTile(name: string, url: () => string, onRemove: () => void): void {
+	A('div', thumb, () => {
+		S.addTooltip({ tip: uploadPath(name) });
+		A(() => {
+			const src = url();
+			if (src) A('img', 'src=', src, 'alt=', name);
+			else A('div.doc', () => {
+				fileGlyph({ size: '1.6rem' });
+				A('span text=', name);
 			});
 		});
+		S.iconButton({ icon: x, ariaLabel: `Remove ${name}`, attrs: '.small .neutral .del', click: onRemove });
 	});
 }
 

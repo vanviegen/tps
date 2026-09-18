@@ -136,3 +136,21 @@ func TestAttach(t *testing.T) {
 		}
 	}
 }
+
+// A thumbnail is the stored file as a data URL, and nothing outside the
+// uploads directory can be asked for.
+func TestPreview(t *testing.T) {
+	task := uploadsTask(t)
+	if _, err := task.Attach([]ChatFile{file("shot.png", "bytes")}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("bytes")); task.Preview("shot.png") != want {
+		t.Errorf("preview is %q, want %q", task.Preview("shot.png"), want)
+	}
+	if err := os.WriteFile(filepath.Join(task.dir(), "secret.png"), []byte("no"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if url := task.Preview("../secret.png"); url != "" {
+		t.Errorf("a file outside the uploads directory was handed over: %q", url)
+	}
+}

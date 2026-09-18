@@ -705,6 +705,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"openTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
 		"chat":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
 		"attach":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
+		"preview":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
 		"stopAgent":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
 		"rebaseTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),

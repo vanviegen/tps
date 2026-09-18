@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, scanEye, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
-import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
+import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
@@ -459,9 +459,9 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 	// A file dropped, pasted or picked here is stored with the task at once,
 	// the description being written long before it is handed over.
 	const take = (files: File[]) => uploadFiles(pid, tid, files);
-	const box = A('div display:flex flex-direction:column h:100%', () => {
+	const box = A('div display:flex flex-direction:column gap:$2 h:100%', () => {
 		S.textarea({
-			attrs: 'h:100%', inputAttrs: 'flex:1 min-height:0', autoGrow: false, resize: 'none',
+			attrs: 'flex:1 min-height:0', inputAttrs: 'flex:1 min-height:0', autoGrow: false, resize: 'none',
 			placeholder: 'What should the agent do?', value: A.peek($t, 'description') ?? '',
 			suffix: () => attachButton(area, take),
 			input: (e: Event) => {
@@ -470,6 +470,9 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 				store(description);
 			},
 		});
+		// Under the field, what the description points at: the strip takes the
+		// room it needs from the field, which has the rest.
+		drawRefs(pid, tid, () => $t.description ?? '', ref => removeRef(area(), ref));
 	}) as HTMLElement;
 	acceptFiles(box, area, take);
 	// A task with nothing written down yet has nothing on its page but this
