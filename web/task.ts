@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, scanEye, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
@@ -270,7 +270,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		S.autocomplete({
 			label: 'Start after', multi: true, allowCustom: false,
 			placeholder: 'Tasks to wait for…',
-			help: 'The task hands itself to the agent once these are all done or deleted, and its plan is closed. Its workspace is made then, so it holds their merged work.',
+			help: 'The task starts once these are all done or deleted and its plan is closed; its workspace is made then, holding their merged work.',
 			// The tasks it already follows stay listed even when done, so their
 			// chips read as names rather than as numbers.
 			options: () => {
@@ -289,12 +289,12 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		});
 	});
 	S.textline({
-		label: 'Task budget limit (USD)', type: 'number',
-		help: 'The task is parked for you when spending reaches it. Empty: no limit.',
+		label: 'Task budget limit (USD)', type: 'number', placeholder: 'No limit',
+		help: 'The task is parked for you when spending reaches it.',
 		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
 		input: debounce(600, (e: Event) => save({ budget: (e.target as HTMLInputElement).value })),
 	});
-	drawReadyFields(pid, $t, save);
+	drawReadyFields($t, save);
 	// The odd one out: this setting is not the task's but this browser's, so it
 	// goes nowhere near `save` (see notify.ts). Switching it on can be refused —
 	// the browser may not allow notifications — and the box then says so by
@@ -302,8 +302,8 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	S.checkbox({
 		label: 'Ready notifications',
 		help: tid
-			? 'A desktop notification from this browser when the task comes back to you. Kept by the browser, not by the task.'
-			: 'Switch them on for the tasks made here from now on. Kept by the browser, not by the project.',
+			? 'A desktop notification when the task comes back to you. This browser only.'
+			: 'On for the tasks made here from now on. This browser only.',
 		checked: A.peek(() => tid ? notifies(pid, tid) : notifiesByDefault(pid)),
 		change: async (e: Event) => {
 			await (tid ? toggleNotifies(pid, tid) : toggleDefaultNotifies(pid));
@@ -312,6 +312,8 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	});
 }
 
+const BACK_TIP = 'The agent works through what the review asked for, and the work is reviewed again. What the last review still asks for comes to you, in the task’s message box.';
+
 /**
  * What becomes of finished work: one question per moment where it can go more
  * than one way, each answered on its own, and the first answer to each is what
@@ -319,44 +321,53 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
  * where no review is set to happen, because a review asked for by hand (the
  * board's Review column) ends the same way and follows the same answers.
  */
-function drawReadyFields(pid: string, $t: any, save: (patch: object) => void): void {
-	S.select({
-		label: 'When the agent reports the task ready',
-		help: 'Reviewing is a second agent reading the work over against what you asked for, and above all for size: what can be left out, and what the project already does elsewhere. It fixes the small and obvious itself, and either accepts the work or lists what to change.',
-		options: [
-			{ value: 'review', label: 'Have it reviewed' },
-			{ value: 'human', label: 'Assign it to me' },
-			{ value: 'merge', label: 'Merge it' },
-		],
-		bind: {
-			get value() { return $t.onReady ?? 'review'; },
-			set value(onReady: string) { if (onReady) save({ onReady }); },
-		},
+function drawReadyFields($t: any, save: (patch: object) => void): void {
+	drawChoiceField('On agent ready', {
+		review: { icon: scanEye, title: 'Have it reviewed', tip: 'A second agent reads the work over against what you asked for, and above all for size: what can be left out, and what the project already does elsewhere. It fixes the small and obvious itself, and either accepts the work or lists what to change.' },
+		human: { icon: user, title: 'Assign it to me', tip: 'The task comes to you, with its work to look over yourself.' },
+		merge: { icon: gitMerge, title: 'Merge it', tip: 'The work is committed onto the project’s branch as it stands.' },
+	}, {
+		get value() { return $t.onReady ?? 'review'; },
+		set value(onReady: string) { if (onReady) save({ onReady }); },
 	});
-	S.select({
-		label: 'When a review asks for changes',
-		options: [
-			{ value: '0', label: 'Assign it to me' },
-			{ value: '1', label: 'Send it back to the agent, at most once' },
-			{ value: '2', label: 'Send it back to the agent, at most twice' },
-			{ value: '3', label: 'Send it back to the agent, at most three times' },
-		],
-		help: 'Each time, the work is reviewed again. What the last review still asks for comes to you, in the task’s message box.',
-		bind: {
-			get value() { return String($t.reviewLoops ?? 0); },
-			set value(reviewLoops: string) { if (reviewLoops) save({ reviewLoops }); },
-		},
+	drawChoiceField('On review feedback', {
+		'0': { icon: user, title: 'Assign it to me', tip: 'What the review asks for comes to you, in the task’s message box.' },
+		'1': { text: '1×', icon: bot, title: 'Back to the agent, once', tip: BACK_TIP },
+		'2': { text: '2×', icon: bot, title: 'Back to the agent, twice', tip: BACK_TIP },
+		'3': { text: '3×', icon: bot, title: 'Back to the agent, three times', tip: BACK_TIP },
+	}, {
+		get value() { return String($t.reviewLoops ?? 0); },
+		set value(reviewLoops: string) { if (reviewLoops) save({ reviewLoops }); },
 	});
-	S.select({
-		label: 'When a review accepts',
-		options: [
-			{ value: 'human', label: 'Assign it to me' },
-			{ value: 'merge', label: 'Merge it' },
-		],
-		bind: {
-			get value() { return $t.onAccept ?? 'human'; },
-			set value(onAccept: string) { if (onAccept) save({ onAccept }); },
-		},
+	drawChoiceField('On review accept', {
+		human: { icon: user, title: 'Assign it to me', tip: 'The task comes to you, reviewed and ready to merge.' },
+		merge: { icon: gitMerge, title: 'Merge it', tip: 'The work is committed onto the project’s branch as soon as a review accepts it.' },
+	}, {
+		get value() { return $t.onAccept ?? 'human'; },
+		set value(onAccept: string) { if (onAccept) save({ onAccept }); },
+	});
+}
+
+/**
+ * One of the settings above: its choices side by side, answered in a single
+ * click. Each says what it is in its tooltip — a name, and under it what it
+ * comes down to — so the whole question takes one line.
+ */
+function drawChoiceField(label: string, choices: Record<string, { icon: typeof bot; text?: string; title: string; tip: string }>, bind: { value: string }): void {
+	A('div.s-field', () => {
+		A('label text=', label);
+		S.buttonChooser({
+			attrs: 'align-self:flex-start',
+			options: Object.fromEntries(Object.entries(choices).map(([value, choice]) => [value, () => {
+				S.addTooltip({ tip: () => {
+					A('div text=', choice.title);
+					A('div font-size:0.85em fg:$s-muted text=', choice.tip);
+				} });
+				if (choice.text) A('text=', choice.text);
+				choice.icon();
+			}])),
+			bind,
+		});
 	});
 }
 
