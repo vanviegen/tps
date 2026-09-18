@@ -16,6 +16,7 @@ import { branchLabel, hasWorkspace, isFinished, pathTo, selection, taskTitle } f
 S.setDarkMode(true);
 route.interceptLinks();
 bindPalette(); // the keyboard's way around: go to any project or task by name
+bindLastPage(); // and the way back to the page you came from
 watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
 
 /**
@@ -37,6 +38,10 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  *   closes what is open — so `ctrl-L enter` is Close from inside VS Code too,
  *   and the only way out of the project's own checkout without the sidebar.
  *   `ctrl-enter` sends a message or assigns a plan to the agent.
+ * - `ctrl-tab` the page before this one, and again to come back — the two you
+ *   are working between, a keystroke apart. Only where the browser lets go of
+ *   it: Chrome and Safari keep it for their own tabs, Firefox and the
+ *   installed app hand it over.
  *
  * The letters are what the browsers leave: ctrl-shift-N/T/W/Q never arrive at
  * all, A, B, D, O, P and R are bookmarks and windows, C/I/J/K/M open developer
@@ -50,6 +55,21 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  * around it. Taking one back is possible but costs VS Code the key everywhere
  * (see claimKeyInCode in code.ts), which only the palette is worth.
  */
+
+/**
+ * `ctrl-tab`, between the last two pages: the address of the page before this
+ * one is kept as the route changes, and going back to it makes this one the
+ * page before — so the same key returns, and the pair is a toggle.
+ */
+function bindLastPage(): void {
+	let previous = '';
+	let here = '';
+	A(() => {
+		previous = here;
+		here = route.current.path;
+	});
+	S.bindKey('mod+tab', 'Back to the previous page', () => { if (previous) void route.go(previous); });
+}
 
 // The sidebar (see sidebar.ts) and, beside it, whatever the address names.
 // Most of those are the two columns of split.ts. The sidebar's width is a
