@@ -14,9 +14,9 @@ func testManager() *Manager {
 // sends along on top of them.
 func TestCreateTaskDefaults(t *testing.T) {
 	m := testManager()
-	budget := 5.0
+	budget, loops := 5.0, 2
 	p := newProject(m, "project", &ProjectInfo{Dir: "/tmp/project", Name: "project",
-		Defaults: TaskDefaults{Model: "opus", ReviewModel: "haiku", OnReady: AnswerReview, ReviewLoops: 2, Budget: &budget}})
+		Defaults: TaskDefaults{Model: "opus", ReviewModel: "haiku", OnReady: AnswerReview, ReviewLoops: &loops, Budget: &budget}})
 	m.projects[p.pid] = p
 
 	tid, err := p.CreateTask(map[string]any{"description": "do it"})
@@ -27,7 +27,7 @@ func TestCreateTaskDefaults(t *testing.T) {
 	if info.Model != "opus" || info.Budget == nil || *info.Budget != 5 {
 		t.Errorf("defaults not copied: %+v", info)
 	}
-	if info.ReviewModel != "haiku" || info.OnReady != AnswerReview || info.ReviewLoops != 2 {
+	if info.ReviewModel != "haiku" || info.OnReady != AnswerReview || reviewLoops(info.ReviewLoops) != 2 {
 		t.Errorf("the review settings are defaults too: %+v", info)
 	}
 	// The copy is the task's own: raising its budget is not raising the default.
@@ -41,7 +41,7 @@ func TestCreateTaskDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	info = p.info.Tasks[tid]
-	if info.Model != "haiku" || info.Budget == nil || *info.Budget != 1.5 || info.OnReady != AnswerMerge || info.ReviewLoops != 1 {
+	if info.Model != "haiku" || info.Budget == nil || *info.Budget != 1.5 || info.OnReady != AnswerMerge || reviewLoops(info.ReviewLoops) != 1 {
 		t.Errorf("the task's own settings should win: %+v", info)
 	}
 }

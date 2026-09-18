@@ -319,15 +319,16 @@ const BACK_TIP = 'The agent works through what the review asked for, and the wor
 
 /**
  * What becomes of finished work: one question per moment where it can go more
- * than one way, each answered on its own, and the first answer to each is what
- * a task does when nothing is said. The two about the review are asked even
- * where no review is set to happen, because a review asked for by hand (the
- * board's Review column) ends the same way and follows the same answers.
+ * than one way, each answered on its own, and each with the answer a task that
+ * says nothing follows already filled in (the daemon's defaults, repeated
+ * here). The two about the review are asked even where no review is set to
+ * happen, because a review asked for by hand (the board's Review column) ends
+ * the same way and follows the same answers.
  */
 function drawReadyFields($t: any, save: (patch: object) => void): void {
 	drawChoiceField('On agent ready', {
-		review: { icon: scanEye, title: 'Have it reviewed', tip: 'A second agent reads the work over against what you asked for, and above all for size: what can be left out, and what the project already does elsewhere. It fixes the small and obvious itself, and either accepts the work or lists what to change.' },
 		human: { icon: user, title: 'Assign it to me', tip: 'The task comes to you, with its work to look over yourself.' },
+		review: { icon: scanEye, title: 'Have it reviewed', tip: 'A second agent reads the work over against what you asked for, and above all for size: what can be left out, and what the project already does elsewhere. It fixes the small and obvious itself, and either accepts the work or lists what to change.' },
 		merge: { icon: gitMerge, title: 'Merge it', tip: 'The work is committed onto the project’s branch as it stands.' },
 	}, {
 		get value() { return $t.onReady ?? 'review'; },
@@ -338,8 +339,9 @@ function drawReadyFields($t: any, save: (patch: object) => void): void {
 		'1': { text: '1×', icon: bot, title: 'Back to the agent, once', tip: BACK_TIP },
 		'2': { text: '2×', icon: bot, title: 'Back to the agent, twice', tip: BACK_TIP },
 		'3': { text: '3×', icon: bot, title: 'Back to the agent, three times', tip: BACK_TIP },
+		'10': { text: '10×', icon: bot, title: 'Back to the agent, ten times', tip: BACK_TIP },
 	}, {
-		get value() { return String($t.reviewLoops ?? 0); },
+		get value() { return String($t.reviewLoops ?? 1); },
 		set value(reviewLoops: string) { if (reviewLoops) save({ reviewLoops }); },
 	});
 	drawChoiceField('On review accept', {

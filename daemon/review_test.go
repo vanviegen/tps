@@ -66,10 +66,16 @@ func TestUserSaid(t *testing.T) {
 // task with no turn left to pay for sends nothing back either.
 func TestLoopBackWanted(t *testing.T) {
 	task, _ := testTask(t)
+	if !task.loopBackWantedL() {
+		t.Error("a task that says nothing sends the work back once")
+	}
+	none := 0
+	task.info.ReviewLoops = &none
 	if task.loopBackWantedL() {
 		t.Error("a task that sends nothing back should not")
 	}
-	task.info.ReviewLoops = 2
+	two := 2
+	task.info.ReviewLoops = &two
 	if !task.loopBackWantedL() {
 		t.Error("the first loop back should run")
 	}
@@ -92,7 +98,7 @@ func TestAnswers(t *testing.T) {
 		t.Error("a task that says nothing has its work read over and then waits for its user")
 	}
 	task.applyL(map[string]any{"onReady": "merge", "onAccept": "merge", "reviewLoops": "2"})
-	if task.onReadyL() != AnswerMerge || task.onAcceptL() != AnswerMerge || task.info.ReviewLoops != 2 {
+	if task.onReadyL() != AnswerMerge || task.onAcceptL() != AnswerMerge || reviewLoops(task.info.ReviewLoops) != 2 {
 		t.Errorf("the answers a dashboard sends: %+v", task.info)
 	}
 	task.applyL(map[string]any{"onReady": "review"})
@@ -105,12 +111,17 @@ func TestAnswers(t *testing.T) {
 }
 
 // A loop-back limit arrives as a number or as the text of one, and only a
-// count survives.
+// count is an answer at all.
 func TestParseLoops(t *testing.T) {
-	cases := map[any]int{3.0: 3, "2": 2, "": 0, "-1": 0, 99.0: maxReviewLoops, "nonsense": 0}
+	cases := map[any]int{3.0: 3, "2": 2, "-1": 0, 99.0: maxReviewLoops}
 	for raw, want := range cases {
-		if got := parseLoops(raw); got != want {
-			t.Errorf("parseLoops(%v) = %d, want %d", raw, got, want)
+		if got, ok := parseLoops(raw); !ok || got != want {
+			t.Errorf("parseLoops(%v) = %d, %v, want %d", raw, got, ok, want)
+		}
+	}
+	for _, raw := range []any{"", "nonsense", nil, true} {
+		if got, ok := parseLoops(raw); ok {
+			t.Errorf("parseLoops(%v) = %d, %v, want no answer", raw, got, ok)
 		}
 	}
 }
@@ -124,6 +135,8 @@ func TestFinishReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	task.info.Phase, task.info.CommitMessage = PhaseReview, "Tidy the log"
+	none := 0
+	task.info.ReviewLoops = &none // no round to send the work back in
 
 	task.finishReview(TurnEnd{Text: "- the naming is off"})
 	if task.info.Phase != PhaseHuman {

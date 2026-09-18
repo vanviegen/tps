@@ -34,7 +34,7 @@ import (
 // agent once more. The loops are counted per thing the user asked for (see
 // SendChat), and a task that has spent its budget has no turn left to send.
 func (t *Task) loopBackWantedL() bool {
-	return t.info.ReviewLoop < t.info.ReviewLoops && !t.overBudgetL()
+	return t.info.ReviewLoop < reviewLoops(t.info.ReviewLoops) && !t.overBudgetL()
 }
 
 // setReviewL records the feedback that is waiting for the user, which the
@@ -127,7 +127,7 @@ func (t *Task) finishReview(end TurnEnd) {
 	if !accepted {
 		if t.loopBackWantedL() {
 			t.info.ReviewLoop++
-			loop, loops := t.info.ReviewLoop, t.info.ReviewLoops
+			loop, loops := t.info.ReviewLoop, reviewLoops(t.info.ReviewLoops)
 			t.setPhaseL(PhaseAgent) // the work is the agent's again, so the kick below sends it in
 			t.unlock()
 			t.note(fmt.Sprintf("the review asks for changes; sending the agent back in (%d of %d)", loop, loops))

@@ -70,12 +70,14 @@ const (
 	AnswerReview Answer = "review" // have a second agent read the work over first
 )
 
-// What a task that says nothing does: work an agent calls finished is read over
-// before anyone is asked to look at it, and what the review makes of it is the
-// user's to act on.
+// What a task that says nothing does: work an agent calls finished is read
+// over before anyone is asked to look at it, a review asking for changes sends
+// the work back to the agent once, and what a review makes of it after that is
+// the user's to act on.
 const (
-	defaultOnReady  = AnswerReview
-	defaultOnAccept = AnswerHuman
+	defaultOnReady     = AnswerReview
+	defaultOnAccept    = AnswerHuman
+	defaultReviewLoops = 1
 )
 
 // parseAnswer reads an answer as it arrives from a dashboard, and reports
@@ -100,7 +102,7 @@ type TaskInfo struct {
 	Model         string         `json:"model"`
 	OnReady       Answer         `json:"onReady,omitempty"`     // what becomes of work the agent reports ready (see review.go)
 	OnAccept      Answer         `json:"onAccept,omitempty"`    // and of work a review accepts
-	ReviewLoops   int            `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent
+	ReviewLoops   *int           `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent; nil is defaultReviewLoops
 	ReviewLoop    int            `json:"reviewLoop,omitempty"`  // how often it has, since the user last said something
 	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is DefaultModel
 	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
@@ -230,6 +232,14 @@ func (t *Task) hasWorkspace() bool { return exists(filepath.Join(t.repoDir(), ".
 func (t *Task) onReadyL() Answer  { return cmp.Or(t.info.OnReady, defaultOnReady) }
 func (t *Task) onAcceptL() Answer { return cmp.Or(t.info.OnAccept, defaultOnAccept) }
 
+// reviewLoops: how often a loop-back limit lets a review send the work back.
+func reviewLoops(loops *int) int {
+	if loops == nil {
+		return defaultReviewLoops
+	}
+	return *loops
+}
+
 // conversationPart names the share of the window the conversation itself takes:
 // the one part claude does not name, because it is everything it did not.
 const conversationPart = "This conversation"
@@ -283,7 +293,7 @@ func (t *Task) publishL() {
 	t.pubL("model", t.info.Model)
 	t.pubL("onReady", string(t.onReadyL()))
 	t.pubL("onAccept", string(t.onAcceptL()))
-	t.pubL("reviewLoops", t.info.ReviewLoops)
+	t.pubL("reviewLoops", reviewLoops(t.info.ReviewLoops))
 	t.pubL("reviewModel", nonEmpty(t.info.ReviewModel))
 	t.pubL("review", nonEmpty(t.info.Review))
 	t.pubL("phase", t.info.Phase)
@@ -366,19 +376,24 @@ func parseBudget(raw any) *float64 {
 // maxReviewLoops caps how often a review may send the work back: a limit is
 // there to end the back-and-forth, and one this long has stopped being
 // something to leave running.
-const maxReviewLoops = 3
+const maxReviewLoops = 10
 
 // parseLoops reads that limit as it arrives from a dashboard: a number or the
-// text of one. Anything that is not a count means none.
-func parseLoops(raw any) int {
+// text of one, and reports whether it was a count at all. Anything that is not
+// leaves the limit as it stands.
+func parseLoops(raw any) (int, bool) {
 	var loops float64
 	switch v := raw.(type) {
 	case float64:
 		loops = v
 	case string:
-		fmt.Sscanf(strings.TrimSpace(v), "%g", &loops)
+		if n, _ := fmt.Sscanf(strings.TrimSpace(v), "%g", &loops); n != 1 {
+			return 0, false
+		}
+	default:
+		return 0, false
 	}
-	return min(max(int(loops), 0), maxReviewLoops)
+	return min(max(int(loops), 0), maxReviewLoops), true
 }
 
 // optional turns a nil pointer into nil (deleting the field) and otherwise the value.
@@ -387,6 +402,16 @@ func optional[T any](v *T) any {
 		return nil
 	}
 	return *v
+}
+
+// copyPtr: a pointer setting of one's own, so changing it leaves the setting
+// it was copied from alone.
+func copyPtr[T any](v *T) *T {
+	if v == nil {
+		return nil
+	}
+	c := *v
+	return &c
 }
 
 func (t *Task) setStatusL(status WorkStatus, detail string) {
@@ -609,8 +634,8 @@ func (t *Task) applyL(partial map[string]any) {
 	if answer, ok := parseAnswer(partial["onAccept"], AnswerHuman, AnswerMerge); ok {
 		t.info.OnAccept = answer
 	}
-	if raw, ok := partial["reviewLoops"]; ok {
-		t.info.ReviewLoops = parseLoops(raw)
+	if loops, ok := parseLoops(partial["reviewLoops"]); ok {
+		t.info.ReviewLoops = &loops
 	}
 	if raw, ok := partial["budget"]; ok {
 		t.info.Budget = parseBudget(raw)

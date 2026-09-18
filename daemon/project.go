@@ -22,7 +22,7 @@ type TaskDefaults struct {
 	ReviewModel string   `json:"reviewModel,omitempty"`
 	OnReady     Answer   `json:"onReady,omitempty"`
 	OnAccept    Answer   `json:"onAccept,omitempty"`
-	ReviewLoops int      `json:"reviewLoops,omitempty"`
+	ReviewLoops *int     `json:"reviewLoops,omitempty"`
 	Budget      *float64 `json:"budget,omitempty"`
 }
 
@@ -328,8 +328,8 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		if answer, ok := parseAnswer(defaults["onAccept"], AnswerHuman, AnswerMerge); ok {
 			d.OnAccept = answer
 		}
-		if loops, ok := defaults["reviewLoops"]; ok {
-			d.ReviewLoops = parseLoops(loops)
+		if loops, ok := parseLoops(defaults["reviewLoops"]); ok {
+			d.ReviewLoops = &loops
 		}
 		if budget, ok := defaults["budget"]; ok {
 			d.Budget = parseBudget(budget)
@@ -350,7 +350,7 @@ func (p *Project) pubDefaults() {
 	p.pubDefault("reviewModel", d.ReviewModel)
 	p.pubDefault("onReady", string(cmp.Or(d.OnReady, defaultOnReady)))
 	p.pubDefault("onAccept", string(cmp.Or(d.OnAccept, defaultOnAccept)))
-	p.pubDefault("reviewLoops", d.ReviewLoops)
+	p.pubDefault("reviewLoops", reviewLoops(d.ReviewLoops))
 	p.pubDefault("budget", optional(d.Budget))
 }
 
@@ -370,11 +370,7 @@ func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	// partial names wins.
 	d := p.info.Defaults // a copy, so the task's settings are its own
 	info := &TaskInfo{Model: d.Model, ReviewModel: d.ReviewModel, OnReady: d.OnReady, OnAccept: d.OnAccept,
-		ReviewLoops: d.ReviewLoops, Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
-	if d.Budget != nil {
-		budget := *d.Budget
-		info.Budget = &budget
-	}
+		ReviewLoops: copyPtr(d.ReviewLoops), Budget: copyPtr(d.Budget), Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t
