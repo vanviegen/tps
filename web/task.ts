@@ -218,6 +218,9 @@ export async function addTask(pid: string): Promise<void> {
 	route.go(pathTo(pid, created.tid as string));
 }
 
+/** What the review model reads as when the task has none of its own. */
+const SAME_MODEL = 'Same as agent model';
+
 /**
  * The models to choose from for one of the task's two model settings: what the
  * agents on the project's host offer, each named by the one it belongs to,
@@ -259,11 +262,16 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 			set value(model: string) { if (model) save({ model }); },
 		},
 	}));
+	// The review model's first option is no model at all: the reviewer then runs
+	// on whatever the agent does, which is what a task starts out with. It is
+	// stored as no model, and set in italics apart from the ones that name one.
 	A(() => S.autocomplete({
-		label: 'Review model', options: () => modelOptions(pid, $t, 'reviewModel'), allowCustom: false, help: modelsError(pid) || undefined,
+		label: 'Review model', options: () => [SAME_MODEL, ...modelOptions(pid, $t, 'reviewModel')],
+		allowCustom: false, help: modelsError(pid) || undefined,
+		inputAttrs: $t.reviewModel ? undefined : 'font-style:italic',
 		bind: {
-			get value() { return $t.reviewModel ?? 'claude: default'; },
-			set value(model: string) { if (model) save({ reviewModel: model }); },
+			get value() { return $t.reviewModel || SAME_MODEL; },
+			set value(model: string) { if (model) save({ reviewModel: model === SAME_MODEL ? '' : model }); },
 		},
 	}));
 	// Only while the task is in Plan: following others is how it leaves Plan,

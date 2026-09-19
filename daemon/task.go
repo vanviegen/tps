@@ -104,7 +104,7 @@ type TaskInfo struct {
 	OnAccept      Answer         `json:"onAccept,omitempty"`    // and of work a review accepts
 	ReviewLoops   *int           `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent; nil is defaultReviewLoops
 	ReviewLoop    int            `json:"reviewLoop,omitempty"`  // how often it has, since the user last said something
-	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is DefaultModel
+	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is the task's own model
 	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
 	Phase         Phase          `json:"phase"`
 	Started       bool           `json:"started,omitempty"`       // the agent has a session in the task's state dir to pick back up
@@ -2194,7 +2194,7 @@ func (t *Task) startSession() (Session, error) {
 	// The reviewer is the same machinery with another mind in it: its own
 	// system prompt and model, and a session that is nobody's (see review.go).
 	if t.sessionReview {
-		agent, opts.Model = splitModel(cmp.Or(t.info.ReviewModel, DefaultModel))
+		agent, opts.Model = splitModel(cmp.Or(t.info.ReviewModel, t.info.Model))
 		opts.System, opts.Review, opts.Resume = reviewSystem, true, false
 	}
 	if t.info.Budget != nil {

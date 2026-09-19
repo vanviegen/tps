@@ -92,9 +92,6 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if info.Defaults.Model == "" {
 		info.Defaults.Model = DefaultModel
 	}
-	if info.Defaults.ReviewModel == "" {
-		info.Defaults.ReviewModel = DefaultModel
-	}
 	if !colorRe.MatchString(info.Color) {
 		info.Color = m.pickColorL()
 	}
@@ -319,7 +316,8 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		if model, ok := defaults["model"].(string); ok && model != "" {
 			d.Model = model
 		}
-		if model, ok := defaults["reviewModel"].(string); ok && model != "" {
+		// Empty is a setting of its own here: the reviewer takes the task's model.
+		if model, ok := defaults["reviewModel"].(string); ok {
 			d.ReviewModel = model
 		}
 		if answer, ok := parseAnswer(defaults["onReady"], AnswerHuman, AnswerReview, AnswerMerge); ok {
