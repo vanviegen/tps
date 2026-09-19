@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rebuild and restart tps whenever a .go file changes.
+# Rebuild and restart tps whenever a .go or .ts file changes.
 cd "$(dirname "$0")"
 trap 'kill $pid 2>/dev/null; exit' INT TERM
 
@@ -10,6 +10,6 @@ while true; do
     ./tps -no-open &
     pid=$!
   fi
-  inotifywait -qq -e modify,create,delete,move --include '\.go$' $(go list -f '{{.Dir}}' ./...)
+  inotifywait -qq -e modify,create,delete,move --include '\.(go|ts)$' $(go list -f '{{.Dir}}' ./...) web
   [ -n "$pid" ] && kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null
 done
