@@ -83,10 +83,9 @@ func TestHelpers(t *testing.T) {
 // The TPS-DONE line: stripped from the message, and carried to the turn's end.
 func TestDoneLine(t *testing.T) {
 	cases := []struct {
-		in, rest, next, msg, bad string
+		in, rest, next, bad string
 	}{
 		{in: "All set.\n\nTPS-DONE: {\"next\": \"user\"}", rest: "All set.", next: "user"},
-		{in: "TPS-DONE: {\"next\":\"merge\",\"message\":\"Sum\\n\\nDetail\"}", next: "merge", msg: "Sum\n\nDetail"},
 		{in: "Rebuilding.\nTPS-DONE: {\n  \"next\": \"reload\"\n}", rest: "Rebuilding.", next: "reload"},
 		{in: "a\nTPS-DONE: {\"next\": \"user\"}\nb", rest: "a", bad: "the JSON after it could not be read"}, // not the end
 		{in: "```\nTPS-DONE: {\"next\": \"user\"}\n```", next: "user"},
@@ -98,12 +97,12 @@ func TestDoneLine(t *testing.T) {
 	}
 	for _, c := range cases {
 		rest, done, bad := parseDone(c.in)
-		next, msg := "", ""
+		next := ""
 		if done != nil {
-			next, msg = done.Next, done.Message
+			next = done.Next
 		}
-		if rest != c.rest || next != c.next || msg != c.msg || bad != c.bad {
-			t.Errorf("parseDone(%q) = %q, %q/%q, %q", c.in, rest, next, msg, bad)
+		if rest != c.rest || next != c.next || bad != c.bad {
+			t.Errorf("parseDone(%q) = %q, %q, %q", c.in, rest, next, bad)
 		}
 	}
 
@@ -123,12 +122,12 @@ func TestDoneLine(t *testing.T) {
 		}
 		s.onEvent(&ev)
 	}
-	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Done.\n\nTPS-DONE: {\"next\": \"merge\", \"message\": \"Do a thing\"}"}]}}`)
+	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Done.\n\nTPS-DONE: {\"next\": \"merge\"}"}]}}`)
 	feed(`{"type":"result","total_cost_usd":0.01,"duration_ms":1000}`)
 	if len(entries) != 2 || entries[0].Text != "Done." {
 		t.Fatalf("entries: %+v", entries)
 	}
-	if end.Done == nil || end.Done.Next != "merge" || end.Done.Message != "Do a thing" {
+	if end.Done == nil || end.Done.Next != "merge" {
 		t.Fatalf("verdict: %+v", end)
 	}
 	// A later message without a line of its own drops the earlier verdict, and

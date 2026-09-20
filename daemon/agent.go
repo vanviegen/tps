@@ -396,7 +396,6 @@ const doneMarker = "TPS-DONE:"
 // Done is an agent's verdict on its turn.
 type Done struct {
 	Next    string `json:"next"`              // user | merge | reload
-	Message string `json:"message,omitempty"` // the commit message, with next=merge
 	Changes string `json:"changes,omitempty"` // what this turn changed, for the save point's commit (see mark)
 }
 

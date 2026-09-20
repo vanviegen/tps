@@ -32,8 +32,7 @@ import (
 
 // Mark is one save point, carried by the chat entry that shows it.
 type Mark struct {
-	Commit  string `json:"commit"`            // the task clone's HEAD at the point
-	Message string `json:"message,omitempty"` // the commit message the task was proposing then, if any
+	Commit string `json:"commit"` // the task clone's HEAD at the point
 	// Transcript, relative to the agent's state dir → the length it had. The
 	// JSON name is the one every save point on disk carries: a point whose
 	// lengths cannot be read back deletes transcripts instead of cutting them.
@@ -199,11 +198,7 @@ func (t *Task) mark(by, summary string) {
 	// call ids entries otherwise carry cannot collide with it.
 	e.ID = "mark-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	e.Text = message
-	t.lock()
-	m.Message = t.info.CommitMessage
 	e.Mark = m
-	t.p.m.saveL()
-	t.unlock()
 	t.addEntry(e)
 	go t.refreshChanges()
 }
@@ -334,7 +329,9 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 		t.loadChat()
 	}
 	t.lock()
-	t.info.CommitMessage = point.Mark.Message
+	// The commit message is not put back here: it is a file of the tree the
+	// point holds, and the refresh below reads and publishes it (see
+	// commitMessageFile).
 	t.info.Ready = false
 	t.info.Conflicts = nil
 	t.info.Pending = nil // what was waiting was waiting for a turn that is now undone
@@ -414,9 +411,6 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	title := t.p.forkTitleL(src.Title)
 	f := t.p.newForkL(&src, title)
 	t.unlock()
-	// What the fork's one commit is called: the merge message the task was
-	// proposing at the point, or the one it is proposing now, or its name.
-	message := cmp.Or(strings.TrimSpace(mark.Message), strings.TrimSpace(src.CommitMessage), title)
 	if err := os.MkdirAll(f.dir(), 0o755); err != nil {
 		return f.tid, err
 	}
@@ -459,13 +453,14 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	if err := f.ensureWorkspace(); err != nil {
 		return f.tid, err
 	}
-	// One commit of the work, as the fork's starting point.
+	// One commit of the work, as the fork's starting point, under the message
+	// the work came with.
 	if f.hasWorkspace() {
 		if _, err := git(f.repoDir(), "add", "-A"); err != nil {
 			return f.tid, err
 		}
 		if !gitOK(f.repoDir(), "diff", "--cached", "--quiet") {
-			if _, err := git(f.repoDir(), "commit", "--no-verify", "-m", message); err != nil {
+			if _, err := git(f.repoDir(), "commit", "--no-verify", "-m", cmp.Or(f.commitMessage(), title)); err != nil {
 				return f.tid, err
 			}
 		}

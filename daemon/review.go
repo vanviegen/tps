@@ -9,10 +9,9 @@ import (
 
 // The review phase: work an agent reports ready is read over by a second agent
 // before it is handed on. That agent is given the change as a diff against the
-// commit the task grew from, the commit message proposed for it, and everything
-// the user asked for in their own words; it answers with "Accept" or with a
-// list of what must change, and may fix the small and obvious itself as it
-// goes.
+// commit the task grew from, and everything the user asked for in their own
+// words; it answers with "Accept" or with a list of what must change, and may
+// fix the small and obvious itself as it goes.
 //
 // Three settings say what becomes of finished work, one for each moment where
 // it can go more than one way: when the agent reports it ready (assign it to
@@ -65,12 +64,6 @@ func (t *Task) StartReview() error {
 	// Whatever is in the tree is not the reviewer's doing, and becomes a save
 	// point of its own before it starts (see mark).
 	t.mark("Human", "")
-	t.lock()
-	if strings.TrimSpace(t.info.CommitMessage) == "" {
-		t.info.CommitMessage = t.info.Title
-		t.p.m.saveL()
-	}
-	t.unlock()
 	t.beginReview()
 	return nil
 }
@@ -89,11 +82,10 @@ func (t *Task) beginReview() {
 	}
 	said := t.userSaid()
 	t.lock()
-	message := t.info.CommitMessage
 	t.setReviewL("") // what is about to be said replaces what was said before
 	t.setPhaseL(PhaseReview)
 	t.unlock()
-	prompt := reviewPrompt(base, message, said)
+	prompt := reviewPrompt(base, said)
 	// The note carries the whole of what the reviewer is given, so that the
 	// one thing in the log with no conversation behind it can still be read in
 	// full: opening it is how you see what this verdict was formed on.
@@ -144,10 +136,9 @@ func (t *Task) finishReview(end TurnEnd) {
 		return
 	}
 	if t.onAcceptL() == AnswerMerge {
-		msg := t.info.CommitMessage
 		t.unlock()
 		t.note("the review accepts the work; merging")
-		_ = t.Merge(msg)
+		_ = t.Merge("")
 		return
 	}
 	t.noteReadyL("the review accepts the work; the task is ready to merge")

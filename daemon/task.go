@@ -108,7 +108,7 @@ type TaskInfo struct {
 	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
 	Phase         Phase          `json:"phase"`
 	Started       bool           `json:"started,omitempty"`       // the agent has a session in the task's state dir to pick back up
-	CommitMessage string         `json:"commitMessage,omitempty"` // the message the agent proposed for the merge, last time it reported one
+	CommitMessage string         `json:"commitMessage,omitempty"` // what .tps-commit-message says, for the dashboard to show (see commitMessageFile)
 	Ready         bool           `json:"ready,omitempty"`         // that report still stands: nothing has been asked of the task since (see noteReadyL)
 	Spent         float64        `json:"spent,omitempty"`         // USD spent on agent runs so far
 	Budget        *float64       `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
@@ -178,7 +178,7 @@ type Task struct {
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
-	doneNudges    int         // turns in a row the agent was sent back in for a missing TPS-DONE line
+	doneNudges    int         // turns in a row the agent was sent back in for what its turn left out
 	limitTimer    *time.Timer // running while the task waits out a usage limit (see armLimitL)
 	limitWaits    int         // waits in a row that ran straight into the limit again
 	chatMu        sync.Mutex
@@ -1084,6 +1084,22 @@ func (t *Task) Close() error {
 	return nil
 }
 
+// commitMessageFile is where the agent keeps the message for the commit its
+// task will become: a file in the workspace, so that it says what the whole
+// task has done rather than what its last turn did, and so that the user and
+// the reviewer can edit it like any other part of the change. Merging writes
+// it into the commit and removes it, so it never reaches the default branch.
+const commitMessageFile = ".tps-commit-message"
+
+// commitMessage reads what the workspace proposes as its commit message.
+func (t *Task) commitMessage() string {
+	data, err := os.ReadFile(filepath.Join(t.repoDir(), commitMessageFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // Merge replays the workspace's work onto the latest default branch (see
 // replant), commits it as one commit, and fast-forwards the project repo. The
 // task sits in the merge phase meanwhile: conflicts are handed to the task's
@@ -1097,15 +1113,17 @@ func (t *Task) Merge(message string) error {
 		return errors.New("The task has no workspace to merge: it is still in Plan, or finished already")
 	}
 	t.stopAgent()
+	// A message given here — the user's, from the merge dialog — goes into the
+	// workspace's file, so that it is still the one place the message lives:
+	// what the dashboard shows, and what an agent sent in to resolve conflicts
+	// reads and amends (see commitMessageFile).
+	if message = strings.TrimSpace(message); message != "" {
+		if err := os.WriteFile(filepath.Join(repo, commitMessageFile), []byte(message+"\n"), 0o644); err != nil {
+			return err
+		}
+	}
 	t.lock()
-	message = strings.TrimSpace(message)
-	if message == "" {
-		message = strings.TrimSpace(t.info.CommitMessage)
-	}
-	if message == "" {
-		message = strings.TrimSpace(t.info.Title)
-	}
-	t.info.CommitMessage = message
+	message = cmp.Or(message, t.commitMessage(), strings.TrimSpace(t.info.Title))
 	t.setPhaseL(PhaseMerge)
 	t.unlock()
 	err := t.merge(repo, message)
@@ -1131,7 +1149,7 @@ func (t *Task) merge(repo, message string) error {
 		t.note(fmt.Sprintf("merging onto the latest %s hit conflicts in %s; sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
 		t.lock()
 		t.dropPendingL("conflicts") // the prompt says it
-		prompt := conflictPrompt(branch, t.info.CommitMessage, conflicts)
+		prompt := conflictPrompt(branch, conflicts)
 		t.unlock()
 		t.kick(prompt) // it comes back through onTurnEnd
 		return nil
@@ -1142,6 +1160,11 @@ func (t *Task) merge(repo, message string) error {
 		return err
 	} else if len(marked) > 0 {
 		return fmt.Errorf("conflict markers are left in %s", strings.Join(marked, ", "))
+	}
+	// The file that carried the message is not the project's: it names the
+	// commit below and goes no further.
+	if err := os.Remove(filepath.Join(repo, commitMessageFile)); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	if _, err := git(repo, "add", "-A"); err != nil {
 		return err
@@ -1763,9 +1786,18 @@ func (t *Task) refreshChanges() {
 	t.refreshing = true
 	t.unlock()
 	changes, err := t.changes()
+	message := ""
+	if t.hasWorkspace() {
+		message = t.commitMessage()
+	}
 	t.lock()
 	defer t.unlock()
 	t.refreshing = false
+	if message != t.info.CommitMessage {
+		t.info.CommitMessage = message
+		t.p.m.saveL()
+		t.pubL("commitMessage", nonEmpty(message))
+	}
 	if err != nil {
 		logf("%s: changes: %v", t.key(), err)
 		return
@@ -2308,8 +2340,8 @@ const loginNote = "claude could not sign in on this host, so this turn did not r
 	"to fix: sign in to claude again — the host says so in the sidebar, and the button there does it — and send the " +
 	"task back in."
 
-// maxDoneNudges: how often in a row an agent is sent back in for the TPS-DONE
-// line it forgot before the task is handed to the human anyway.
+// maxDoneNudges: how often in a row an agent is sent back in for what its turn
+// left out before the task is handed to the human anyway.
 const maxDoneNudges = 2
 
 // onTurnEnd: a claude turn finished. Account the cost, read the verdict the
@@ -2390,10 +2422,11 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	t.unlock()
 	go t.refreshChanges()
 	// Whether the turn left anything behind, for the save point it is about
-	// to become and for the summary that point is labelled with.
-	dirty := false
+	// to become and for the words that work is to be committed under.
+	dirty, message := false, ""
 	if t.hasWorkspace() {
 		dirty, _ = dirtyTree(t.repoDir())
+		message = t.commitMessage()
 	}
 	t.lock()
 	if !t.agentPhaseL() { // stopped or dragged elsewhere meanwhile
@@ -2403,7 +2436,6 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	next, changes := "", ""
 	if end.Done != nil {
 		next, changes = end.Done.Next, end.Done.Changes
-		t.doneNudges = 0
 	}
 	if next == "reload" && !t.overBudgetL() {
 		t.note("the agent asked for a container rebuild; recreating the workspace")
@@ -2439,21 +2471,23 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.kick(donePrompt(end.Bad))
 		return
 	}
-	// A verdict that says nothing of what the turn changed leaves the revert
-	// point about to be made with an empty commit message; ask for one, as
-	// long as there is something to describe and a point to be made at all.
-	// A task that merges by itself makes no save point worth naming.
+	// Work left in the tree has to be committable: the save point about to be
+	// made needs the summary of what this turn changed, and the merge needs the
+	// message for the task as a whole. Ask for whatever is missing, until the
+	// streak below ends it — a verdict is no sign the rest arrived with it. A
+	// task that merges by itself makes no save point worth naming.
 	autoMerging := next == "merge" && t.onReadyL() == AnswerMerge
-	if next != "" && changes == "" && dirty && !autoMerging && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
+	noChanges, noMessage := changes == "" && !autoMerging, message == ""
+	if next != "" && dirty && (noChanges || noMessage) && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
 		t.doneNudges++
 		t.unlock()
-		t.note("the agent's TPS-DONE line said nothing about what this turn changed; asking for a line")
-		t.kick(changesPrompt)
+		t.note("the agent left work behind without saying how to commit it; asking for what is missing")
+		t.kick(missingPrompt(noChanges, noMessage))
 		return
 	}
+	// The turn came back whole, so the streak of sending it back in ends here.
 	t.doneNudges = 0
 	if t.info.Phase == PhaseMerge { // the agent was resolving conflicts
-		msg := t.info.CommitMessage
 		if next != "merge" {
 			if t.overBudgetL() {
 				t.noteBudgetL()
@@ -2465,20 +2499,12 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			t.endRunL(changes)
 			return
 		}
-		if m := strings.TrimSpace(end.Done.Message); m != "" {
-			msg = m
-		}
 		t.unlock()
 		t.note("conflicts resolved; merging")
-		_ = t.Merge(msg)
+		_ = t.Merge("")
 		return
 	}
 	if next == "merge" {
-		t.info.CommitMessage = strings.TrimSpace(end.Done.Message)
-		if t.info.CommitMessage == "" {
-			t.info.CommitMessage = t.info.Title
-		}
-		t.p.m.saveL()
 		// What becomes of work the agent calls finished is the task's own answer
 		// (see review.go). A review costs a turn of its own, so a task with no
 		// room left for one skips to the user; a merge costs nothing.
@@ -2491,10 +2517,9 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			t.beginReview()
 			return
 		case t.onReadyL() == AnswerMerge:
-			msg := t.info.CommitMessage
 			t.unlock()
 			t.note("the agent reports the task is ready; merging")
-			_ = t.Merge(msg)
+			_ = t.Merge("")
 			return
 		}
 		t.noteReadyL("the agent reports the task is ready to merge")

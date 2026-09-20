@@ -28,7 +28,14 @@ Rules:
   what you changed about it — that is what the git history is for.
 - Do not commit, and never push, pull, fetch, merge, rebase or switch branches: TPS
   commits your working tree itself, at the end of each of your turns and again when
-  the user merges the task. Read-only git is fine.
+  the user merges the task. Read-only git is fine. What that last commit says is yours
+  to keep in /work/.tps-commit-message: write it as soon as you change anything and
+  bring it up to date as you change more, so that it always covers everything the task
+  has done since it branched off rather than your latest batch of work. Keep it short —
+  a summary line and at most a few lines on what changed and why, in the tone of the
+  project's own messages (git log), the gist rather than an inventory of every file
+  touched or step taken. The user and the reviewing agent read and edit it like any
+  other file of your work.
 - Services: run anything that serves or takes a while (a dev server, the test suite, a
   review app) as a named service with /tps/bin/tps-service-manager rather than in the
   background of your shell: 'tps-service-manager run test npm test' starts it detached
@@ -81,15 +88,9 @@ the task goes next and nothing after it.
 - 'merge': the task is implemented and verified, and its work should be committed.
   Wanting the user to have a look — in a service, say — is no reason to go 'user'
   instead: 'merge' only offers them the button, to press once they like what they see
-  (and they can always send the task back). The commit message comes along with it:
-
-    TPS-DONE: {"next": "merge", "message": "Summary line\n\nA few concise lines of detail."}
-
-  Merging squashes the entire task into that single commit, so write the message for
-  everything the task changed, not just this turn's work: reconsider it from scratch
-  each time you go 'merge'. Match the tone and style of the project's existing messages
-  (git log). Keep to the highlights, in general: what changed and why, not an inventory
-  of every file touched or step taken.
+  (and they can always send the task back). Merging squashes the entire task into one
+  commit, named by .tps-commit-message, so read that file over before you go here and
+  make sure it still covers the whole of the work.
 - 'reload': you created or changed Containerfile.dev and need the container rebuilt
   from it; the conversation continues automatically in the new container.
 
@@ -101,8 +102,8 @@ points, or start a second task from one.
 
     TPS-DONE: {"next": "user", "changes": "Read the config file at startup, with tests"}
 
-Leave it out only when you changed no files at all. The merge message is the opposite
-end of the same idea: 'changes' is this turn, the merge message is the whole task.
+Leave it out only when you changed no files at all. It is the opposite end of
+.tps-commit-message: 'changes' is this turn, that file is the whole task.
 
 TPS reads that line, the user does not, so keep strictly to the format above: one line,
 plain JSON, no code fence around it. A turn that ends without it is sent straight back
@@ -169,9 +170,9 @@ there that has to be read. It is read by a machine, and has exactly two allowed 
   change to make — no praise, no summary, no restating of the task, no observations. If it is not
   worth another round of work, it does not belong in the list.`
 
-// reviewPrompt is the reviewer's one message: the work to read, everything the
-// user asked for, and the commit message the agent proposes for it.
-func reviewPrompt(base, message string, said []string) string {
+// reviewPrompt is the reviewer's one message: the work to read, and everything
+// the user asked for.
+func reviewPrompt(base string, said []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review the work in /work: it is uncommitted, on top of commit %[1]s, so `git diff %[1]s` "+
 		"and the untracked files `git status` lists are the whole of it. Nothing outside that is yours to judge.\n\n", base)
@@ -187,9 +188,11 @@ func reviewPrompt(base, message string, said []string) string {
 		b.WriteString(text + "\n")
 	}
 	if len(said) == 0 {
-		b.WriteString("\n(nothing was written down; go by the commit message below)\n")
+		b.WriteString("\n(nothing was written down; go by .tps-commit-message, which says what the agent takes the work to be)\n")
 	}
-	b.WriteString("--- end of what the user asked for ---\n\nThe agent proposes to commit the work as:\n\n" + message + "\n")
+	b.WriteString("--- end of what the user asked for ---\n\nOne file of the change is not the project's: .tps-commit-message, the message the " +
+		"agent proposes to commit the work as, which merging writes into the commit and takes back out of the tree. It has to say briefly what " +
+		"the whole change does: correct it in place where it does not, as you would any other small fix.\n")
 	return b.String()
 }
 
@@ -199,13 +202,25 @@ func reviewFeedbackPrompt(feedback string) string {
 ` + feedback
 }
 
-// changesPrompt asks for the one thing a verdict was missing: what the turn
-// changed, which the commit TPS is about to make is named after.
-const changesPrompt = `Your TPS-DONE line did not say what this turn changed, and the working tree has
-changes TPS is about to commit. Reply with nothing but the line again, this time
-with a 'changes' field: one brief sentence on what you changed since your previous
-TPS-DONE line — for example
-TPS-DONE: {"next": "user", "changes": "Read the config file at startup, with tests"}`
+// missingPrompt asks a turn that left work behind for what it did not say about
+// it: the summary of what the turn changed, which the save point TPS is about to
+// make is named after, and the commit message for the task's work as a whole.
+func missingPrompt(changes, message bool) string {
+	var b strings.Builder
+	b.WriteString("The working tree has changes, and your turn left out:\n")
+	if changes {
+		b.WriteString("\n- the 'changes' field of your TPS-DONE line, which the save point TPS makes of this\n" +
+			"  turn is named after: one brief sentence on what you changed since your previous line.\n")
+	}
+	if message {
+		b.WriteString("\n- /work/.tps-commit-message: the commit message for everything this task has changed\n" +
+			"  since it branched off, short and in the tone of git log.\n")
+	}
+	b.WriteString("\nWrite the file if it is named above, then reply with nothing but your TPS-DONE line\n" +
+		"again, this time complete — for example\n" +
+		`TPS-DONE: {"next": "user", "changes": "Read the config file at startup, with tests"}`)
+	return b.String()
+}
 
 const reloadedPrompt = "The container has been recreated. Please continue."
 
@@ -224,12 +239,12 @@ func donePrompt(bad string) string {
 	if bad != "" {
 		return fmt.Sprintf(`Your TPS-DONE line could not be read (%s). Reply with nothing but a
 correct one, as the last line of your message: {"next": "user"}, {"next": "reload"},
-or {"next": "merge", "message": "..."} — see the rules for what each means.`, bad)
+or {"next": "merge"} — see the rules for what each means.`, bad)
 	}
 	return `Your turn ended without a TPS-DONE line, so TPS does not know where the task goes
 next. Reply with nothing but that line: TPS-DONE: {"next": "user"} to hand the task to
-the user, {"next": "merge", "message": "..."} if the work is ready to be committed, or
-{"next": "reload"} if the container must be rebuilt. Pick 'user' if you are unsure.`
+the user, {"next": "merge"} if the work is ready to be committed, or {"next": "reload"}
+if the container must be rebuilt. Pick 'user' if you are unsure.`
 }
 
 // mergedPrompt waits for the agent of a task that was merged (see queueL): its
@@ -245,7 +260,8 @@ The old workspace is gone with everything that was only in it: files you never c
 and tools you installed by hand rather than through Containerfile.dev. Everything you know
 about the task itself still holds — carry on from where you left off. What you change from
 here becomes a separate commit when the user merges the task again, under the usual rules:
-do not commit or rebase yourself, and end your turn with a TPS-DONE line.`, branch)
+do not commit or rebase yourself, write a fresh .tps-commit-message for this round of work,
+and end your turn with a TPS-DONE line.`, branch)
 }
 
 // fallbackPrompt says the task runs in the default image because its own
@@ -350,7 +366,7 @@ func titlePrompt(description string) string {
 		"--- description ---\n" + description + "\n--- end of description ---"
 }
 
-func conflictPrompt(defaultBranch, message string, files []string) string {
+func conflictPrompt(defaultBranch string, files []string) string {
 	return fmt.Sprintf(`Merging this task hit conflicts. Its work was put onto the latest '%[1]s', which received
 other changes since this task started, and these files did not merge cleanly:
 
@@ -361,11 +377,9 @@ or — for a file %[1]s deleted and this task changed — this task's version of
 what this task's side is for; the commit messages on %[1]s (git log) explain the other.
 
 Resolve every conflict so the result honors BOTH sides, and remove the markers. Do not
-commit, do not push. When that is done, verify the result still works, then end your turn
-as usual: TPS-DONE with next 'merge' and the commit message below (amend it only if the
-resolution changed what the task does).
-
-%[3]s`, defaultBranch, "- "+strings.Join(files, "\n- "), message)
+commit, do not push. When that is done, verify the result still works, amend
+.tps-commit-message if the resolution changed what the task does, and end your turn as
+usual: TPS-DONE with next 'merge'.`, defaultBranch, "- "+strings.Join(files, "\n- "))
 }
 
 // pointPrompt is what an agent is told when a save point left it out of step

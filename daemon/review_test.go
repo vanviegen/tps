@@ -22,11 +22,11 @@ func TestReviewAccepted(t *testing.T) {
 	}
 }
 
-// The reviewer is given the commit to review against, the proposed message,
-// and the user's own words with the agent's turns between them named as gaps.
+// The reviewer is given the commit to review against and the user's own words,
+// with the agent's turns between them named as gaps.
 func TestReviewPrompt(t *testing.T) {
-	prompt := reviewPrompt("abc123", "Tidy the log", []string{"make it tidy", "and quick, too"})
-	for _, want := range []string{"git diff abc123", "Tidy the log", "make it tidy", "and quick, too", "then the agent worked"} {
+	prompt := reviewPrompt("abc123", []string{"make it tidy", "and quick, too"})
+	for _, want := range []string{"git diff abc123", commitMessageFile, "make it tidy", "and quick, too", "then the agent worked"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the prompt should mention %q:\n%s", want, prompt)
 		}
@@ -34,7 +34,7 @@ func TestReviewPrompt(t *testing.T) {
 	if strings.Count(prompt, "then the agent worked") != 1 { // one gap between two messages
 		t.Errorf("one gap per message after the first:\n%s", prompt)
 	}
-	if lone := reviewPrompt("abc123", "Tidy the log", nil); !strings.Contains(lone, "nothing was written down") {
+	if lone := reviewPrompt("abc123", nil); !strings.Contains(lone, "nothing was written down") {
 		t.Errorf("a task nobody wrote for should say so:\n%s", lone)
 	}
 }
@@ -134,7 +134,7 @@ func TestFinishReview(t *testing.T) {
 	if err := task.ensureWorkspace(); err != nil {
 		t.Fatal(err)
 	}
-	task.info.Phase, task.info.CommitMessage = PhaseReview, "Tidy the log"
+	task.info.Phase = PhaseReview
 	none := 0
 	task.info.ReviewLoops = &none // no round to send the work back in
 

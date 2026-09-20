@@ -338,8 +338,30 @@ func TestMergeHandsConflictsToTheAgent(t *testing.T) {
 	if !strings.Contains(readFile(filepath.Join(task.repoDir(), "a.txt")), ">>>>>>> ") {
 		t.Error("the workspace has no conflict to resolve")
 	}
-	if task.info.CommitMessage != "the task" {
-		t.Errorf("commit message: %q", task.info.CommitMessage)
+	// What the merge was told to call the work is in the workspace, for the
+	// agent resolving the conflicts to read and amend.
+	if got := task.commitMessage(); got != "the task" {
+		t.Errorf("commit message: %q", got)
+	}
+}
+
+// The commit message lives in the workspace: a merge with nothing said commits
+// under it, and the file itself stays off the branch.
+func TestMergeTakesItsMessageFromTheWorkspace(t *testing.T) {
+	task, origin := testTask(t)
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "a.txt", "one task\n")
+	writeWork(t, task, commitMessageFile, "Do the thing\n\nAnd say why.\n")
+	if err := task.Merge(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRun(t, origin, "log", "--format=%B", "-1"); got != "Do the thing\n\nAnd say why.\n" {
+		t.Errorf("the commit message: %q", got)
+	}
+	if exists(filepath.Join(origin, commitMessageFile)) {
+		t.Error("the commit message file reached the branch")
 	}
 }
 
