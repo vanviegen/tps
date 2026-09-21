@@ -224,19 +224,11 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 }
 
 func (m *Manager) Start() error {
-	var saved struct {
-		Projects []*ProjectInfo `json:"projects"`
-		Identity Identity       `json:"identity"`
+	saved, err := m.readRegistry()
+	if err != nil {
+		return err
 	}
-	if data, err := os.ReadFile(m.configFile); err == nil {
-		if err := json.Unmarshal(data, &saved); err != nil {
-			return fmt.Errorf("%s: %w", m.configFile, err)
-		}
-		m.identity = saved.Identity
-		m.savedMu.Lock()
-		m.saved = data // what this daemon is the daemon for (see quitIfConfigReplaced)
-		m.savedMu.Unlock()
-	}
+	m.identity = saved.Identity
 	m.usedAt = time.Now()
 	for _, info := range saved.Projects {
 		if _, err := m.load(info); err != nil {
@@ -270,7 +262,7 @@ func (m *Manager) saveL() {
 	for _, p := range m.sortedProjectsL() {
 		projects = append(projects, p.info)
 	}
-	data, err := json.MarshalIndent(map[string]any{"projects": projects, "identity": m.identity}, "", "\t")
+	data, err := json.MarshalIndent(registry{Projects: projects, Identity: m.identity}, "", "\t")
 	if err != nil {
 		return
 	}
@@ -285,17 +277,93 @@ func (m *Manager) saveL() {
 func (m *Manager) saver() {
 	for data := range m.saveCh {
 		data = append(data, '\n')
-		_ = os.MkdirAll(filepath.Dir(m.configFile), 0o755)
 		// Under savedMu, so that the check for the file having been written by
 		// someone else never catches this one half done.
 		m.savedMu.Lock()
-		if err := os.WriteFile(m.configFile, data, 0o644); err != nil {
+		if err := m.writeRegistry(data); err != nil {
 			logf("save failed: %v", err)
 		} else {
 			m.saved = data
 		}
 		m.savedMu.Unlock()
 	}
+}
+
+// registry is the shape of the file: what this host remembers between runs.
+type registry struct {
+	Projects []*ProjectInfo `json:"projects"`
+	Identity Identity       `json:"identity"`
+}
+
+// backupFile holds the registry as it stood one save ago.
+func (m *Manager) backupFile() string { return m.configFile + ".bak" }
+
+// readRegistry reads the board off disk, and falls back to the backup when the
+// registry itself does not parse — the empty file a disk running full leaves
+// behind. What it recovers is written back at once, so that the file is a
+// registry again and is the one this daemon holds (see quitIfConfigReplaced).
+func (m *Manager) readRegistry() (registry, error) {
+	var saved registry
+	data, err := os.ReadFile(m.configFile)
+	if os.IsNotExist(err) {
+		return saved, nil
+	}
+	if err == nil {
+		if err = json.Unmarshal(data, &saved); err == nil {
+			m.savedMu.Lock()
+			m.saved = data // what this daemon is the daemon for (see quitIfConfigReplaced)
+			m.savedMu.Unlock()
+			return saved, nil
+		}
+	}
+	backup, bErr := os.ReadFile(m.backupFile())
+	if bErr != nil {
+		return saved, fmt.Errorf("%s: %w", m.configFile, err)
+	}
+	if bErr = json.Unmarshal(backup, &saved); bErr != nil {
+		return saved, fmt.Errorf("%s: %w (and %s: %v)", m.configFile, err, m.backupFile(), bErr)
+	}
+	logf("%s: %v; recovered the registry from %s", m.configFile, err, m.backupFile())
+	m.savedMu.Lock()
+	if err := m.writeRegistry(backup); err != nil {
+		logf("restoring the registry failed: %v", err)
+	} else {
+		m.saved = backup
+	}
+	m.savedMu.Unlock()
+	return saved, nil
+}
+
+// writeRegistry puts data in the registry file. It is written beside it and
+// renamed over it, so that a write failing halfway — the disk being full — is
+// a registry left as it was rather than one truncated to nothing. What the
+// file held becomes the backup, for when it is lost all the same.
+func (m *Manager) writeRegistry(data []byte) error {
+	dir := filepath.Dir(m.configFile)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "projects-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync() // renaming over blocks that were never written would lose the file to a power cut
+	}
+	if cErr := tmp.Close(); err == nil {
+		err = cErr
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0o644)
+	}
+	if err != nil {
+		return err
+	}
+	_ = os.Remove(m.backupFile())
+	_ = os.Link(m.configFile, m.backupFile())
+	return os.Rename(tmp.Name(), m.configFile)
 }
 
 func (m *Manager) sortedProjectsL() []*Project {

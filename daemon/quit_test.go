@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -97,4 +98,33 @@ func TestQuitIfConfigReplaced(t *testing.T) {
 	if *exited != 1 {
 		t.Fatal("a registry taken away should stop the daemon too")
 	}
+}
+
+// A registry that reads back empty — what a disk running full used to leave
+// behind — is recovered from the backup beside it, and the file repaired.
+func TestRegistryRecovered(t *testing.T) {
+	m := testManager()
+	m.configFile = filepath.Join(t.TempDir(), "projects.json")
+	m.exit = func(int) { t.Error("a repaired registry is this daemon's own and should not stop it") }
+
+	good := []byte(`{"projects":[{"dir":"/tmp/project","tasks":{}}]}`)
+	if err := m.writeRegistry(good); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.writeRegistry([]byte(`{"projects":[]}`)); err != nil {
+		t.Fatal(err)
+	}
+	write(t, m.configFile, "") // the disk filled up mid-save
+
+	saved, err := m.readRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Projects) != 1 || saved.Projects[0].Dir != "/tmp/project" {
+		t.Fatalf("the backup should have been read back, got %+v", saved.Projects)
+	}
+	if data, err := os.ReadFile(m.configFile); err != nil || len(data) == 0 {
+		t.Fatalf("the registry should have been repaired: %v %q", err, data)
+	}
+	m.quitIfConfigReplaced()
 }
