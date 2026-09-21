@@ -192,7 +192,11 @@ func reviewPrompt(base string, said []string) string {
 	}
 	b.WriteString("--- end of what the user asked for ---\n\nOne file of the change is not the project's: .tps-commit-message, the message the " +
 		"agent proposes to commit the work as, which merging writes into the commit and takes back out of the tree. It has to say briefly what " +
-		"the whole change does: correct it in place where it does not, as you would any other small fix.\n")
+		"the whole change does: correct it in place where it does not, as you would any other small fix.\n\n" +
+		"Containerfile.dev is the project's image definition, and the only place a tool the work needs can be installed to stay: the " +
+		"container is disposable, so anything installed by hand is lost with it. It also declares the project's services (its CMD is the service " +
+		"'app', a LABEL tps.service.<name>=\"command\" line another), the ports TPS forwards (EXPOSE) and the directories kept between tasks " +
+		"(LABEL tps.cache). Read what it adds as you would any other line, but writing/updating it is doing the task, not straying from it.\n")
 	return b.String()
 }
 
