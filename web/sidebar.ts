@@ -9,7 +9,7 @@ import { $holds, holdKey, isHeld, release } from './holds.ts';
 import { addHostDialog, hostColor, hostDialog, hostIssue, hostOrder } from './hosts.ts';
 import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { branchLabel, BREATHE, drawTaskIcon, ELLIPSIS, hostIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskBusy, taskTip, taskTitle } from './util.ts';
+import { branchLabel, drawTaskIcon, ELLIPSIS, hostIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -21,12 +21,14 @@ import { branchLabel, BREATHE, drawTaskIcon, ELLIPSIS, hostIcon, hostName, pathT
  * project and Add host, and at the bottom every host, each saying what it is
  * doing and leading to its own dialog.
  *
+ * Nothing here moves: what is going on is the board's story and the task's
+ * own, and a list one glances at is the last place for an animation.
+ *
  * Collapsed, it is a narrow strip of names and nothing else, each cut off at
  * its edge, which the `subject: change` form of task titles makes readable;
- * what is said there beyond the name is said by the name itself, breathing
- * while the task is at work. It folds by the icon in the corner, which is in
- * the same spot either way so that one spot folds it both ways, and stays
- * wherever it was put.
+ * what is said there beyond the name is said by its ink, and spelled out by
+ * the tooltip. It folds by the icon in the corner, which is in the same spot
+ * either way so that one spot folds it both ways, and stays wherever it was put.
  */
 export const $ui = A.proxy({ collapsed: false });
 
@@ -53,8 +55,9 @@ A.insertGlobalCss({
 	'.tps-side .tps-task': 'ph:$1 pv:0.15em font-size:0.9em fg:$s-muted',
 	// Waiting for you is said by coming out of the dim the other rows are in:
 	// the colours here belong to the projects, and the phase icon, where there is
-	// room for one, says the rest.
-	'.tps-side .tps-task.tps-human, .tps-side .tps-task.tps-current': 'fg:$s-text',
+	// room for one, says the rest. The row on screen is not lit — its edge says
+	// where you are, and brightness is for what wants you.
+	'.tps-side .tps-task.tps-yours': 'fg:$s-text',
 	'.tps-side .tps-clip': 'flex:1 min-width:0 white-space:nowrap overflow:hidden text-overflow:ellipsis',
 	'.tps-side.tps-collapsed .tps-group': 'margin: 0 0.3rem $1 0.3rem;',
 	'.tps-side.tps-collapsed .tps-project': 'ph:0.3em pv:0.35em',
@@ -62,9 +65,6 @@ A.insertGlobalCss({
 	// Every character the strip holds is a character of the name, so a title
 	// runs off its edge rather than spending three of them on saying that it does.
 	'.tps-side.tps-collapsed .tps-clip': 'text-overflow:clip',
-	// With the phase icon gone there is nothing left to breathe but the title,
-	// so at work is what it does itself (see BREATHE).
-	'.tps-side.tps-collapsed .tps-at-work .tps-clip': BREATHE,
 });
 
 export function drawSidebar(): void {
@@ -162,8 +162,8 @@ function drawTask(pid: string, tid: string, $t: any): void {
 			if (A.peek(() => isHeld(pid, tid))) extra.push({ label: 'Close VS Code', icon: x, click: () => closeTask(pid, tid) });
 			return taskMenuItems(pid, tid, $t, extra);
 		}});
-		A(() => A('.tps-human=', $t.phase === 'human'));
-		A(() => A('.tps-at-work=', taskBusy($t)));
+		// Yours to act on: it waits for you, or it is a plan you have yet to start.
+		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan'));
 		A(() => {
 			const { pid: shown, tid: shownTid } = selection();
 			A('.tps-current=', shown === pid && shownTid === tid);
@@ -171,8 +171,7 @@ function drawTask(pid: string, tid: string, $t: any): void {
 		A(() => {
 			// Collapsed, the row is the title and nothing else: the icon's width is
 			// a word of the title, and what it says — the phase, and the work going
-			// on — the title says by breathing and the tooltip spells out, along
-			// with the rest of the title itself.
+			// on — the tooltip spells out, along with the rest of the title itself.
 			if ($ui.collapsed) {
 				S.addTooltip({ placement: 'right', tip: () => {
 					A('div text=', taskTitle($t));
@@ -180,7 +179,7 @@ function drawTask(pid: string, tid: string, $t: any): void {
 				} });
 				return;
 			}
-			drawTaskIcon(pid, $t, { color: 'var(--tps-color)' });
+			drawTaskIcon(pid, $t, { busy: false, color: 'var(--tps-color)' });
 		});
 		A('span.tps-clip', () => A('text=', taskTitle($t)));
 	});

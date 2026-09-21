@@ -114,16 +114,13 @@ export function drawStrip(color: string, text: string, action?: () => void, clic
 // needs — some of what it marks lasts a phase long, not the moment of an action.
 A.insertGlobalCss({ '@keyframes pulse': { '50%': 'opacity:0.35' } });
 
-/** The breath itself, for whatever says it without being an icon — a title, where there is no room for one. */
-export const BREATHE = 'animation: pulse 1.6s ease-in-out infinite;';
-
 /**
  * The attrs that make an icon say it: every glyph breathes, the robot included
  * — it types and thinks besides (see bot.ts), but the breath is what says it is
  * at work, so that no phase is marked by a colour of its own instead.
  */
 export function busyAttrs(icon: typeof bot): string {
-	return `${icon === bot ? '.tps-busy ' : ''}${BREATHE}`;
+	return `${icon === bot ? '.tps-busy ' : ''}animation: pulse 1.6s ease-in-out infinite;`;
 }
 
 /**
@@ -261,22 +258,23 @@ export function taskTip(pid: string, $t: any): string {
  * by the container status.
  *
  * `tip: false` is for where something around it already tells that story — the
- * collapsed sidebar, whose rows carry it themselves. `color` is for where the
- * icon belongs to something it should look part of — the sidebar again, where
- * it wears the project's colour like the rest of the group — and gives way to
- * the status colour when the workspace is in trouble, which no cohesion is
- * worth hiding.
+ * collapsed sidebar, whose rows carry it themselves. `busy: false` keeps the
+ * icon still where motion beside the navigation would be distraction rather
+ * than news: the sidebar. `color` is for where the icon belongs to something it
+ * should look part of — the sidebar again, where it wears the project's colour
+ * like the rest of the group — and gives way to the status colour when the
+ * workspace is in trouble, which no cohesion is worth hiding.
  */
-export function drawTaskIcon(pid: string, $t: any, { tip = true, color }: { tip?: boolean; color?: string } = {}): void {
+export function drawTaskIcon(pid: string, $t: any, { tip = true, busy = true, color }: { tip?: boolean; busy?: boolean; color?: string } = {}): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
 		const icon = autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle;
 		// The phase's own icon throughout, breathing while something is going on
 		// (see taskBusy). A spinner's glyph is for a spinner; this one does not turn.
-		const busy = taskBusy($t);
+		const alive = busy && taskBusy($t);
 		A(`span display:inline-flex flex-shrink:0 fg:${color && activity.color !== 'danger' ? color : `$s-${activity.color}`}`, () => {
 			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
-			icon({ size: '1.1em', attrs: busy ? busyAttrs(icon) : undefined });
+			icon({ size: '1.1em', attrs: alive ? busyAttrs(icon) : undefined });
 		});
 	});
 }
