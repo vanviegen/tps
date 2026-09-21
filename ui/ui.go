@@ -173,6 +173,7 @@ func (u *UI) registerCmds() {
 	}
 	u.hub.Cmds["addProject"] = u.addProject
 	u.hub.Cmds["addHost"] = u.addHost
+	u.hub.Cmds["setHost"] = u.setHost
 	u.hub.Cmds["removeHost"] = u.removeHost
 	u.hub.Cmds["connectHost"] = u.connectHost
 	u.hub.Cmds["login"] = u.login

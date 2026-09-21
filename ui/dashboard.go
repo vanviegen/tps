@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/vanviegen/tps/daemon"
 )
@@ -88,6 +89,25 @@ func (u *UI) addHostEntry(dest string) {
 		u.hosts = append(u.hosts, dest)
 		u.saveL()
 	}
+}
+
+// renameHostEntry puts another destination in a host's place in the list, and
+// carries the project order over to the host id that comes with it.
+func (u *UI) renameHostEntry(old, dest string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	i := u.indexHostL(old)
+	if i < 0 {
+		return
+	}
+	u.hosts[i] = dest
+	was, now := hostID(old)+":", hostID(dest)+":"
+	for j, id := range u.order {
+		if pid, ok := strings.CutPrefix(id, was); ok {
+			u.order[j] = now + pid
+		}
+	}
+	u.saveL()
 }
 
 func (u *UI) removeHostEntry(dest string) {

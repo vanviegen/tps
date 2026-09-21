@@ -5,7 +5,7 @@ import { cmd } from './util.ts';
 
 /**
  * Questions from the server: an ssh password, an unknown host key. Each one
- * belongs to the host it is about, and waits in that host's box until it is
+ * belongs to the host it is about, and waits on that host's row until it is
  * clicked — a login prompt is not worth interrupting for, and answering it is
  * a decision, not an alarm. Only a question about a host that is not on the
  * board has nowhere to wait, and opens by itself (see main.ts).
@@ -26,7 +26,7 @@ export function askLabel($a: any): string {
 /**
  * The question in a line, for the strip that waits with it. An unknown host
  * key comes as a paragraph with a fingerprint in it: that belongs in the
- * dialog, where it can be read, not in the box.
+ * dialog, where it can be read, not on the row.
  */
 export function askSummary($a: any): string {
 	if ($a.kind === 'confirm') return 'This host is not known yet: its key wants checking.';

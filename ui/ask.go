@@ -11,7 +11,7 @@ import (
 // published as state under 'ask' and answered with the 'answer' command.
 // The answer itself never enters the state tree. A question belongs to the
 // host it is asked about, which is where the dashboard shows it: a login
-// prompt waits in that host's box instead of interrupting whatever the user
+// prompt waits on that host's row instead of interrupting whatever the user
 // is doing.
 
 type answer struct {

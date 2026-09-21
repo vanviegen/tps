@@ -2,13 +2,14 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { gitBranch, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
+import { askLabel, hostAsk, showAsk } from './ask.ts';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { $holds, holdKey, isHeld, release } from './holds.ts';
-import { hostIssue, manageHostsDialog } from './hosts.ts';
+import { addHostDialog, hostColor, hostDialog, hostIssue, hostOrder } from './hosts.ts';
 import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { branchLabel, BREATHE, drawStrip, drawTaskIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskBusy, taskTip, taskTitle } from './util.ts';
+import { branchLabel, BREATHE, drawTaskIcon, ELLIPSIS, hostIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskBusy, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -16,9 +17,9 @@ import { branchLabel, BREATHE, drawStrip, drawTaskIcon, hostName, pathTo, phaseO
  * Under the logo, every project in the order the user put them in, on a wash
  * of its colour; under each, the tasks that are *open*: those waiting for a
  * human (the bright ones among them), those an agent is working on, those this
- * dashboard holds VS Code on (see holds.ts), and the one on screen. Then Add project and Manage hosts, and
- * at the bottom only the hosts that want something — a login, an update, a
- * connection — as the ones that work have nothing to say.
+ * dashboard holds VS Code on (see holds.ts), and the one on screen. Then Add
+ * project and Add host, and at the bottom every host, each saying what it is
+ * doing and leading to its own dialog.
  *
  * Collapsed, it is a narrow strip of names and nothing else, each cut off at
  * its edge, which the `subject: change` form of task titles makes readable;
@@ -75,7 +76,7 @@ export function drawSidebar(): void {
 		});
 		A(() => drawButtons($ui.collapsed));
 		A('div display:flex flex-direction:column gap:$1 p:$1', () => {
-			A.onEach($state.hosts, ($h: any, hid: string) => drawHostIssue(hid, $h), (_$h: any, hid: string) => hid === 'local' ? '' : hostName(hid));
+			A.onEach($state.hosts, ($h: any, hid: string) => drawHost(hid, $h), (_$h: any, hid: string) => hostOrder(hid));
 		});
 	});
 }
@@ -216,33 +217,49 @@ function drawButtons(collapsed: boolean): void {
 	if (collapsed) {
 		A('div display:flex flex-wrap:wrap justify-content:center gap:$1 pv:$1', () => {
 			S.iconButton({ icon: plus, ariaLabel: 'Add project', attrs: '.small', click: () => addProjectDialog() });
-			S.iconButton({ icon: server, ariaLabel: 'Manage hosts', attrs: '.small', click: () => manageHostsDialog() });
+			S.iconButton({ icon: server, ariaLabel: 'Add host', attrs: '.small', click: () => void addHostDialog() });
 		});
 	} else {
 		A('div display:flex gap:$1 p:$1', () => {
 			S.button({ content: 'Add project', icon: plus, attrs: '.small .neutral flex:1', click: () => addProjectDialog() });
-			S.button({ content: 'Manage hosts', icon: server, attrs: '.small .neutral flex:1', click: () => manageHostsDialog() });
+			S.button({ content: 'Add host', icon: server, attrs: '.small .neutral flex:1', click: () => void addHostDialog() });
 		});
 	}
 }
 
-/** A host that wants something, as a strip (or, collapsed, an icon) that leads to it. Working hosts draw nothing. */
-function drawHostIssue(hid: string, $h: any): void {
-	A(() => {
-		const issue = hostIssue(hid, $h);
-		if (!issue) return;
-		const name = hostName(hid);
-		if ($ui.collapsed) {
-			A('div display:flex justify-content:center', () => {
-				S.iconButton({ icon: issue.icon, ariaLabel: `${name}: ${issue.text}`, attrs: `.small fg:$s-${issue.color}`, click: issue.click });
+/**
+ * One host at the foot of the sidebar: its name, in the colour of what it is
+ * doing, and the line it has to say for itself, cut off at the edge. The row
+ * opens the host's dialog, where the whole of that is — an ssh error can be a
+ * paragraph — and where everything to do with the host lives; a question it
+ * is waiting for (a password, a host key) gets its own button, as answering
+ * that is all most hosts ever want.
+ */
+function drawHost(hid: string, $h: any): void {
+	A('div display:flex align-items:center gap:$1 min-width:0', () => {
+		A(() => {
+			const name = hostName(hid);
+			const issue = hostIssue(hid, $h);
+			const ask = hostAsk(hid);
+			const icon = issue?.icon ?? hostIcon(hid);
+			if ($ui.collapsed) {
+				A('div flex:1 display:flex justify-content:center', () => {
+					S.iconButton({ icon, ariaLabel: issue ? `${name}: ${issue.text}` : name, attrs: `.small fg:$s-${hostColor(hid, $h)}`, click: () => hostDialog(hid) });
+				});
+				return;
+			}
+			S.button({
+				attrs: '.neutral .small flex:1 min-width:0 justify-content:flex-start text-align:left',
+				icon: () => A(`span display:inline-flex flex-shrink:0 fg:$s-${hostColor(hid, $h)}`, () => icon({ size: '1em' })),
+				tooltip: () => A('text=', issue ? `${name}: ${issue.text}` : name),
+				content: () => A('div flex:1 display:flex flex-direction:column min-width:0', () => {
+					A(`span ${ELLIPSIS} text=`, name);
+					// A quiet issue (connecting, an update to make) is said in muted ink: there is no $s-neutral, and none is wanted.
+					if (issue) A(`span font-size:0.85em ${ELLIPSIS} fg:$s-${issue.color === 'neutral' ? 'muted' : issue.color} text=`, issue.text);
+				}),
+				click: () => hostDialog(hid),
 			});
-		} else {
-			// A line or two: the whole story (an ssh error can be a paragraph) is in the hosts dialog the strip leads to.
-			const text = issue.text.length > 70 ? issue.text.slice(0, 70).trimEnd() + '…' : issue.text;
-			A('div font-size:0.85em', () => {
-				S.addTooltip({ tip: () => A('text=', `${name}: ${issue.text}`), placement: 'right' });
-				drawStrip(issue.color, `**${name}** · ${text}`, () => A('span display:inline-flex flex-shrink:0', () => issue.icon({ size: '1em' })), issue.click);
-			});
-		}
+			if (ask) S.button({ content: askLabel(ask[1]), attrs: '.small .warning', click: () => showAsk(ask[0]) });
+		});
 	});
 }

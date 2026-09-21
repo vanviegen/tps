@@ -1,16 +1,17 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { download, ellipsisVertical, keyRound, plug, plus, power, refreshCw, serverCrash, serverOff, trash2, triangleAlert } from 'staffa/icons.js';
+import { check, download, keyRound, plug, plus, power, refreshCw, serverCrash, serverOff, trash2, triangleAlert } from 'staffa/icons.js';
 import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
 import { $state } from './conn.ts';
 import { addProjectDialog, projectsOn } from './projects.ts';
-import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName } from './util.ts';
+import { cmd, drawStrip, ELLIPSIS, hostName } from './util.ts';
 
 /**
  * The hosts: the machines projects run on, this one and the ones reached over
- * SSH. They live behind the sidebar's *Manage hosts* button — one box each,
- * outlined in what it is doing, holding whatever it wants from you — and the
- * ones that want something also show in the sidebar itself (see hostIssue).
+ * SSH. They are listed at the foot of the sidebar, each saying by its colour
+ * what it is doing (see hostIssue); clicking one opens its dialog, which is
+ * where everything about a host is — what it is doing, where it is, and what
+ * there is to do with it.
  */
 
 /** The hosts in the order they are shown: this machine first, the rest by name. */
@@ -19,85 +20,58 @@ export function sortedHosts(): [string, any][] {
 		.sort((a, b) => hostOrder(a[0]).localeCompare(hostOrder(b[0])));
 }
 
-function hostOrder(hid: string): string {
+export function hostOrder(hid: string): string {
 	return hid === 'local' ? '' : '1' + hostName(hid).toLowerCase();
 }
 
-/** The hosts, as a dialog: a box per host, and the way to add one. */
-export function manageHostsDialog(): void {
-	void S.dialog({ header: 'Hosts', attrs: 'w:36rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => drawHostList() });
-}
-
-/** A box per host, and the way to add one. */
-export function drawHostList(): void {
-	A('p.s-help m:0 rich=', 'The machines projects run on. *Add host* takes whatever you would type after `ssh`; TPS installs its daemon there and adopts the projects it already has.');
-	A('div display:flex flex-direction:column gap:$2', () => {
-		A.onEach($state.hosts, ($h: any, hid: string) => drawHostBox(hid, $h), (_$h: any, hid: string) => hostOrder(hid));
-	});
-	A('div display:flex justify-content:flex-end', () => {
-		S.button({ content: 'Add host', icon: plus, attrs: '.small', click: () => void addHostDialog() });
-	});
-}
-
 /**
- * What a host wants, for the sidebar: a login to give, a connection that
- * failed, a daemon to update. A host that works has nothing to say and gets
- * nothing here. The click leads to the thing itself: the question, or the
- * host's box.
+ * What a host wants, for its row in the sidebar: a login to give, a
+ * connection that failed, a daemon to update. A host that works has nothing
+ * to say and gets nothing here.
  */
-export function hostIssue(hid: string, $h: any): { color: string; text: string; icon: typeof serverCrash; click: () => void } | undefined {
+export function hostIssue(hid: string, $h: any): { color: string; text: string; icon: typeof serverCrash } | undefined {
 	const ask = hostAsk(hid);
-	if (ask) return { color: 'warning', text: `${askLabel(ask[1])}: ${askSummary(ask[1])}`, icon: keyRound, click: () => showAsk(ask[0]) };
+	if (ask) return { color: 'warning', text: `${askLabel(ask[1])}: ${askSummary(ask[1])}`, icon: keyRound };
 	const status = $h?.status ?? 'connecting';
-	const open = () => manageHostsDialog();
 	if (status !== 'connected') {
 		const quiet = status === 'connecting' || status === 'updating' || status === 'stopped';
-		return { color: quiet ? 'neutral' : 'danger', text: `${status}${$h?.error ? ' · ' + $h.error : ''}`, icon: status === 'stopped' ? serverOff : serverCrash, click: open };
+		return { color: quiet ? 'neutral' : 'danger', text: `${status}${$h?.error ? ' · ' + $h.error : ''}`, icon: status === 'stopped' ? serverOff : serverCrash };
 	}
-	// A login to make, or one being made here (see ui/login.go): the click starts it, or starts it over.
-	if ($h.signin || $h.login) return { color: 'warning', text: $h.signin || $h.login, icon: keyRound, click: () => void cmd('login', { hid }) };
-	if ($h.warning) return { color: 'warning', text: $h.warning, icon: triangleAlert, click: open };
-	if ($h.restarting) return { color: 'neutral', text: 'the daemon restarts into this build once nothing is running', icon: refreshCw, click: open };
-	if ($h.updatable) return { color: 'neutral', text: 'the daemon runs another build of TPS', icon: download, click: () => void cmd('updateDaemon', { hid }) };
+	// A login to make, or one being made here (see ui/login.go).
+	if ($h.signin || $h.login) return { color: 'warning', text: $h.signin || $h.login, icon: keyRound };
+	if ($h.warning) return { color: 'warning', text: $h.warning, icon: triangleAlert };
+	if ($h.restarting) return { color: 'neutral', text: 'the daemon restarts into this build once nothing is running', icon: refreshCw };
+	if ($h.updatable) return { color: 'neutral', text: 'the daemon runs another build of TPS', icon: download };
 	return undefined;
 }
 
 /**
- * One host: what it is, what it is doing, and what it wants from you. The
- * border says the last of those at a glance, so a column of quiet hosts stays
- * quiet and the one in trouble stands out.
+ * One host, as a dialog: the plain facts, whatever it is doing or waiting
+ * for, the destination it is reached at, and everything there is to do with
+ * it — a project to add, a login to make, the daemon to update or stop, the
+ * host to take off the list.
  */
-function drawHostBox(hid: string, $h: any): void {
-	A('div min-width:0', () => {
-		S.addContextMenu({ get items(): S.MenuEntry[] { return hostItems(hid, $h); } });
-		// The border is the status, so the box is redrawn when that changes;
-		// nothing inside it holds anything worth keeping across that.
-		A(() => S.box({
-			attrs: `mt:0 min-width:0 border: 1px solid $s-${hostColor(hid, $h)};`,
-			headerAttrs: 'display:flex align-items:center gap:$2 min-width:0',
-			contentAttrs: 'display:flex flex-direction:column gap:$2 p:$2',
-			header: () => {
-				A('span display:flex flex-shrink:0', () => hostIcon(hid)({ size: '1.1em' }));
-				A(`span flex:1 ${ELLIPSIS} text=`, hostName(hid));
-				S.iconButton({
-					icon: ellipsisVertical, ariaLabel: 'Host menu', attrs: '.small',
-					click: e => void S.showFloatingMenu({ items: hostItems(hid, $h), anchor: e.currentTarget as HTMLElement }),
-				});
-			},
-			content: () => {
-				A(() => drawHostFacts(hid, $h));
-				A(() => drawHostState(hid, $h));
-			},
-		}));
-	});
+export function hostDialog(hid: string): void {
+	void S.dialog({ header: () => A('text=', hostName(hid)), attrs: 'w:32rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: close => {
+		A(() => {
+			const $h = $state.hosts?.[hid];
+			// Removed, here or from another dashboard: there is nothing left to show.
+			if (!$h) return close();
+			drawHostFacts(hid);
+			drawHostState(hid, $h);
+		});
+		// Outside that scope: a redraw while typing would take the cursor with it.
+		if (hid !== 'local') drawDestField(hid);
+		A(() => drawHostActions(hid, $state.hosts?.[hid] ?? {}));
+	}});
 }
 
-/** The plain facts about a host: where it is, and how much of the board is there. */
-function drawHostFacts(hid: string, $h: any): void {
+/** The plain facts about a host: how much of the board is there. */
+function drawHostFacts(hid: string): void {
 	A(`small ${ELLIPSIS} fg:$s-muted`, () => {
 		const projects = projectsOn(hid).length;
-		const where = hid === 'local' ? 'this machine' : $h.dest || hostName(hid);
-		A('text=', `${where} · ${projects || 'no'} project${projects === 1 ? '' : 's'}`);
+		const count = `${projects || 'no'} project${projects === 1 ? '' : 's'}`;
+		A('text=', hid === 'local' ? `this machine · ${count}` : count);
 	});
 }
 
@@ -113,7 +87,7 @@ export function hostColor(hid: string, $h: any): string {
 			: status === 'stopped' ? 'muted' : 'danger';
 }
 
-/** Anything about the host that asks for a look, or a click. */
+/** What the host is doing, or waiting for. */
 function drawHostState(hid: string, $h: any): void {
 	// A question (an ssh password, an unknown host key) waits here instead of
 	// opening by itself; the strip is the way in to it.
@@ -127,37 +101,45 @@ function drawHostState(hid: string, $h: any): void {
 		}, () => showAsk(id));
 		return;
 	}
-	if ($h.status !== 'connected') {
-		const waiting = $h.status === 'connecting' || $h.status === 'updating';
-		drawStrip(waiting || $h.status === 'stopped' ? 'neutral' : 'danger',
-			`${$h.status}${$h.error ? ' · ' + $h.error : ''}`,
-			waiting ? undefined : () => S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid }) }));
-	} else if ($h.signin || $h.login) {
-		drawStrip('warning', $h.signin || $h.login,
-			() => S.button({ content: 'Sign in', attrs: '.small', click: () => void cmd('login', { hid }) }));
-	} else if ($h.warning) {
-		drawStrip('warning', $h.warning);
-	} else if ($h.restarting) {
-		drawStrip('neutral', 'The daemon restarts into this build as soon as nothing is running.');
-	} else if ($h.updatable) {
-		drawStrip('neutral', 'The daemon runs another build of TPS.',
-			() => S.button({ content: 'Update', attrs: '.small', click: () => void cmd('updateDaemon', { hid }) }));
-	}
+	// Anything else it has to say is what its row in the sidebar says; what to
+	// do about it is in the buttons below, rather than said twice.
+	const issue = hostIssue(hid, $h);
+	if (issue) drawStrip(issue.color, issue.text);
 }
 
-/** What the host's menu offers, from its header button and its context menu. */
-function hostItems(hid: string, $h: any): S.MenuEntry[] {
-	const items: S.MenuEntry[] = [{ label: 'Add project…', icon: plus, click: () => addProjectDialog(hid) }, { separator: true }];
-	if ($h.status !== 'connected') items.push({ label: 'Connect', icon: plug, click: () => void cmd('connectHost', { hid }) });
-	if ($h.updatable) items.push({ label: 'Update daemon', icon: download, click: () => void cmd('updateDaemon', { hid }) });
-	items.push({ label: 'Sign in to claude…', icon: keyRound, click: () => void cmd('login', { hid }) }); // also for a login that stopped working
-	items.push({ label: 'Stop daemon', icon: power, click: async () => {
-		if (await S.confirm(`Stop the TPS daemon on ${hostName(hid)}? Its running workspaces are shut down; Connect starts it again.`)) void cmd('stopDaemon', { hid });
-	}});
-	if (hid !== 'local') {
-		items.push({ separator: true }, { label: 'Remove host', icon: trash2, click: () => void removeHost(hid) });
-	}
-	return items;
+/**
+ * The ssh destination the host is reached at, to point it at another machine.
+ * Saving drops the connection and makes it anew, as if the host were added
+ * again: the projects found there take the place of the ones it had.
+ */
+function drawDestField(hid: string): void {
+	const $form = A.proxy({ dest: A.peek(() => $state.hosts?.[hid]?.dest ?? '') });
+	S.form({
+		submit: () => void cmd('setHost', { hid, dest: $form.dest.trim() }),
+		content: () => S.textline({
+			label: 'Host', placeholder: 'user@host', required: true, bind: A.ref($form, 'dest'),
+			help: 'Whatever you would type after `ssh` (options like `-p 2222` go in front).',
+		}),
+		actions: () => S.button({ content: 'Save', icon: check, attrs: '.small', type: 'submit' }),
+	});
+}
+
+/** Everything there is to do with a host, as buttons. */
+function drawHostActions(hid: string, $h: any): void {
+	A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
+		S.button({ content: 'Add project', icon: plus, attrs: '.small', click: () => addProjectDialog(hid) });
+		if ($h.status !== 'connected') S.button({ content: 'Connect', icon: plug, attrs: '.small .neutral', click: () => void cmd('connectHost', { hid }) });
+		if ($h.updatable) S.button({ content: 'Update daemon', icon: download, attrs: '.small .neutral', click: () => void cmd('updateDaemon', { hid }) });
+		// Also for a login that stopped working, so it is offered whatever the host says.
+		S.button({ content: 'Sign in to claude', icon: keyRound, attrs: '.small .neutral', click: () => void cmd('login', { hid }) });
+		S.button({ content: 'Stop daemon', icon: power, attrs: '.small .neutral', click: async () => {
+			if (await S.confirm(`Stop the TPS daemon on ${hostName(hid)}? Its running workspaces are shut down; Connect starts it again.`)) void cmd('stopDaemon', { hid });
+		} });
+		if (hid !== 'local') {
+			A('div flex:1');
+			S.button({ content: 'Remove host', icon: trash2, attrs: '.small .danger .outlined', click: () => removeHost(hid) });
+		}
+	});
 }
 
 async function removeHost(hid: string): Promise<void> {
@@ -168,7 +150,7 @@ async function removeHost(hid: string): Promise<void> {
 }
 
 /**
- * Adding a host: an ssh destination. Connecting to it happens in its box, and
+ * Adding a host: an ssh destination. Connecting to it happens in its row, and
  * so does the login it may want. Resolves with the new host's id, so the
  * project dialog that sent you here can select it.
  */
