@@ -1,6 +1,6 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { check, download, keyRound, plug, plus, power, refreshCw, serverCrash, serverOff, trash2, triangleAlert } from 'staffa/icons.js';
+import { check, download, ellipsisVertical, keyRound, plug, plus, power, refreshCw, serverCrash, serverOff, trash2, triangleAlert } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
 import { $state } from './conn.ts';
 import { addProjectDialog, projectsOn } from './projects.ts';
@@ -92,8 +92,7 @@ export function hostDialog(hid: string): void {
 			drawStrip(state.color, state.text, () => drawAction(state));
 		});
 		// Outside that scope: a redraw while typing would take the cursor with it.
-		if (hid !== 'local') drawDestField(hid);
-		A(() => drawHostActions(hid, $state.hosts?.[hid] ?? {}));
+		drawHostFoot(hid, close);
 	}});
 }
 
@@ -112,11 +111,21 @@ function drawHostFacts(hid: string): void {
 }
 
 /**
- * The ssh destination the host is reached at, to point it at another machine.
- * Saving drops the connection and makes it anew, as if the host were added
- * again: the projects found there take the place of the ones it had.
+ * The foot of the dialog: the ssh destination the host is reached at, to
+ * point it at another machine, with its own Save — nothing typed there
+ * reaches the host until that is pressed, and Cancel drops it. Saving drops
+ * the connection and makes it anew, as if the host were added again: the
+ * projects found there take the place of the ones it had.
+ *
+ * Beside them, out of the way, the menu of what else there is to do with the
+ * host. This machine has no destination to point elsewhere, so it is all the
+ * foot it has.
  */
-function drawDestField(hid: string): void {
+function drawHostFoot(hid: string, close: () => void): void {
+	if (hid === 'local') {
+		A('div display:flex', () => drawHostMenu(hid, $state.hosts?.[hid] ?? {}));
+		return;
+	}
 	const $form = A.proxy({ dest: A.peek(() => $state.hosts?.[hid]?.dest ?? '') });
 	S.form({
 		submit: () => void cmd('setHost', { hid, dest: $form.dest.trim() }),
@@ -124,29 +133,42 @@ function drawDestField(hid: string): void {
 			label: 'Host', placeholder: 'user@host', required: true, bind: A.ref($form, 'dest'),
 			help: 'Whatever you would type after `ssh` (options like `-p 2222` go in front).',
 		}),
-		actions: () => S.button({ content: 'Save', icon: check, attrs: '.small', type: 'submit' }),
+		actionsAttrs: 'justify-content:flex-start',
+		actions: () => {
+			A(() => drawHostMenu(hid, $state.hosts?.[hid] ?? {}));
+			A('div flex:1');
+			S.button({ content: 'Cancel', attrs: '.small .neutral', click: close });
+			S.button({ content: 'Save', icon: check, attrs: '.small', type: 'submit' });
+		},
 	});
 }
 
 /**
- * What there is to do with a host beyond answering what it is waiting for:
- * the things that need its daemon only while that is reachable.
+ * What else there is to do with a host: a menu, since none of it is what the
+ * dialog is for. The daemon's own — a project to add, a login to make, the
+ * daemon to stop — only while it is there to be asked.
  */
-function drawHostActions(hid: string, $h: any): void {
-	A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
-		if ($h.status === 'connected') {
-			S.button({ content: 'Add project', icon: plus, attrs: '.small', click: () => addProjectDialog(hid) });
+function drawHostMenu(hid: string, $h: any): void {
+	const items: S.MenuEntry[] = [];
+	if ($h.status === 'connected') {
+		items.push(
+			{ label: 'Add project…', icon: plus, click: () => addProjectDialog(hid) },
 			// Also for a login that still works, to replace it with another account.
-			S.button({ content: 'Sign in to claude', icon: keyRound, attrs: '.small .neutral', click: () => void cmd('login', { hid }) });
-			S.button({ content: 'Stop daemon', icon: power, attrs: '.small .neutral', click: async () => {
-				if (await S.confirm(`Stop the TPS daemon on ${hostName(hid)}? Its running workspaces are shut down; Connect starts it again.`)) void cmd('stopDaemon', { hid });
-			} });
-		}
-		if (hid !== 'local') {
-			A('div flex:1');
-			S.button({ content: 'Remove host', icon: trash2, attrs: '.small .danger .outlined', click: () => removeHost(hid) });
-		}
-	});
+			{ label: 'Sign in to claude', icon: keyRound, click: () => void cmd('login', { hid }) },
+			{ label: 'Stop daemon…', icon: power, click: () => void stopDaemon(hid) },
+		);
+	}
+	if (hid !== 'local') {
+		if (items.length) items.push({ separator: true });
+		items.push({ label: 'Remove host…', icon: trash2, attrs: 'fg:$s-danger', click: () => void removeHost(hid) });
+	}
+	if (!items.length) return;
+	S.menuButton({ button: { icon: ellipsisVertical, ariaLabel: 'What else to do with this host', attrs: '.small .neutral' }, items });
+}
+
+async function stopDaemon(hid: string): Promise<void> {
+	if (!(await S.confirm(`Stop the TPS daemon on ${hostName(hid)}? Its running workspaces are shut down; Connect starts it again.`))) return;
+	void cmd('stopDaemon', { hid });
 }
 
 async function removeHost(hid: string): Promise<void> {
