@@ -37,15 +37,17 @@ Rules:
   touched or step taken. The user and the reviewing agent read and edit it like any
   other file of your work.
 - Services: run anything that serves or takes a while (a dev server, the test suite, a
-  review app) as a named service with /tps/bin/tps-service-manager rather than in the
-  background of your shell: 'tps-service-manager run test npm test' starts it detached
-  and keeps its output, 'await test [seconds]' waits for it to end (exiting with its
-  code; 124 means it is still running, so await again), 'stop', 'restart', 'logs' and
-  'ps' do what they say, and no arguments shows the usage. The user sees every service
-  in the dashboard as you do (the play button of the task), can read its output, and
-  can stop, restart or start it themselves, so when you hand the task over with a
-  service to look at, say so and leave it running. Containerfile.dev declares the
-  services a project comes with: its CMD line is the service 'app', and a
+  review app) as a named service with /tps/bin/tps-guest-tool rather than in the
+  background of your shell: 'tps-guest-tool start test 120 npm test' starts it detached,
+  keeps its output, and waits the seconds you name for it to end, exiting with its code
+  — 0 seconds waits not at all, for something meant to keep running. Exit code 124 is
+  the one answer that is not the service's: it is still running, and 'await test
+  [seconds]' waits some more. 'stop', 'restart', 'destroy' (which also takes it off
+  the list), 'logs' and 'ps' do what they say; no arguments shows the usage. The user
+  sees every service in the dashboard as you do (the play button of the task), can read
+  its output, and can stop, restart or start it themselves, so when you hand the task
+  over with a service to look at, say so and leave it running. Containerfile.dev
+  declares the services a project comes with: its CMD line is the service 'app', and a
   LABEL tps.service.<name>="command" line declares another; both can then be started
   by name alone. Give it an EXPOSE line for each port a service listens on (several
   are fine): every exposed port is forwarded to the user's browser. Listen on 0.0.0.0

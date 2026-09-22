@@ -43,3 +43,17 @@ func TestUntar(t *testing.T) {
 		t.Fatal("top-level dir not stripped or path escaped")
 	}
 }
+
+// A container that outlived a daemon upgrade still runs on the toolbox it
+// started on, so the guest tool goes into every toolbox the host has.
+func TestRefreshGuestTool(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	inUse := filepath.Join(toolboxRoot(), "code-server-1.0_tini-1.0", "bin")
+	if err := os.MkdirAll(inUse, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	refreshGuestTool()
+	if !exists(filepath.Join(inUse, guestToolName)) {
+		t.Error("a toolbox with containers on it did not get the tool")
+	}
+}

@@ -16,7 +16,7 @@ import (
 
 // Services: the named, long-running commands of a task — the project's dev
 // server, its test suite, a screenshot review app — each run detached in the
-// task's container by /tps/bin/tps-service-manager (see servicetool.go),
+// task's container by /tps/bin/tps-guest-tool (see guesttool.go),
 // whether the agent or the dashboard asked for it. Containerfile.dev declares
 // the ones a project comes with: its CMD is the service 'app', and a LABEL
 // tps.service.<name>="command" declares another. Ad hoc ones need no
@@ -454,18 +454,22 @@ func (t *Task) clearServicesL() {
 	t.logsPublished = nil
 }
 
-// serviceTool runs the tool in the task's container, bringing that up first,
-// and returns what it had to say on failure.
-func (t *Task) serviceTool(args ...string) error {
+// guestTool runs the tool in the task's container, bringing that up first,
+// and returns what it had to say on failure. A start that leaves the service
+// running says so with 124, which is the whole point of a dev server.
+func (t *Task) guestTool(args ...string) error {
 	c, err := t.up()
 	if err != nil {
 		return err
 	}
-	argv := append([]string{"podman", "exec", c.Name, "bash", "-lc", `exec /tps/bin/tps-service-manager "$@"`, "tps-service-manager"}, args...)
-	r, err := runCmd(argv, RunOpts{Timeout: 30 * time.Second})
+	argv := append([]string{"podman", "exec", c.Name, "bash", "-lc", `exec /tps/bin/` + guestToolName + ` "$@"`, guestToolName}, args...)
+	r, err := runCmd(argv, RunOpts{Timeout: 30 * time.Second, NoCheck: true})
+	if err == nil && r.Code != 0 && r.Code != 124 {
+		err = fmt.Errorf("`%s %s` failed (%d)", guestToolName, strings.Join(args, " "), r.Code)
+	}
 	if err != nil {
 		if msg := strings.TrimSpace(r.Err + "\n" + r.Out); msg != "" {
-			return errors.New(strings.TrimPrefix(msg, "tps-service-manager: "))
+			return errors.New(strings.TrimPrefix(msg, guestToolName+": "))
 		}
 		return err
 	}
@@ -490,21 +494,21 @@ func (t *Task) RunService(name string) error {
 	if err := checkServiceName(name); err != nil {
 		return err
 	}
-	return t.serviceTool("run", name)
+	return t.guestTool("start", name, "0")
 }
 
 func (t *Task) StopService(name string) error {
 	if err := checkServiceName(name); err != nil {
 		return err
 	}
-	return t.serviceTool("stop", name)
+	return t.guestTool("stop", name)
 }
 
 func (t *Task) RestartService(name string) error {
 	if err := checkServiceName(name); err != nil {
 		return err
 	}
-	return t.serviceTool("restart", name)
+	return t.guestTool("restart", name)
 }
 
 // syncServices is the manager's tick: every running task's services are

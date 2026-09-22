@@ -21,8 +21,8 @@ import (
 // versions here, or a provider's in its own file) never needs an image
 // rebuild. Layout: bin/{code-server,claude,pi,tini}, the releases that are
 // more than a binary under directories of their own, and two things of ours:
-// the default Containerfile.dev, and this binary as bin/tps-service-manager
-// (see servicetool.go), refreshed whenever the daemon is a new build.
+// the default Containerfile.dev, and this binary as bin/tps-guest-tool
+// (see guesttool.go), refreshed whenever the daemon is a new build.
 const (
 	codeServerVersion = "4.135.0"
 	tiniVersion       = "0.19.0"
@@ -85,7 +85,7 @@ func ensureToolbox() (string, error) {
 			return "", err
 		}
 	}
-	if err := installServiceTool(filepath.Join(dir, "bin")); err != nil {
+	if err := installGuestTool(filepath.Join(dir, "bin")); err != nil {
 		return "", err
 	}
 	// Containers are labeled with the key of the toolbox they run on.
@@ -189,12 +189,35 @@ func untar(r io.Reader, dir string) error {
 	}
 }
 
-// installServiceTool puts this binary in the toolbox as tps-service-manager
-// (see servicetool.go), unless the same build is there already. It goes in
+// refreshGuestTool puts this build's guest tool in every toolbox this host
+// keeps, and is what the daemon does about them at startup. The tool is the
+// daemon's own binary rather than one of the downloaded versions a toolbox is
+// keyed by, and /tps in a container is the toolbox it was started on, which an
+// upgraded daemon does not rebuild: writing to all of them is how a container
+// that outlived the upgrade gets the tool its agent is told to run. A host
+// with no toolbox yet is left to download one when a task needs it (see
+// ensureToolbox).
+func refreshGuestTool() {
+	toolboxMu.Lock()
+	defer toolboxMu.Unlock()
+	entries, _ := os.ReadDir(toolboxRoot())
+	for _, e := range entries {
+		bin := filepath.Join(toolboxRoot(), e.Name(), "bin")
+		if !e.IsDir() || !exists(bin) {
+			continue
+		}
+		if err := installGuestTool(bin); err != nil {
+			logf("refreshing %s in %s: %v", guestToolName, e.Name(), err)
+		}
+	}
+}
+
+// installGuestTool puts this binary in the toolbox as tps-guest-tool
+// (see guesttool.go), unless the same build is there already. It goes in
 // under a temporary name and is renamed over the old one: a wrapper still
 // running the old copy keeps its inode, and the file of a running program
 // cannot be written to in place anyway.
-func installServiceTool(bin string) error {
+func installGuestTool(bin string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -209,7 +232,7 @@ func installServiceTool(bin string) error {
 		return err
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
-	tool := filepath.Join(bin, serviceToolName)
+	tool := filepath.Join(bin, guestToolName)
 	if readFile(tool+".sha256") == sum && exists(tool) {
 		return nil
 	}

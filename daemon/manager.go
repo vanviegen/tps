@@ -230,6 +230,7 @@ func (m *Manager) Start() error {
 	}
 	m.identity = saved.Identity
 	m.usedAt = time.Now()
+	refreshGuestTool() // before any container this daemon adopts is used
 	for _, info := range saved.Projects {
 		if _, err := m.load(info); err != nil {
 			logf("Failed to load project %s: %v", info.Dir, err)

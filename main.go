@@ -26,8 +26,8 @@ var webFS embed.FS
 
 func main() {
 	log.SetFlags(log.Ltime)
-	// The service tool: this binary under the name tps-service-manager, copied into task containers.
-	if handled, code := daemon.ServiceToolInvoked(os.Args); handled {
+	// The guest tool: this binary under the name tps-guest-tool, copied into task containers.
+	if handled, code := daemon.GuestToolInvoked(os.Args); handled {
 		os.Exit(code)
 	}
 	// The podnester helpers: run inside task containers (port forwarding) and under podman unshare (path resolving).

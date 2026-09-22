@@ -25,12 +25,25 @@ const (
 	authMount   = "/claude-auth"
 )
 
+// A turn of claude's ends where a run of the task's does, and nothing may
+// come between the two: work claude keeps of its own — a backgrounded command,
+// a Monitor stream, a scheduled wakeup — ends the turn and then starts another
+// one by itself, long after TPS made the run's save point and handed the task
+// back. So every way it has of doing that is taken away, and what takes a
+// while is a TPS service instead (see guesttool.go), which the user can see
+// and the task does not wait on.
+//
+// CLAUDE_CODE_DISABLE_BACKGROUND_TASKS (see Start) takes the run_in_background
+// parameter off Bash and off subagents, and stops a command that hits its
+// timeout being moved to the background rather than killed; the tools denied
+// below are the ones that schedule or stream on their own.
 const claudeScript = `
 mkdir -p "$CLAUDE_CONFIG_DIR"
 export PATH=/tps/bin:$PATH
 echo $$ >/tmp/tps-agent.pid
 exec /tps/bin/claude -p --input-format stream-json --output-format stream-json --verbose \
 	--dangerously-skip-permissions ${TPS_MODEL:+--model "$TPS_MODEL"} --append-system-prompt "$TPS_SYSTEM" \
+	--disallowed-tools "Monitor CronCreate CronDelete CronList ScheduleWakeup Workflow" \
 	${TPS_BUDGET:+--max-budget-usd "$TPS_BUDGET"} $TPS_EXTRA
 `
 
@@ -96,6 +109,7 @@ func (claudeCLI) Start(opts SessionOpts) (Session, error) {
 	}
 	env := []string{
 		"TZ=UTC", // the zone claude words its usage-limit resets in; see parseReset
+		"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1",
 		"TPS_MODEL=" + model,
 		"TPS_SYSTEM=" + opts.System,
 		"TPS_EXTRA=" + extra,

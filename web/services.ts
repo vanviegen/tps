@@ -8,7 +8,7 @@ import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
  * A task's services: the named, long-running commands in its container —
  * the project's dev server (the Containerfile's CMD, as 'app'), a test suite,
  * a review app — declared by Containerfile.dev or started ad hoc, by the
- * agent (tps-service-manager) or from here. The play button opens a menu of
+ * agent (tps-guest-tool) or from here. The play button opens a menu of
  * them; a service opens a console with its output and the buttons to start,
  * stop and restart it. The ports the container forwards need no menu: they are
  * in the task's header (see drawTaskHeader). A service belongs to the task,
