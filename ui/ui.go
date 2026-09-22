@@ -43,9 +43,6 @@ type UI struct {
 
 	daemonBinary string
 	askpass      *askpassServer
-	askMu        sync.Mutex
-	askNext      int
-	asks         map[int]*question
 }
 
 // Commands that belong to a project or task and are forwarded to its daemon,
@@ -56,7 +53,7 @@ func Run(o Options) error {
 	u := &UI{
 		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.FallbackModels, "projectOrder": []string{}}),
 		webFS: o.WebFS, links: map[string]*Link{},
-		daemonBinary: o.DaemonBinary, asks: map[int]*question{},
+		daemonBinary: o.DaemonBinary,
 	}
 	var err error
 	if u.askpass, err = u.startAskpass(); err != nil {

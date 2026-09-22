@@ -3,6 +3,7 @@ package ui
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,14 +12,21 @@ import (
 )
 
 // The askpass server: ssh processes spawned by the UI are given
-// SSH_ASKPASS=<this binary> and a socket to reach us; each prompt ssh raises
-// arrives here and is put to the user, unless a remembered password fits.
+// SSH_ASKPASS=<this binary> and a socket to reach us, so every prompt ssh
+// raises — a password, a key passphrase, an unknown host key — arrives here.
+//
+// We never keep an ssh process waiting on a human: it is told to give up, and
+// the question is published on the host it is about, where it stays put until
+// it is answered. Answering remembers the answer and wakes the host's link,
+// which dials again and this time has what ssh asks for. So a host that needs
+// a login says exactly that, steadily, instead of retrying and re-prompting
+// behind the user's back.
 
 type askpassServer struct {
 	sock    string
 	mu      sync.Mutex
-	secrets map[string]string // remembered answers, by host id and prompt
-	asked   map[string]bool   // run ids that already used a remembered answer
+	secrets map[string]string // answers to give ssh, by host id and prompt
+	given   map[string]string // and the ssh process each was last given to
 }
 
 // AskpassRequest is what `tps` in askpass mode sends us.
@@ -38,7 +46,7 @@ func (u *UI) startAskpass() (*askpassServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &askpassServer{sock: filepath.Join(dir, "sock"), secrets: map[string]string{}, asked: map[string]bool{}}
+	s := &askpassServer{sock: filepath.Join(dir, "sock"), secrets: map[string]string{}, given: map[string]string{}}
 	ln, err := net.Listen("unix", s.sock)
 	if err != nil {
 		return nil, err
@@ -74,41 +82,90 @@ func (s *askpassServer) serve(u *UI, conn net.Conn) {
 }
 
 func (s *askpassServer) answer(u *UI, req AskpassRequest) AskpassReply {
+	prompt := strings.TrimSpace(req.Prompt)
+	key := req.Host + "\x00" + prompt
+	s.mu.Lock()
+	// The same process asking twice for the same thing means what we gave it
+	// was refused; it is no good for the next attempt either.
+	refused := s.given[key] == req.Run
+	secret, have := s.secrets[key]
+	if refused {
+		delete(s.secrets, key)
+		have = false
+	}
+	if have {
+		s.given[key] = req.Run
+	}
+	s.mu.Unlock()
+	if have {
+		return AskpassReply{Answer: secret}
+	}
 	dest := req.Host
 	if l, err := u.link(req.Host); err == nil {
 		if t, ok := l.tr.(*sshTransport); ok {
 			dest = t.c.Host()
 		}
 	}
-	prompt := strings.TrimSpace(req.Prompt)
-	if strings.Contains(prompt, "(yes/no") { // host key confirmation
-		if _, err := u.Ask(req.Host, "Unknown host "+dest, prompt, "confirm"); err != nil {
-			return AskpassReply{Cancel: true}
-		}
-		return AskpassReply{Answer: "yes"}
+	if strings.Contains(prompt, "(yes/no") { // an unknown host key
+		u.askHost(req.Host, key, "Unknown host "+dest, prompt, "confirm")
+	} else if refused {
+		u.askHost(req.Host, key, "SSH login to "+dest, "That did not work. "+prompt, "password")
+	} else {
+		u.askHost(req.Host, key, "SSH login to "+dest, prompt, "password")
 	}
-	// A remembered answer is tried once per ssh process; a second prompt from
-	// the same process means it was wrong.
-	key := req.Host + "\x00" + prompt
-	s.mu.Lock()
-	remembered, first := s.secrets[key], !s.asked[req.Run]
-	s.asked[req.Run] = true
-	s.mu.Unlock()
-	if first && remembered != "" {
-		return AskpassReply{Answer: remembered}
-	}
-	text := prompt
-	if !first {
-		text = "That did not work. " + prompt
-	}
-	answer, err := u.Ask(req.Host, "SSH login to "+dest, text, "password")
+	return AskpassReply{Cancel: true}
+}
+
+// askHost puts a question to the user, on the host it is about. The one that
+// is already waiting there stands: ssh asking again after being turned down
+// is the same question, not a second one.
+func (u *UI) askHost(hid, key, title, text, kind string) {
+	l, err := u.link(hid)
 	if err != nil {
-		return AskpassReply{Cancel: true}
+		return
 	}
+	l.mu.Lock()
+	fresh := l.ask == nil
+	if fresh {
+		l.askKey = key
+		l.ask = map[string]any{"title": title, "text": text, "kind": kind}
+	}
+	l.mu.Unlock()
+	if fresh {
+		l.publishHost()
+	}
+}
+
+// answer settles the question a host waits on: the answer is remembered for
+// the ssh processes to come, and the host connects again with it.
+func (u *UI) answer(raw json.RawMessage) (any, error) {
+	var args struct {
+		Hid   string `json:"hid"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, errors.New("bad arguments")
+	}
+	l, err := u.link(args.Hid)
+	if err != nil {
+		return nil, err
+	}
+	l.mu.Lock()
+	key, ask := l.askKey, l.ask
+	l.mu.Unlock()
+	if ask == nil {
+		return nil, errors.New("nothing to answer")
+	}
+	value := args.Value
+	if ask["kind"] == "confirm" { // ssh wants the word, not the click
+		value = "yes"
+	}
+	s := u.askpass
 	s.mu.Lock()
-	s.secrets[key] = answer
+	s.secrets[key] = value
 	s.mu.Unlock()
-	return AskpassReply{Answer: answer}
+	l.Wake()
+	return nil, nil
 }
 
 // Askpass is the client side: run as `tps <prompt>` by ssh, it fetches the

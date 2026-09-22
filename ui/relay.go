@@ -48,8 +48,10 @@ type Link struct {
 
 	// What the host shows: the connection state plus what the daemon reported.
 	status, errText string
-	build           string // the daemon's build id
-	homeDir         string // the daemon user's home there, for showing paths as ~/…
+	ask             map[string]any // the question ssh raised on the way here (see askpass.go)
+	askKey          string         // what its answer is remembered as
+	build           string         // the daemon's build id
+	homeDir         string         // the daemon user's home there, for showing paths as ~/…
 	protocol        int
 	restarting      bool
 	models          []any  // the models the agents on this host offer
@@ -153,6 +155,9 @@ func (l *Link) publishHost() {
 	}
 	l.mu.Lock()
 	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning, "home": l.homeDir}
+	if l.ask != nil {
+		host["ask"] = l.ask
+	}
 	if l.models != nil {
 		host["models"] = l.models
 	}
@@ -202,10 +207,17 @@ func (l *Link) run() {
 	backoff := 2 * time.Second
 	for !l.isClosed() {
 		l.mu.Lock()
-		stopped := l.stopped
+		stopped, asking := l.stopped, l.ask != nil
 		l.mu.Unlock()
+		// Stopped by the user, or waiting for an answer to what ssh asked:
+		// either way the host sits still and says so until Wake comes round.
 		if stopped {
 			l.setStatus("stopped", "")
+			<-l.wake
+			continue
+		}
+		if asking {
+			l.setStatus("asking", "")
 			<-l.wake
 			continue
 		}
@@ -222,6 +234,11 @@ func (l *Link) run() {
 			continue
 		}
 		backoff = 2 * time.Second
+		// We are in: a prompt ssh raised on the way (and we turned down) was
+		// one it had another answer to, so there is nothing left to ask.
+		l.mu.Lock()
+		l.ask, l.askKey = nil, ""
+		l.mu.Unlock()
 		l.serve(conn)
 		if !l.isClosed() {
 			l.setStatus("disconnected", "connection lost")
@@ -229,10 +246,10 @@ func (l *Link) run() {
 	}
 }
 
-// Wake retries a disconnected (or stopped) link right away.
+// Wake retries the link right away, whatever it was waiting for.
 func (l *Link) Wake() {
 	l.mu.Lock()
-	l.stopped = false
+	l.stopped, l.ask, l.askKey = false, nil, ""
 	l.mu.Unlock()
 	select {
 	case l.wake <- struct{}{}:
@@ -247,8 +264,13 @@ func (l *Link) awaitConnection(timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
 		l.mu.Lock()
-		status, errText := l.status, l.errText
+		status, errText, asking := l.status, l.errText, l.ask != nil
 		l.mu.Unlock()
+		// A dial that ended in a question for the user is not a failed
+		// attempt: it waits for the answer, and so do we, until the deadline.
+		if asking {
+			continue
+		}
 		switch status {
 		case "connected":
 			return nil

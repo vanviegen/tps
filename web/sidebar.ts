@@ -2,14 +2,13 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { gitBranch, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
-import { askLabel, hostAsk, showAsk } from './ask.ts';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { $holds, holdKey, isHeld, release } from './holds.ts';
-import { addHostDialog, hostColor, hostDialog, hostIssue, hostOrder } from './hosts.ts';
+import { addHostDialog, drawAction, hostDialog, hostInk, hostOrder, hostState } from './hosts.ts';
 import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { branchLabel, drawTaskIcon, ELLIPSIS, hostIcon, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
+import { branchLabel, drawTaskIcon, ELLIPSIS, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -230,35 +229,36 @@ function drawButtons(collapsed: boolean): void {
  * One host at the foot of the sidebar: its name, in the colour of what it is
  * doing, and the line it has to say for itself, cut off at the edge. The row
  * opens the host's dialog, where the whole of that is — an ssh error can be a
- * paragraph — and where everything to do with the host lives; a question it
- * is waiting for (a password, a host key) gets its own button, as answering
- * that is all most hosts ever want.
+ * paragraph — and where everything to do with the host lives; a host that
+ * wants something now (a password, a host key, a connection to make) gets a
+ * button for it on the row, as that is all most hosts ever want.
  */
 function drawHost(hid: string, $h: any): void {
 	A('div display:flex align-items:center gap:$1 min-width:0', () => {
 		A(() => {
 			const name = hostName(hid);
-			const issue = hostIssue(hid, $h);
-			const ask = hostAsk(hid);
-			const icon = issue?.icon ?? hostIcon(hid);
+			const state = hostState(hid, $h);
+			const ink = hostInk(state.color);
 			if ($ui.collapsed) {
 				A('div flex:1 display:flex justify-content:center', () => {
-					S.iconButton({ icon, ariaLabel: issue ? `${name}: ${issue.text}` : name, attrs: `.small fg:$s-${hostColor(hid, $h)}`, click: () => hostDialog(hid) });
+					S.iconButton({ icon: state.icon, ariaLabel: `${name}: ${state.text}`, attrs: `.small fg:${ink}`, click: () => hostDialog(hid) });
 				});
 				return;
 			}
 			S.button({
 				attrs: '.neutral .small flex:1 min-width:0 justify-content:flex-start text-align:left',
-				icon: () => A(`span display:inline-flex flex-shrink:0 fg:$s-${hostColor(hid, $h)}`, () => icon({ size: '1em' })),
-				tooltip: () => A('text=', issue ? `${name}: ${issue.text}` : name),
+				icon: () => A(`span display:inline-flex flex-shrink:0 fg:${ink}`, () => state.icon({ size: '1em' })),
+				tooltip: () => A('text=', `${name}: ${state.text}`),
 				content: () => A('div flex:1 display:flex flex-direction:column min-width:0', () => {
 					A(`span ${ELLIPSIS} text=`, name);
-					// A quiet issue (connecting, an update to make) is said in muted ink: there is no $s-neutral, and none is wanted.
-					if (issue) A(`span font-size:0.85em ${ELLIPSIS} fg:$s-${issue.color === 'neutral' ? 'muted' : issue.color} text=`, issue.text);
+					// A host that works says nothing beyond its name; the rest say what they want.
+					if (!state.ok) A(`span font-size:0.85em ${ELLIPSIS} fg:${ink} text=`, state.text);
 				}),
 				click: () => hostDialog(hid),
 			});
-			if (ask) S.button({ content: askLabel(ask[1]), attrs: '.small .warning', click: () => showAsk(ask[0]) });
+			// A button on the row is for a host that wants you now; the quiet
+			// states keep theirs for the dialog.
+			if (state.color === 'warning' || state.color === 'danger') drawAction(state);
 		});
 	});
 }

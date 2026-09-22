@@ -1,13 +1,13 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, check, folder, gitBranch, keyRound, plus, settings, trash2 } from 'staffa/icons.js';
-import { askLabel, askSummary, hostAsk, showAsk } from './ask.ts';
+import { arrowDown, arrowUp, check, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
+import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
 import { $state } from './conn.ts';
 import { hold } from './holds.ts';
-import { addHostDialog, hostColor, sortedHosts } from './hosts.ts';
+import { addHostDialog, drawAction, hostInk, hostState, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
 import { branchLabel, cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
 
@@ -126,9 +126,9 @@ export function drawProjectPage(pid: string, $p: any): void {
 /** The machine a project lives on, saying by its colour whether it is up. */
 function drawHostCell(hid: string): void {
 	const $h = $state.hosts?.[hid];
-	const color = hostColor(hid, $h);
-	A(`div display:flex align-items:center gap:$1 min-width:0 ${color === 'success' ? '' : `fg:$s-${color}`}`, () => {
-		S.addTooltip({ tip: `${hid === 'local' ? 'This machine' : $h?.dest ?? hid} · ${$h?.status ?? 'unknown'}` });
+	const state = hostState(hid, $h);
+	A(`div display:flex align-items:center gap:$1 min-width:0 ${state.ok ? '' : `fg:${hostInk(state.color)}`}`, () => {
+		S.addTooltip({ tip: `${hid === 'local' ? 'This machine' : $h?.dest ?? hid} · ${state.text}` });
 		A('span display:flex flex-shrink:0', () => hostIcon(hid)({ size: '1em' }));
 		A(`span ${ELLIPSIS} text=`, hostName(hid));
 	});
@@ -186,8 +186,7 @@ export function addProjectDialog(hid?: string): void {
 				A(() => {
 					if (!$busy.adding) return;
 					A('p.s-help #Waiting for the host…');
-					const ask = hostAsk($form.host);
-					if (ask) showAsk(ask[0]);
+					if ($state.hosts?.[$form.host]?.ask) showAsk($form.host);
 				});
 			},
 			actions: () => S.button({ content: 'Add', icon: plus, type: 'submit' }),
@@ -209,27 +208,14 @@ export function drawNotices(pid: string, $p: any): void {
 	A(() => {
 		const $h = $state.hosts?.[$p.host];
 		if (!$h) return;
-		// A login the host is waiting for is shown wherever the host is: the
-		// sidebar has its strip, and here it is the reason nothing happens.
-		const ask = hostAsk($p.host);
-		if (ask) {
-			drawStrip('warning', `${$h.name}: ${askSummary(ask[1])}`, () => {
-				keyRound({ size: '1em' });
-				A('span font-weight:600 text=', askLabel(ask[1]));
-			}, () => showAsk(ask[0]));
-		} else if ($h.status !== 'connected') {
-			drawStrip('danger', `${$h.name}: ${$h.status}${$h.error ? ' · ' + $h.error : ''}`,
-				() => S.button({ content: 'Connect', attrs: '.small', click: () => void cmd('connectHost', { hid: $p.host }) }));
-		} else if ($p.error) {
-			drawStrip('danger', `${shortDir($p.host, $p.dir)}: ${$p.error}`);
-		} else if ($h.warning) {
-			drawStrip('warning', $h.warning);
-		} else if ($h.restarting) {
-			drawStrip('neutral', `The daemon on ${$h.name} restarts into this build as soon as nothing is running.`);
-		} else if ($h.updatable) {
-			drawStrip('neutral', `The daemon on ${$h.name} runs another build of TPS.`,
-				() => S.button({ content: 'Update daemon', attrs: '.small', click: () => void cmd('updateDaemon', { hid: $p.host }) }));
-		}
+		// Whatever the host has to say is said the same here as in the sidebar,
+		// and here it is the reason nothing on this board is happening.
+		const state = hostState($p.host, $h);
+		if (!state.ok) drawStrip(state.color, `${$h.name}: ${state.text}`, () => drawAction(state));
+		// What the host says about the project itself, which it can only say
+		// while it is reachable — and which a daemon due an update does not
+		// stand in the way of.
+		if ($h.status === 'connected' && $p.error) drawStrip('danger', `${shortDir($p.host, $p.dir)}: ${$p.error}`);
 	});
 	A(() => {
 		if (!$p.dirty) return;

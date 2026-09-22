@@ -2,7 +2,6 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { plus } from 'staffa/icons.js';
-import { showAsk } from './ask.ts';
 import { $state } from './conn.ts';
 import './holds.ts';
 import { watchPhases } from './notify.ts';
@@ -162,14 +161,5 @@ function drawHome(): void {
 
 A(() => {
 	if (!$state.connected) A.clean(S.toast({ message: 'Reconnecting to the TPS server…', type: 'danger', duration: 0, dismissible: false }));
-});
-
-// Questions from the server (SSH logins, host keys) wait in the sidebar, on
-// the row of the host they are about, so they don't interrupt. One about a
-// host that is not on the board has nowhere to wait, and opens by itself.
-A(() => {
-	for (const [id, $a] of Object.entries($state.ask ?? {}) as [string, any][]) {
-		if (!$a.host || !$state.hosts?.[$a.host]) showAsk(id);
-	}
 });
 

@@ -83,30 +83,14 @@ export function projectColor($p: any): string {
 	return PROJECT_COLORS[hash % PROJECT_COLORS.length];
 }
 
-// A strip that is a button all over: it lights up like one under the pointer.
-const clickableStrip = A.insertCss({
-	'&': 'cursor:pointer transition: filter 0.12s;',
-	'&:hover, &:focus-visible': 'filter: brightness(1.25)',
-});
-
-/**
- * A line about something that wants attention, with what to do about it beside
- * it. Give `click` and the strip is the button itself, for the cases where the
- * whole line means one thing — a login waiting to be given.
- */
-export function drawStrip(color: string, text: string, action?: () => void, click?: () => void): void {
-	A(`div.s-s.${color}.tonal p:$2 r:$s-radius-sm display:flex flex-wrap:wrap align-items:center gap:$2`,
-		click ? clickableStrip : null, () => {
-			if (click) {
-				A('role=button tabindex=0 click=', click, 'keydown=', (e: KeyboardEvent) => {
-					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); click(); }
-				});
-			}
-			// Whatever the server says may hold something unbreakable (an ssh
-			// fingerprint): let it break rather than push what follows off the box.
-			A('span flex:1 min-width:0 overflow-wrap:anywhere rich=', text);
-			action?.();
-		});
+/** A line about something that wants attention, with what to do about it beside it. */
+export function drawStrip(color: string, text: string, action?: () => void): void {
+	A(`div.s-s.${color}.tonal p:$2 r:$s-radius-sm display:flex flex-wrap:wrap align-items:center gap:$2`, () => {
+		// Whatever the server says may hold something unbreakable (an ssh
+		// fingerprint): let it break rather than push what follows off the box.
+		A('span flex:1 min-width:0 overflow-wrap:anywhere rich=', text);
+		action?.();
+	});
 }
 
 // The one thing that says "this is going on right now", wherever it is said:
