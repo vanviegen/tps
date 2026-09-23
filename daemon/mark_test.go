@@ -370,6 +370,23 @@ func TestRewindTheConversationOnly(t *testing.T) {
 	}
 }
 
+// A merge leaves the task a fresh clone, without the commits its points were
+// made at. The conversation can still go back to one; the code cannot.
+func TestRewindTheConversationPastAMerge(t *testing.T) {
+	task, _ := markTask(t)
+	task.mark("Start", "")
+	point := marks(t, task)[0]
+	gone := strings.Repeat("0", 40)
+	write(t, task.chatFile(), strings.ReplaceAll(readFile(task.chatFile()), point.Mark.Commit, gone))
+
+	if _, _, err := task.UsePoint(point.ID, Use{Work: true}); err == nil {
+		t.Error("the tree went back to a commit that is not there")
+	}
+	if _, _, err := task.UsePoint(point.ID, Use{Chat: true}); err != nil {
+		t.Errorf("the conversation could not go back for want of a commit it does not need: %v", err)
+	}
+}
+
 // And the other way round: the tree goes back, the conversation stays whole.
 func TestRevertTheCodeOnly(t *testing.T) {
 	task, _ := markTask(t)

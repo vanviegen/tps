@@ -280,7 +280,7 @@ func (t *Task) UsePoint(id string, use Use) (tid, draft string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	if !gitOK(t.repoDir(), "cat-file", "-e", point.Mark.Commit+"^{commit}") {
+	if use.Work && !gitOK(t.repoDir(), "cat-file", "-e", point.Mark.Commit+"^{commit}") {
 		return "", "", errors.New("the commit this point was made at is no longer in the workspace")
 	}
 	if use.Fork {
