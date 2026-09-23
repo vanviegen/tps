@@ -16,7 +16,7 @@ import (
 // `claude -p` talking stream-json on both ends (see agent.go), and asked on
 // the host for the models it takes and for a task's title.
 
-const claudeVersion = "2.1.263"
+const claudeVersion = "2.1.280"
 
 // claudeMount is the task's own claude directory in its container; authMount
 // beside it is the daemon's, the login every task shares (see login.go).
