@@ -1,6 +1,6 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { check, circleX, play, square } from 'staffa/icons.js';
+import { check, circleX, ethernetPort, globe, play, square } from 'staffa/icons.js';
 import { ansiToHtml } from './ansi.ts';
 import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
 
@@ -10,8 +10,8 @@ import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
  * a review app — declared by Containerfile.dev or started ad hoc, by the
  * agent (tps-guest-tool) or from here. The play button opens a menu of
  * them; a service opens a console with its output and the buttons to start,
- * stop and restart it. The ports the container forwards need no menu: they are
- * in the task's header (see drawTaskHeader). A service belongs to the task,
+ * stop and restart it. The ports the container forwards have a button of their
+ * own beside it (see drawPortsButton). A service belongs to the task,
  * not to its container: a replaced container ends what ran, and leaves every
  * service idle with the command it runs, ready to start again.
  */
@@ -85,22 +85,43 @@ export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: 
 }
 
 /**
- * The forwarded ports as "8080 → 56123", the port inside the container and the
- * one it is on here: a link that opens the page in a new tab once something
- * answers HTTP there, and what is in the way of that until then.
+ * The ports button, beside the play one while the container forwards any: in
+ * the primary colour once something listens on one of them, and a globe that
+ * opens the page right away when that is a single port answering HTTP.
  */
-export function drawPortLinks($t: any): void {
-	A('small display:flex flex-wrap:wrap gap:$2 min-width:0', () => {
-		for (const p of ($t.ports ?? []) as Port[]) {
-			const label = portLabel(p);
-			if (p.live) {
-				A('a fg:$s-link text-decoration:none', 'href=', portUrl(p), 'target=_blank', 'text=', label,
-					() => S.addTooltip({ tip: 'Open in a new tab' }));
-			} else {
-				A('span fg:$s-muted text=', label, () => S.addTooltip({ tip: portTip(p) }));
-			}
+export function drawPortsButton($t: any): void {
+	A(() => {
+		const ports: Port[] = $t.ports ?? [];
+		if (!ports.length) return;
+		const open = ports.filter(p => p.open);
+		const only = open.length === 1 && open[0].live ? open[0] : undefined;
+		if (only) {
+			S.iconButton({ icon: globe, ariaLabel: `Open port ${only.port}`, tooltip: `Open port ${only.port} in a new tab`,
+				attrs: 'fg:$s-primary', click: () => window.open(portUrl(only), '_blank') });
+		} else {
+			S.iconButton({ icon: ethernetPort, ariaLabel: 'Forwarded ports', tooltip: 'The ports the container forwards',
+				attrs: open.length ? 'fg:$s-primary' : '', click: () => portsDialog($t) });
 		}
 	});
+}
+
+function portsDialog($t: any): void {
+	void S.dialog({ header: 'Forwarded ports', attrs: 'w:34rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => {
+		A('p m:0 text=', 'Every port an EXPOSE line in Containerfile.dev names is forwarded from the task\'s container to a port on this machine, to reach what listens there from your browser.');
+		A('table border-collapse:collapse', () => {
+			A('tr', () => { for (const h of ['Container', 'Here', 'Status']) A('th text-align:left p:$1 text=', h); });
+			A(() => {
+				for (const p of ($t.ports ?? []) as Port[]) A('tr', () => {
+					A('td p:$1 text=', p.port);
+					A('td p:$1', () => {
+						if (p.live) A('a fg:$s-link', 'href=', portUrl(p), 'target=_blank', 'text=', portUrl(p));
+						else A('text=', p.host);
+					});
+					A('td p:$1 fg:$s-muted text=', p.live ? 'Serving HTTP' : portTip(p));
+				});
+			});
+		});
+	}});
 }
 
 const portLabel = (p: Port) => `${p.port} → ${p.host}`;
@@ -171,7 +192,7 @@ function drawConsole($t: any, name: string, find: () => Service | undefined, $st
 	});
 }
 
-/** One button per forwarded port, live once something answers HTTP there: the dialog covers the header they are in otherwise. */
+/** One button per forwarded port, live once something answers HTTP there: the dialog covers the ports button in the header. */
 function drawPorts($t: any): void {
 	A(() => {
 		for (const p of ($t.ports ?? []) as Port[]) {

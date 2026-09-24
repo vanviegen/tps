@@ -9,7 +9,7 @@ import { drawCode } from './code.ts';
 import { $state, watchTask } from './conn.ts';
 import { hold, release } from './holds.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
-import { anyRunning, drawPortLinks, hasServices, servicesMenu } from './services.ts';
+import { anyRunning, drawPortsButton, hasServices, servicesMenu } from './services.ts';
 import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, ELLIPSIS, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, projectColor, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
@@ -529,12 +529,11 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 /**
  * What sits above the log: the project in its colour, with the icons that act
  * on the task in the corner beside it; under those the task's own title, on one
- * line; and under that the ports its container forwards, to reach what runs in
- * there without opening a menu for the number.
+ * line.
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
 	A('div display:flex flex-direction:column min-width:0', () => {
-		A('div display:flex align-items:center gap:$2 min-width:0', () => {
+		A('div display:flex align-items:center gap:0.4rem min-width:0', () => {
 			A(() => {
 				const $p = $state.projects[pid];
 				A(`b flex:1 min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, $p?.name ?? '');
@@ -547,6 +546,7 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 					tooltip: 'What runs in the container',
 					attrs: running ? 'fg:$s-danger' : '', click: (e: Event) => servicesMenu(e.currentTarget as HTMLElement, pid, tid, $t) });
 			});
+			drawPortsButton($t);
 			// Only while the task is yours: rebasing and rebuilding both move the
 			// ground under a running agent, and both are for the human at the wheel.
 			A(() => {
@@ -581,7 +581,6 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 				click: () => closeTask(pid, tid) });
 		});
 		A(() => A(`small ${ELLIPSIS} min-width:0 text=`, taskTitle($t)));
-		drawPortLinks($t);
 	});
 }
 
