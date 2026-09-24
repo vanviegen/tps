@@ -1903,7 +1903,28 @@ func (t *Task) clone() error {
 	if err := t.setIdentity(tmp); err != nil {
 		return err
 	}
+	if err := showSteps(tmp, t.p.defaultBranch); err != nil {
+		return err
+	}
 	return os.Rename(tmp, t.repoDir())
+}
+
+// showSteps has VS Code's Source Control Graph show the steps next to the
+// branch: the graph shows a branch's "base" beside it, which has to be a
+// remote branch, so stepsBranch gets one — tps/steps, a symbolic ref to it.
+// The branch is made at the base already: were it missing, VS Code would
+// find the base unresolvable and put the default one in its place.
+func showSteps(repo, branch string) error {
+	for _, args := range [][]string{
+		{"update-ref", "refs/heads/" + stepsBranch, "HEAD"},
+		{"symbolic-ref", "refs/remotes/tps/steps", "refs/heads/" + stepsBranch},
+		{"config", "branch." + branch + ".vscode-merge-base", "tps/steps"},
+	} {
+		if _, err := git(repo, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // setIdentity gives a clone the identity its commits are made under: TPS's own
