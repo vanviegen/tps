@@ -1,13 +1,12 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { chevronLeft, folder, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
+import { chevronLeft, folder, panelLeftClose, panelLeftOpen, plus, server, settings } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
-import { $holds, holdKey, isHeld, release } from './holds.ts';
 import { addHostDialog, drawAction, hostDialog, hostInk, hostOrder, hostState } from './hosts.ts';
 import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
-import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
+import { taskMenuItems, taskSettingsDialog } from './task.ts';
 import { drawTaskIcon, ELLIPSIS, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
 /**
@@ -15,8 +14,8 @@ import { drawTaskIcon, ELLIPSIS, hostName, pathTo, phaseOrder, projectColor, sel
  *
  * Under the logo, every project in the order the user put them in, on a wash
  * of its colour; under each, the tasks that are *open*: those waiting for a
- * human (the bright ones among them), those an agent is working on, those this
- * dashboard holds VS Code on (see holds.ts), and the one on screen. Then Add
+ * human (the bright ones among them), those an agent is working on, and the
+ * one on screen. Then Add
  * project and Add host, and at the bottom every host, each saying what it is
  * doing and leading to its own dialog.
  *
@@ -144,7 +143,7 @@ function drawProject(pid: string, $p: any): void {
 			}, phaseOrder);
 			A(() => {
 				const { pid: shown, base } = selection();
-				if (isHeld(pid) || (shown === pid && base)) drawBase(pid, $p);
+				if ($p.codePort || (shown === pid && base)) drawBase(pid, $p);
 			});
 		});
 	});
@@ -152,23 +151,21 @@ function drawProject(pid: string, $p: any): void {
 
 /**
  * A task is listed while it waits for a human, while an agent is on it (its
- * own, or the one reviewing its work), while this dashboard holds it, and while
- * it is on screen: everything under way, in other words. A muted one is none of those: putting it away is what muting is
- * for, and opening it takes it back out (see useTask).
+ * own, or the one reviewing its work), and while it is on screen: everything
+ * under way, in other words. A muted one is none of those: putting it away is
+ * what muting is for, and opening it takes it back out (see useTask).
  */
 function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
 	if ($t.phase === 'muted') return false;
-	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || !!$holds[holdKey(pid, tid)];
+	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review';
 }
 
 function drawTask(pid: string, tid: string, $t: any): void {
 	A('a.tps-row.tps-task', 'href=', pathTo(pid, tid), () => {
 		S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
-			const extra: S.MenuEntry[] = [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }];
-			if (A.peek(() => isHeld(pid, tid))) extra.push({ label: 'Close VS Code', icon: x, click: () => closeTask(pid, tid) });
-			return taskMenuItems(pid, tid, $t, extra);
+			return taskMenuItems(pid, tid, $t, [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }]);
 		}});
 		// Yours to act on: it waits for you, or it is a plan you have yet to start.
 		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan'));
@@ -193,12 +190,9 @@ function drawTask(pid: string, tid: string, $t: any): void {
 	});
 }
 
-/** The project's own checkout, listed like a task while it is open in VS Code. */
+/** The project's own checkout, listed like a task while VS Code runs on it. */
 function drawBase(pid: string, $p: any): void {
 	A('a.tps-row.tps-task', 'href=', pathTo(pid, 'base'), () => {
-		S.addContextMenu({ link: pathTo(pid, 'base'), get items(): S.MenuEntry[] {
-			return [{ label: 'Close VS Code', icon: x, click: () => closeBase(pid) }];
-		}});
 		A(() => {
 			const { pid: shown, base } = selection();
 			A('.tps-current=', shown === pid && !!base);
@@ -211,13 +205,6 @@ function drawBase(pid: string, $p: any): void {
 			A('span.tps-clip font-style:italic text=', 'Project directory');
 		});
 	});
-}
-
-/** Let go of the project's checkout: VS Code on it is stopped, and its row goes. */
-export function closeBase(pid: string): void {
-	release(pid);
-	const shown = A.peek(selection);
-	if (shown.pid === pid && shown.base) void route.go(pathTo(pid));
 }
 
 function drawButtons(collapsed: boolean): void {

@@ -1,28 +1,25 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, scanEye, sendHorizontal, settings, trash2, user, x } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
-import { $state, watchTask } from './conn.ts';
-import { hold, release } from './holds.ts';
+import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, drawPortsButton, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, ELLIPSIS, hasWorkspace, hostName, isFinished, isOpenable, onComposer, pathTo, projectColor, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, projectColor, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
- * Keep the task's chat streaming for as long as the calling scope lives, and
- * hold the task (see holds.ts) once it has a workspace: arriving at it opens
- * VS Code on it, and that stays open — listed in the sidebar — until closed.
+ * Watch the task for as long as the calling scope lives: its chat streams, and
+ * once it has a workspace, VS Code runs in it.
  *
  * Opening a muted task is how it stops being muted: looking at it is taking it
  * back on, and a task you are working on belongs in the sidebar with the rest.
  */
 export function useTask(pid: string, tid: string, $t: any): void {
-	watchTask(pid, tid);
-	A(() => { if (isOpenable($t)) hold(pid, tid); });
+	watch(pid, tid);
 	A(() => { if ($t.phase === 'muted') void cmd('moveTask', { pid, tid, phase: 'human' }); });
 	// Closing the page of a task that was never written down throws it away.
 	// This scope is also torn down and built up again while the page stays put
@@ -42,16 +39,6 @@ function dropBlankTask(pid: string, tid: string): void {
 		return !!$t && $t.phase === 'plan' && !($t.description ?? '').trim() && !($t.title ?? '').trim();
 	});
 	if (blank) void cmd('deleteTask', { pid, tid });
-}
-
-/**
- * Close the task: VS Code on it is stopped and it leaves the sidebar — unless
- * it waits for a human, which keeps it listed. Whoever was looking at it
- * lands on the project's board.
- */
-export function closeTask(pid: string, tid: string): void {
-	release(pid, tid);
-	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
 }
 
 /**
@@ -144,12 +131,12 @@ async function planDialog($t: any): Promise<Phase | undefined> {
 }
 
 /**
- * End the task without merging. Its VS Code goes with it, the way Close does
- * it; opening the task again brings the session back.
+ * End the task without merging. Whoever was looking at it lands on the
+ * project's board.
  */
 function finishUnmerged(pid: string, tid: string): void {
 	void cmd('moveTask', { pid, tid, phase: 'closed' });
-	closeTask(pid, tid);
+	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
 }
 
 /**
@@ -577,8 +564,6 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 					click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
 				});
 			});
-			S.iconButton({ icon: x, ariaLabel: 'Close', key: 'mod+shift+x', tooltip: 'Close VS Code and put the task away; one waiting for you stays listed',
-				click: () => closeTask(pid, tid) });
 		});
 		A(() => A(`small ${ELLIPSIS} min-width:0 text=`, taskTitle($t)));
 	});

@@ -5,8 +5,7 @@ import { arrowDown, arrowUp, check, folder, gitBranch, plus, settings, trash2 } 
 import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
-import { $state } from './conn.ts';
-import { hold } from './holds.ts';
+import { $state, watch } from './conn.ts';
 import { addHostDialog, drawAction, hostInk, hostState, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
 import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
@@ -324,13 +323,12 @@ function drawColorField(pid: string, $p: any): void {
 
 /**
  * VS Code on the project's own checkout, filling the window beside the
- * sidebar. Arriving here holds the checkout (see holds.ts), which is what
- * starts its code-server; letting go of it again is the palette's Close (see
- * palette.ts) or the row's menu in the sidebar. Nothing is drawn over the
- * frame: whatever corner an icon took, it took from VS Code's own.
+ * sidebar. Being on screen watches the checkout, which is what starts its
+ * code-server. Nothing is drawn over the frame: whatever corner an icon took,
+ * it took from VS Code's own.
  */
 export function drawProjectCode(pid: string, $p: any, left: string): void {
-	hold(pid);
+	watch(pid);
 	A('div position:relative flex:1 min-width:0 overflow:auto p:$3', () => {
 		A(() => {
 			if ($p.codePort) {

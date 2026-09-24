@@ -47,7 +47,8 @@ type Project struct {
 	tasks         map[string]*Task
 	defaultBranch string
 	code          *codeServer // VS Code on the checkout itself; see code.go
-	codeWanted    bool        // a dashboard holds the checkout open
+	codeShown     bool        // a dashboard shows the checkout in VS Code
+	codeSeen      time.Time   // when one last started or stopped doing so
 	head          string      // the default branch's tip at the last refreshMeta; a new one dates every workspace
 }
 

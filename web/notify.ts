@@ -12,7 +12,7 @@ import { pathTo, taskTitle, type Phase } from './util.ts';
  *
  * Which tasks these are asked for is per task and per browser: the permission
  * is the browser's, and so is the window that would show them. The set lives
- * in localStorage beside the holds and the drafts, and the tasks that are gone
+ * in localStorage beside the drafts, and the tasks that are gone
  * are swept out of it as they are seen to be gone. A project can have them
  * switched on for the tasks made from now on — its own default, kept the same
  * way, since what it sets is this browser's business too.

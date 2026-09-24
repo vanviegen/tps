@@ -43,17 +43,26 @@ func (c *codeServer) kill() {
 // toolbox download it may wait on is serialized anyway.
 var codeMu sync.Mutex
 
-// syncCode sets the code-server after codeWanted: up while a dashboard holds
-// the checkout open, down once none does.
-func (p *Project) syncCode() {
+// closeIdleCode stops the code-server once no dashboard has shown the
+// checkout for idleShutdown, as a task's container is taken down — unless a
+// terminal in it is running something, which starts the wait over.
+func (p *Project) closeIdleCode() {
 	p.m.mu.Lock()
-	wanted := p.codeWanted
+	idle := !p.codeShown && time.Since(p.codeSeen) > idleShutdown
 	p.m.mu.Unlock()
-	if wanted {
-		p.bgOpenCode()
-	} else {
-		p.closeCode()
+	codeMu.Lock()
+	c := p.code
+	codeMu.Unlock()
+	if !idle || c == nil {
+		return
 	}
+	if exec.Command("sh", "-c", termBusyScript, "sh", strconv.Itoa(c.cmd.Process.Pid)).Run() == nil {
+		p.m.mu.Lock()
+		p.codeSeen = time.Now()
+		p.m.mu.Unlock()
+		return
+	}
+	p.closeCode()
 }
 
 // bgOpenCode brings the code-server up without making the dashboard wait for

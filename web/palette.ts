@@ -1,11 +1,8 @@
-import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { claimKeyInCode } from './code.ts';
-import { $state } from './conn.ts';
 import { sortedProjects } from './projects.ts';
-import { closeBase } from './sidebar.ts';
-import { addTask, closeTask } from './task.ts';
+import { addTask } from './task.ts';
 import { isFinished, pathTo, phaseOrder, PHASE_LABELS, selection, taskTitle, type Phase } from './util.ts';
 
 /**
@@ -43,28 +40,11 @@ function isPaletteKey(e: KeyboardEvent): boolean {
 interface Destination { value: string; label: string }
 
 /**
- * The two entries that are not a place to go: closing what is open, and
- * creating a task in a project, which is CREATE and the project id. Every
- * other value is a path, and a path begins with a slash, so neither can be
- * taken for one.
+ * The one entry that is not a place to go: creating a task in a project,
+ * which is CREATE and the project id. Every other value is a path, and a path
+ * begins with a slash, so it cannot be taken for one.
  */
-const CLOSE = 'close';
 const CREATE = 'create:';
-
-/**
- * Closing what is on screen, as an entry — the task, or the project's own
- * checkout. VS Code owns the keyboard while one of those is open, so the
- * palette is the way back out: this stands at the top of an untouched list,
- * where ctrl-L enter lands on it, and is filtered away by anything typed that
- * isn't the start of its own words.
- */
-function closeEntry(): { label: string; act: () => void } | undefined {
-	const { pid, tid, base } = selection();
-	const $p = pid ? $state.projects[pid] : undefined;
-	if (!pid || !$p) return;
-	if (tid && $p.tasks?.[tid]) return { label: 'Close task', act: () => closeTask(pid, tid) };
-	if (base) return { label: 'Close project directory', act: () => closeBase(pid) };
-}
 
 /**
  * Everywhere the palette can take you, in the order the board would show it:
@@ -83,7 +63,8 @@ function closeEntry(): { label: string; act: () => void } | undefined {
  * The project you are in comes first, its whole block of entries with it: the
  * place you want next is nearly always beside the one you are at, so a couple
  * of letters of a task name lands there without a like-named task elsewhere
- * standing in front of it.
+ * standing in front of it. Its board heads the list, so ctrl-L Enter is the
+ * way out of VS Code, which otherwise owns the keyboard.
  */
 function destinations(): Destination[] {
 	const here = selection().pid;
@@ -119,20 +100,14 @@ function showPalette(): void {
 			const bind = {
 				get value(): string { return ''; },
 				set value(value: string) {
-					const act = value === CLOSE ? A.peek(closeEntry)?.act : undefined;
 					close();
-					if (act) act();
-					else if (value.startsWith(CREATE)) void addTask(value.slice(CREATE.length));
+					if (value.startsWith(CREATE)) void addTask(value.slice(CREATE.length));
 					else void route.go(value);
 				},
 			};
 			S.autocomplete({
 				placeholder: 'Type a project or task…', allowCustom: false, bind,
-				options: () => {
-					const here = closeEntry();
-					const list: Destination[] = destinations();
-					return here ? [{ value: CLOSE, label: here.label }, ...list] : list;
-				},
+				options: destinations,
 			});
 		},
 	});

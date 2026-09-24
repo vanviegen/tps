@@ -3,7 +3,6 @@ import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { plus } from 'staffa/icons.js';
 import { $state } from './conn.ts';
-import './holds.ts';
 import { watchPhases } from './notify.ts';
 import { bindPalette } from './palette.ts';
 import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
@@ -26,7 +25,6 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  * - `ctrl-shift-S` start a task, `ctrl-shift-F` the project's own files in VS
  *   Code — both on the project page, beside the board.
  * - `ctrl-shift-G` merge the task on screen, while it offers to be merged.
- * - `ctrl-shift-X` close it: VS Code stops and the task is put away.
  * - `ctrl-B` fold the sidebar away, and back out: Code's own key for its own
  *   sidebar, so the gesture is the same one wherever the focus is — and it is
  *   left to Code while the focus is in there, folding that sidebar instead.
@@ -34,8 +32,8 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  *   wherever the focus is while a workspace is on screen (see code.ts), rather
  *   than printing the page.
  * - `ctrl-L` the palette (see palette.ts), whose top entry on an empty field
- *   closes what is open — so `ctrl-L enter` is Close from inside VS Code too,
- *   and the only way out of the project's own checkout without the sidebar.
+ *   is the board of the project you are in — so `ctrl-L enter` is the way out
+ *   of VS Code, and of the project's own checkout without the sidebar.
  *   `ctrl-enter` sends a message or assigns a plan to the agent.
  * - `ctrl-tab` the page before this one, and again to come back — the two you
  *   are working between, a keystroke apart. Only where the browser lets go of

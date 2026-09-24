@@ -323,9 +323,8 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	}
 	// The container idles under the toolbox's init: the agent, the project's
 	// CMD and code-server are all exec'd into it, so each comes and goes on
-	// its own — VS Code in particular is started when a dashboard holds the
-	// task open and stopped when none does (see StartCode), which must not
-	// take the agent down with it.
+	// its own — VS Code in particular is started when a dashboard shows the
+	// task (see StartCode), and goes with the container once it idles.
 	args = append(args, o.image, "/tps/bin/tini", "--", "sh", "-c", "while :; do sleep 3600; done")
 	if err := runContainer(o.name, o.nestDir, args, rmErr); err != nil {
 		return nil, err
@@ -501,33 +500,34 @@ func (c *Container) waitReady() error {
 // codeScript runs code-server in the container, with the toolbox on PATH so
 // terminals in VS Code can run claude too. The explicit --port keeps it from
 // picking up a $PORT the image may set for whatever the task itself serves.
-// Its pid is written down first (exec keeps it), for killCodeScript.
+// Its pid is written down first (exec keeps it), for termBusyScript.
 var codeScript = fmt.Sprintf("export PATH=/tps/bin:$PATH; echo $$ >%[2]s; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d"+
 	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions /work", codePort, codePidFile)
 
 const codePidFile = "/tmp/.tps-code.pid"
 
-// killCodeScript sends a signal to code-server and everything it forked
-// (extension hosts, file watchers, language servers): the process tree under
-// the pid codeScript wrote down, found through the parent ids in /proc. Only
-// that tree — the agent's claude, and the shells it and the user run, are
-// left alone whatever their command lines say. Nothing beyond /proc and the
-// shell is needed of the image.
-const killCodeScript = `pid=$(cat %[1]s 2>/dev/null) || exit 0
-[ -d "/proc/$pid" ] || exit 0
-tree=$pid; todo=$pid
-while [ -n "$todo" ]; do
-	next=
-	for parent in $todo; do
-		for p in /proc/[0-9]*; do
-			s=$(cat "$p/stat" 2>/dev/null) || continue
-			s=${s##*) }; set -- $s
-			[ "$2" = "$parent" ] && { tree="$tree ${p#/proc/}"; next="$next ${p#/proc/}"; }
-		done
-	done
-	todo=$next
+// termBusyScript exits 0 when a terminal in VS Code is running something:
+// a shell under the pty host of the code-server whose pid it is given (or,
+// without one, the pid codeScript wrote down) that has a process of its own —
+// one at its prompt has none. Only that code-server's tree is looked at, found
+// through the parent ids in /proc; nothing beyond /proc and the shell is
+// needed of the image.
+const termBusyScript = `root=${1:-$(cat ` + codePidFile + ` 2>/dev/null)} pairs=
+for p in /proc/[0-9]*; do
+	{ read -r s <"$p/stat"; } 2>/dev/null || continue
+	s=${s##*) }; set -- $s
+	pairs="$pairs ${p#/proc/}:$2"
 done
-kill -%[2]s $tree 2>/dev/null`
+children() {
+	out=" "
+	for pp in $pairs; do case "$1" in *" ${pp#*:} "*) out="$out${pp%%:*} " ;; esac; done
+	echo "$out"
+}
+tree=" $root " todo=" $root "
+while [ "$todo" != " " ]; do todo=$(children "$todo"); tree="$tree$todo"; done
+hosts=" "
+for p in $tree; do grep -q -e --type=ptyHost "/proc/$p/cmdline" 2>/dev/null && hosts="$hosts$p "; done
+[ "$(children "$(children "$hosts")")" != " " ]`
 
 // StartCode brings code-server up in the container and waits for it to
 // answer; one that is running already is left as it is.
@@ -547,18 +547,10 @@ func (c *Container) StartCode() error {
 	return fmt.Errorf("code-server in %s did not come up", c.Name)
 }
 
-// StopCode ends code-server in the container: a TERM, and a KILL for what is
-// still there a few seconds later. The container itself stays up.
-func (c *Container) StopCode() {
-	for _, sig := range []string{"TERM", "KILL"} {
-		_, _ = runCmd([]string{"podman", "exec", c.Name, "sh", "-c", fmt.Sprintf(killCodeScript, codePidFile, sig)}, RunOpts{NoCheck: true, Timeout: 10 * time.Second})
-		for i := 0; i < 12; i++ {
-			if !codeAlive(c.CodePort) {
-				return
-			}
-			time.Sleep(250 * time.Millisecond)
-		}
-	}
+// TerminalBusy: is a terminal in the container's VS Code running something?
+func (c *Container) TerminalBusy() bool {
+	_, err := runCmd([]string{"podman", "exec", c.Name, "sh", "-c", termBusyScript}, RunOpts{Timeout: 10 * time.Second})
+	return err == nil
 }
 
 // codeAlive: does a code-server answer on this (host) port?

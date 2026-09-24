@@ -103,17 +103,18 @@ export async function send(cmd: string, args?: object): Promise<any> {
 /**
  * Watches are counted per key, and the server hears only of the first and
  * the last: a key is a task (`pid/tid`), whose chat then streams and whose
- * workspace, VS Code included, is kept up — or `pid/-`, the project's own
- * checkout in VS Code. They are placed again whenever the connection comes
- * back (see connect).
+ * workspace, VS Code included, is brought up — or `pid/-`, the project's own
+ * checkout in VS Code. A watch is a page on screen; what it brought up stays
+ * after it until it has sat idle a while (see the daemon's sweep). They are
+ * placed again whenever the connection comes back (see connect).
  */
-export function addWatch(key: string): void {
+function addWatch(key: string): void {
 	const count = watchCounts.get(key) ?? 0;
 	watchCounts.set(key, count + 1);
 	if (!count) sendRaw({ watch: key, on: true });
 }
 
-export function dropWatch(key: string): void {
+function dropWatch(key: string): void {
 	const left = (watchCounts.get(key) ?? 1) - 1;
 	if (left > 0) {
 		watchCounts.set(key, left);
@@ -123,8 +124,8 @@ export function dropWatch(key: string): void {
 	}
 }
 
-/** Watch a task for as long as the calling reactive scope lives. */
-export function watchTask(pid: string, tid: string): void {
+/** Watch a task, or without one the project's checkout, for as long as the calling reactive scope lives. */
+export function watch(pid: string, tid = '-'): void {
 	const key = `${pid}/${tid}`;
 	addWatch(key);
 	A.clean(() => dropWatch(key));

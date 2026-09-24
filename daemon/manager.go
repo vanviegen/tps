@@ -187,11 +187,10 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 		models:       map[string][]string{},
 		modelsFailed: map[string]bool{},
 	}
-	// A watch is a dashboard holding something open: a task (its chat
-	// streams, its workspace stays up, and VS Code runs in it), or, under the
-	// key "<pid>/-", the project's own checkout in VS Code. The last watcher
-	// going — a Close, or a dashboard's connection dropping — takes VS Code
-	// down with it; nothing else does.
+	// A watch is a dashboard showing something: a task (its chat streams, its
+	// workspace is brought up, and VS Code runs in it), or, under the key
+	// "<pid>/-", the project's own checkout in VS Code. The last watcher going
+	// leaves both as they are, for the sweep to take down once they idle.
 	h.OnWatch = func(key string, count int) {
 		pid, tid, _ := strings.Cut(key, "/")
 		m.mu.Lock()
@@ -201,9 +200,11 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 			return
 		}
 		if tid == "-" {
-			p.codeWanted = count > 0
+			p.codeShown, p.codeSeen = count > 0, time.Now()
 			m.mu.Unlock()
-			p.syncCode()
+			if count > 0 {
+				p.bgOpenCode()
+			}
 			return
 		}
 		if t := p.tasks[tid]; t != nil {
@@ -212,7 +213,7 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 			}
 			t.viewers = count
 			t.touchL()
-			t.setCodeWantedL(count > 0)
+			go t.syncCode()
 			if count == 0 {
 				p.autoStartL() // closing a plan lets a task that was waiting for it go
 			}
@@ -502,20 +503,21 @@ func (m *Manager) parkAll() {
 
 // sweep is the minute's housekeeping: the 'dirty' flags, the auto-starts no
 // event announced (a daemon that restarted with tasks already waiting), and
-// the workspaces nobody is using.
+// the workspaces and VS Codes nobody is using.
 func (m *Manager) sweep() {
 	m.mu.Lock()
 	projects := m.sortedProjectsL()
 	m.mu.Unlock()
 	for _, p := range projects {
 		p.refreshMeta() // keep the 'dirty' flag current
+		p.closeIdleCode()
 	}
 	m.mu.Lock()
 	for _, p := range m.projects {
 		p.autoStartL()
 	}
 	now := time.Now().UnixMilli()
-	var idle, unheld, overdue []*Task
+	var idle, overdue []*Task
 	for _, t := range m.allTasksL() {
 		// A usage-limit wait about to be up is left alone: it starts a turn of
 		// its own in a moment, which a workspace torn down under it would not
@@ -528,9 +530,6 @@ func (m *Manager) sweep() {
 			}
 		} else if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown {
 			idle = append(idle, t)
-		} else if t.codeUp && t.viewers == 0 && !t.codeWanted {
-			// A code-server adopted from before a restart that no dashboard came back for.
-			unheld = append(unheld, t)
 		}
 	}
 	m.mu.Unlock()
@@ -538,12 +537,18 @@ func (m *Manager) sweep() {
 		go t.resumeAfterLimit()
 	}
 	for _, t := range idle {
-		t.note("workspace idle, shutting down (your work is untouched)")
+		if t.terminalBusy() {
+			t.lock()
+			t.touchL()
+			t.unlock()
+			continue
+		}
+		// A task only looked at since the last time says nothing new.
+		if t.lastNote() != idleNote {
+			t.note(idleNote)
+		}
 		t.queue("container", idlePrompt)
 		t.down()
-	}
-	for _, t := range unheld {
-		go t.syncCode()
 	}
 }
 

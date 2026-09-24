@@ -40,15 +40,6 @@ export function hasWorkspace($t: any): boolean {
 	return !!$t.worktree;
 }
 
-/**
- * Whether the task is one to keep open: it has a workspace, or is about to get
- * one. A task in Plan has none yet and a finished one no longer. This goes by
- * the phase rather than by the workspace, which lags a moment behind it.
- */
-export function isOpenable($t: any): boolean {
-	return $t.phase !== 'plan' && !isFinished($t);
-}
-
 /** Whether the task is over: merged, or closed without merging. Nothing waits for it. */
 export function isFinished($t: any): boolean {
 	return $t.phase === 'done' || $t.phase === 'closed';

@@ -155,6 +155,17 @@ func (h *Hub) SetChat(key string, entries []Entry) {
 	h.toWatchers(key, map[string]any{"c": key, "es": values(entries)})
 }
 
+// LastChat is the newest entry of a task's log, if it has one.
+func (h *Hub) LastChat(key string) (Entry, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	log := h.chats[key]
+	if len(log) == 0 {
+		return Entry{}, false
+	}
+	return log[len(log)-1], true
+}
+
 func (h *Hub) appendChat(key string, e Entry) {
 	log := append(h.chats[key], e)
 	if len(log) > chatKeep {
