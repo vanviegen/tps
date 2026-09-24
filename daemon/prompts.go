@@ -62,6 +62,9 @@ Rules:
   create or edit /work/Containerfile.dev, the project's image definition, and end your
   turn with next 'reload' (see below). A repository without one runs the default image;
   its definition is at /tps/Containerfile.dev, so copy that as your starting point.
+  Whatever else the project needs, keep python3 in it: shell commands often want it.
+- Read and write files with your built-in tools wherever they can, rather than through
+  shell commands (cat, sed, python3, heredocs, scripts).
 - Caches: a LABEL tps.cache="/abs/path /other/path" line in Containerfile.dev names
   directories TPS keeps per project and mounts into every task's container, so package
   and build caches (npm's, pip's, Go's, cargo's) carry over from one task to the next.
