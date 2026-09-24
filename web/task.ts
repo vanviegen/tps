@@ -1,15 +1,15 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, gitMerge, play, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, ellipsisVertical, ethernetPort, gitMerge, play, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
-import { anyRunning, drawPortsButton, hasServices, servicesMenu } from './services.ts';
-import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, projectColor, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { anyRunning, drawPortsButton, hasServices, portsDialog, serviceItems } from './services.ts';
+import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -514,59 +514,63 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 }
 
 /**
- * What sits above the log: the project in its colour, with the icons that act
- * on the task in the corner beside it; under those the task's own title, on one
- * line.
+ * What sits above the log, on one line: the project, the task's title — in
+ * full, with what it was asked, in its tooltip — the play button while a
+ * service runs and the ports one while something listens, the phase with
+ * its menu, and a menu of the rest there is to do with the task.
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
-	A('div display:flex flex-direction:column min-width:0', () => {
-		A('div display:flex align-items:center gap:0.4rem min-width:0', () => {
-			A(() => {
-				const $p = $state.projects[pid];
-				A(`b flex:1 min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, $p?.name ?? '');
-			});
-			A(() => { // its own scope: a service arriving must not redraw the row
-				if (!hasServices($t)) return;
-				// Red while something runs: services go on behind a closed console, and this is what brings it back.
-				const running = anyRunning($t);
-				S.iconButton({ icon: play, ariaLabel: running ? 'Services: something is running' : 'Services',
-					tooltip: 'What runs in the container',
-					attrs: running ? 'fg:$s-danger' : '', click: (e: Event) => servicesMenu(e.currentTarget as HTMLElement, pid, tid, $t) });
-			});
-			drawPortsButton($t);
-			// Only while the task is yours: rebasing and rebuilding both move the
-			// ground under a running agent, and both are for the human at the wheel.
-			A(() => {
-				if (!waitsForHuman($t) || !$t.behind) return;
-				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-				S.iconButton({ icon: arrowDownToLine, ariaLabel: 'Rebase onto the latest ' + branch,
-					tooltip: () => A('text=', `${branch} has moved on by ${$t.behind} commit${$t.behind === 1 ? '' : 's'}: replay this task's work on top of it`),
-					click: () => rebaseTask(pid, tid, $t) });
-			});
-			A(() => {
-				if (!waitsForHuman($t)) return;
-				S.iconButton({ icon: refreshCw, ariaLabel: 'Rebuild the container',
-					tooltip: 'Rebuild the container from Containerfile.dev',
-					click: () => void cmd('reloadTask', { pid, tid }) });
-			});
-			S.iconButton({ icon: settings, ariaLabel: 'Task settings', tooltip: 'Its title, its model, its budget — everything but its phase', click: () => taskSettingsDialog(pid, tid, $t) });
-			// The phase, worn as the icon it has on the board and in the sidebar,
-			// is the button for everything that is about the phase: a menu needs
-			// no glyph of its own where the state it acts on is one. It breathes
-			// while something is going on, exactly as the sidebar's does.
-			A(() => {
-				const phase = $t.phase as Phase;
-				const icon = PHASE_ICONS[phase] ?? bot;
-				S.iconButton({
-					icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
-					ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
-					tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
-					click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
-				});
+	A('div display:flex align-items:center gap:0.4rem min-width:0', () => {
+		A(`b flex-shrink:0 max-width:40% ${ELLIPSIS} text=`, $state.projects[pid]?.name ?? '');
+		A(`span flex:1 min-width:0 ${ELLIPSIS} fg:$s-muted`, () => {
+			A(() => A('text=', taskTitle($t)));
+			S.addTooltip({ tip: () => A('div white-space:pre-wrap max-width:32rem max-height:60vh overflow:hidden text=',
+				[taskTitle($t), ($t.description ?? '').trim()].filter(Boolean).join('\n\n')) });
+		});
+		A(() => { // its own scope: a service starting must not redraw the row
+			if (!anyRunning($t)) return;
+			// Services go on behind a closed console, and this is what brings it back.
+			S.iconButton({ icon: play, ariaLabel: 'Services: something is running', tooltip: 'What runs in the container',
+				click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: serviceItems(pid, tid, $t) }); } });
+		});
+		drawPortsButton($t);
+		// The phase, worn as the icon it has on the board and in the sidebar, is
+		// the button for everything that is about the phase. It breathes while
+		// something is going on, exactly as the board's does.
+		A(() => {
+			const phase = $t.phase as Phase;
+			const icon = PHASE_ICONS[phase] ?? bot;
+			S.iconButton({
+				icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
+				ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
+				tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
+				click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
 			});
 		});
-		A(() => A(`small ${ELLIPSIS} min-width:0 text=`, taskTitle($t)));
+		S.iconButton({ icon: ellipsisVertical, ariaLabel: 'Task actions', tooltip: 'Everything to do with this task',
+			click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: headerItems(pid, tid, $t) }); } });
 	});
+}
+
+/**
+ * The header's menu: the task's services and ports while it has them, what
+ * is for the human at the wheel, and its settings.
+ */
+function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
+	const items: S.MenuEntry[] = [];
+	if (hasServices($t)) items.push({ label: 'Services', icon: play, items: serviceItems(pid, tid, $t) });
+	if ($t.ports?.length) items.push({ label: 'Forwarded ports…', icon: ethernetPort, click: () => portsDialog($t) });
+	// Only while the task is yours: rebasing and rebuilding both move the
+	// ground under a running agent, and both are for the human at the wheel.
+	if (waitsForHuman($t)) {
+		if ($t.behind) {
+			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
+			items.push({ label: `Rebase onto the latest ${branch} (${$t.behind} behind)`, icon: arrowDownToLine, click: () => rebaseTask(pid, tid, $t) });
+		}
+		items.push({ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) });
+	}
+	items.push({ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) });
+	return items;
 }
 
 /** The chat, what is worth acting on right now, and the input. */

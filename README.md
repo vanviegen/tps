@@ -17,10 +17,10 @@ rootless podman container of its own. Agents cannot touch your checkout or
 each other, you run as many as your budget allows, and a task that went wrong
 is deleted rather than cleaned up after.
 
-**Many projects, one place.** The sidebar lists every project with the tasks
-that need you, the ones an agent is on and the ones you have VS Code open on,
-across all your machines. Switch between them with a click or a few letters
-in the ctrl-L palette; each VS Code stays where you left it.
+**Many projects, one place.** The sidebar lists every project, grouped by the
+machine it is on, with the tasks that need you, the ones an agent is on and
+the ones you have VS Code open on. Switch between them with a click or a few
+letters in the ctrl-L palette; each VS Code stays where you left it.
 
 **A Kanban board per project.** See the tasks you're planning, what agents
 are working on, what requires your attention, and what has been completed at
@@ -28,8 +28,8 @@ a glance.
 
 **Any number of machines.** Add a host by whatever you would type after `ssh`,
 and TPS installs its daemon there and shows its projects beside your local
-ones, VS Code and forwarded ports included. The heavy lifting happens on the
-big desktop while you steer from the laptop.
+ones, VS Code and forwarded ports included; more are added from its page. The
+heavy lifting happens on the big desktop while you steer from the laptop.
 
 **Merges that land themselves.** A task becomes one commit on the default
 branch, with a merge message proposed by the agent. If the branch moved on, it is
@@ -100,7 +100,7 @@ TPS runs on Linux, any distribution. Every machine that runs projects needs:
 - **podman**, 4 or later, set up rootless (the distro package normally does
   that), and **git**;
 - a **login for the agent you run**: for Claude Code, a host without one says
-  so at the bottom of the sidebar, and clicking that signs in through your
+  so under its name in the sidebar, and its page signs you in through your
   browser, here, and hands the login to that host. Every host gets one of its
   own this way, over SSH as much as here, and keeps it in
   `~/.local/share/tps/claude`, shared by all of its tasks; `ANTHROPIC_API_KEY`

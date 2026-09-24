@@ -8,10 +8,11 @@ import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
  * A task's services: the named, long-running commands in its container —
  * the project's dev server (the Containerfile's CMD, as 'app'), a test suite,
  * a review app — declared by Containerfile.dev or started ad hoc, by the
- * agent (tps-guest-tool) or from here. The play button opens a menu of
- * them; a service opens a console with its output and the buttons to start,
- * stop and restart it. The ports the container forwards have a button of their
- * own beside it (see drawPortsButton). A service belongs to the task,
+ * agent (tps-guest-tool) or from here. The task's menu lists them, and so
+ * does the play button while one runs; a service opens a console with its
+ * output and the buttons to start, stop and restart it. The ports the
+ * container forwards have a button of their own beside it while something
+ * listens on one (see drawPortsButton). A service belongs to the task,
  * not to its container: a replaced container ends what ran, and leaves every
  * service idle with the command it runs, ready to start again.
  */
@@ -27,7 +28,7 @@ export interface Service {
 
 interface Port { port: number; host: number; live?: boolean; open?: boolean; }
 
-/** Whether any service of the task runs: the play button is red then. */
+/** Whether any service of the task runs: the play button shows then. */
 export function anyRunning($t: any): boolean {
 	return ($t.services ?? []).some((s: Service) => s.status === 'running');
 }
@@ -62,10 +63,11 @@ function statusIcon(s: Service): S.MenuItem['icon'] {
 }
 
 /**
- * The play button's menu: a row per service, a click opening its console — and
- * starting one that is not started.
+ * The services as menu rows — the play button's menu, and the task menu's
+ * submenu: a row per service, a click opening its console — and starting one
+ * that is not started.
  */
-export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: any): void {
+export function serviceItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	// Plain copies: the menu is built once, as it opens, off the state of that moment.
 	const services: Service[] = A.peek(() => ($t.services ?? []).map((s: Service) => ({ ...s })));
 	const items: S.MenuEntry[] = [];
@@ -81,31 +83,30 @@ export function servicesMenu(anchor: HTMLElement, pid: string, tid: string, $t: 
 			click: () => serviceDialog(pid, tid, $t, s.name, s.status === 'idle'),
 		});
 	}
-	S.showFloatingMenu({ anchor, items });
+	return items;
 }
 
 /**
- * The ports button, beside the play one while the container forwards any: in
- * the primary colour once something listens on one of them, and a globe that
- * opens the page right away when that is a single port answering HTTP.
+ * The ports button, beside the play one while something listens on a port the
+ * container forwards: a globe that opens the page right away when that is a
+ * single port answering HTTP.
  */
 export function drawPortsButton($t: any): void {
 	A(() => {
-		const ports: Port[] = $t.ports ?? [];
-		if (!ports.length) return;
-		const open = ports.filter(p => p.open);
+		const open = (($t.ports ?? []) as Port[]).filter(p => p.open);
+		if (!open.length) return;
 		const only = open.length === 1 && open[0].live ? open[0] : undefined;
 		if (only) {
 			S.iconButton({ icon: globe, ariaLabel: `Open port ${only.port}`, tooltip: `Open port ${only.port} in a new tab`,
-				attrs: 'fg:$s-primary', click: () => window.open(portUrl(only), '_blank') });
+				click: () => window.open(portUrl(only), '_blank') });
 		} else {
 			S.iconButton({ icon: ethernetPort, ariaLabel: 'Forwarded ports', tooltip: 'The ports the container forwards',
-				attrs: open.length ? 'fg:$s-primary' : '', click: () => portsDialog($t) });
+				click: () => portsDialog($t) });
 		}
 	});
 }
 
-function portsDialog($t: any): void {
+export function portsDialog($t: any): void {
 	void S.dialog({ header: 'Forwarded ports', attrs: 'w:34rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => {
 		A('p m:0 text=', 'Every port an EXPOSE line in Containerfile.dev names is forwarded from the task\'s container to a port on this machine, to reach what listens there from your browser.');
 		A('table border-collapse:collapse', () => {

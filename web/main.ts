@@ -1,15 +1,15 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { plus } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { watchPhases } from './notify.ts';
 import { bindPalette } from './palette.ts';
-import { addProjectDialog, drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
+import { drawHostPage } from './hosts.ts';
+import { drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
-import { hasWorkspace, isFinished, pathTo, selection, taskTitle } from './util.ts';
+import { hasWorkspace, hostPath, isFinished, pathTo, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -94,7 +94,8 @@ A(() => {
 function drawMain(): void {
 	A(() => {
 		if (!$state.ready) { A('progress w:100% m:$3'); return; }
-		const { pid, tid, base } = selection();
+		const { hid, pid, tid, base } = selection();
+		if (hid) return drawWide(() => drawHostPage(hid));
 		if (!pid) return drawHome();
 		const $p = $state.projects[pid];
 		if (!$p) return drawWide(() => S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' }));
@@ -138,21 +139,13 @@ function drawTaskView(pid: string, tid: string, $t: any): void {
 
 /**
  * There is no front page: the address bar's "/" lands on the first project
- * in the sidebar. Only a board without projects has nothing to land on, and
- * says how to get one.
+ * in the sidebar — or, while there are none, on this machine's page, which is
+ * where one is added.
  */
 function drawHome(): void {
 	const first = sortedProjects()[0];
-	if (first) {
-		setTimeout(() => { if (!A.peek(selection).pid) void route.go(pathTo(first[0]), 'replace'); });
-		return;
-	}
-	drawWide(() => {
-		S.box({ header: 'Welcome to TPS', contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
-			A('p rich=', 'No projects yet. *Add project* takes a directory holding a git repository, on this machine or on any host you reach over SSH.');
-			S.button({ content: 'Add project', icon: plus, click: () => addProjectDialog() });
-		}});
-	});
+	const to = first ? pathTo(first[0]) : hostPath('local');
+	setTimeout(() => { if (route.current.path === '/') void route.go(to, 'replace'); });
 }
 
 // --- the rest of the app ---

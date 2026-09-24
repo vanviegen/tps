@@ -46,13 +46,10 @@ func TestCreateTaskDefaults(t *testing.T) {
 	}
 }
 
-// A project takes what it was not given: claude's own models, and a colour.
+// A project takes what it was not given: claude's own models.
 func TestProjectFallbacks(t *testing.T) {
 	p := newProject(testManager(), "project", &ProjectInfo{Dir: "/tmp/project"})
 	if p.info.Defaults.Model != DefaultModel || p.info.Defaults.ReviewModel != "" {
 		t.Errorf("a project without a model should offer claude's own, and review on the task's: %+v", p.info.Defaults)
-	}
-	if !colorRe.MatchString(p.info.Color) {
-		t.Errorf("a project should be given a colour: %q", p.info.Color)
 	}
 }

@@ -251,7 +251,6 @@ cat >"$CONFIG.new" <<JSON
 		{
 			"dir": "$PROJECTS/snip",
 			"name": "snip",
-			"color": "#45c4d6",
 			"defaults": { "model": "claude: haiku" },
 			"activity": $(ms 0 2),
 			"nextTask": 8,
@@ -336,7 +335,6 @@ cat >"$CONFIG.new" <<JSON
 		{
 			"dir": "$PROJECTS/standup",
 			"name": "standup",
-			"color": "#c8d35a",
 			"defaults": { "model": "claude: haiku", "budget": 5 },
 			"activity": $(ms 3),
 			"nextTask": 4,

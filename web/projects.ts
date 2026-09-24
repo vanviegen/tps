@@ -1,18 +1,18 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, check, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
+import { arrowDown, arrowUp, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
-import { addHostDialog, drawAction, hostInk, hostState, sortedHosts } from './hosts.ts';
+import { drawAction, hostInk, hostState } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
+import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
- * by the dashboard, as it spans hosts), each in its colour and with its code
+ * by the dashboard, as it spans hosts), each under its host and with its code
  * (kept by the project's daemon, like its name).
  */
 
@@ -58,14 +58,15 @@ export function reorderProjects(pid: string, beforePid?: string): void {
 	void cmd('setProjectOrder', { order: ids });
 }
 
-/** Move a project one place up or down. */
+/** Move a project one place up or down among those on its host. */
 function moveProject(pid: string, by: -1 | 1): void {
-	const ids = A.peek(sortedProjects).map(([id]) => id);
-	const i = ids.indexOf(pid);
-	const j = i + by;
-	if (i < 0 || j < 0 || j >= ids.length) return;
-	[ids[i], ids[j]] = [ids[j], ids[i]];
-	void cmd('setProjectOrder', { order: ids });
+	const list = A.peek(sortedProjects);
+	const i = list.findIndex(([id]) => id === pid);
+	let j = i + by;
+	while (j >= 0 && j < list.length && list[j][1].host !== list[i][1].host) j += by;
+	if (i < 0 || j < 0 || j >= list.length) return;
+	[list[i], list[j]] = [list[j], list[i]];
+	void cmd('setProjectOrder', { order: list.map(([id]) => id) });
 }
 
 /**
@@ -104,8 +105,7 @@ export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 export function drawProjectPage(pid: string, $p: any): void {
 	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
 		A('div display:flex align-items:center gap:$3 flex-wrap:wrap min-width:0', () => {
-			// The name in the project's colour, as the sidebar has it.
-			A(() => A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, A.ref($p, 'name')));
+			A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} text=`, A.ref($p, 'name'));
 			A(() => drawProjectFacts($p));
 			A('div flex:1');
 			// The keys are on these rather than on the board's ✛ or the menu's
@@ -122,11 +122,11 @@ export function drawProjectPage(pid: string, $p: any): void {
 	});
 }
 
-/** The machine a project lives on, saying by its colour whether it is up. */
+/** The machine a project lives on, saying by its colour whether it is up, and leading to its page. */
 function drawHostCell(hid: string): void {
 	const $h = $state.hosts?.[hid];
 	const state = hostState(hid, $h);
-	A(`div display:flex align-items:center gap:$1 min-width:0 ${state.ok ? '' : `fg:${hostInk(state.color)}`}`, () => {
+	A(`a display:flex align-items:center gap:$1 min-width:0 text-decoration:none fg:${state.ok ? 'inherit' : hostInk(state.color)}`, 'href=', hostPath(hid), () => {
 		S.addTooltip({ tip: `${hid === 'local' ? 'This machine' : $h?.dest ?? hid} · ${state.text}` });
 		A('span display:flex flex-shrink:0', () => hostIcon(hid)({ size: '1em' }));
 		A(`span ${ELLIPSIS} text=`, hostName(hid));
@@ -134,41 +134,27 @@ function drawHostCell(hid: string): void {
 }
 
 /**
- * Adding a project: a directory on the host picked here — the one whose menu
- * this was started from, when it was. The name follows the directory as it is
- * typed, until the name is typed in itself: from then on it is the user's.
+ * Adding a project: a directory on the host whose page or menu this was
+ * started from. The name follows the directory as it is typed, until the name
+ * is typed in itself: from then on it is the user's.
  */
-export function addProjectDialog(hid?: string): void {
-	const $form = A.proxy({ host: hid ?? 'local', dir: '', name: '' });
+export function addProjectDialog(hid: string): void {
+	const $form = A.proxy({ dir: '', name: '' });
 	const $busy = A.proxy({ adding: false });
 	let named = false; // the name is the user's own now
-	let host = $form.host; // the last host that was really picked
-	void S.dialog({ header: 'Add project', attrs: 'w:32rem', content: close => {
+	void S.dialog({ header: () => A('text=', `Add project to ${hostName(hid)}`), attrs: 'w:32rem', content: close => {
 		S.form({
 			submit: async () => {
-				if (!$form.dir.trim() || $form.host === ADD_HOST || $busy.adding) return;
+				if (!$form.dir.trim() || $busy.adding) return;
 				$busy.adding = true;
-				const result = await cmd('addProject', { hid: $form.host, dir: $form.dir.trim(), name: $form.name.trim() });
+				const result = await cmd('addProject', { hid, dir: $form.dir.trim(), name: $form.name.trim() });
 				$busy.adding = false;
 				if (!result) return;
 				close();
 				route.go(pathTo(result.pid));
 			},
 			content: () => {
-				A('p rich=', 'A directory holding a git repository, on one of your hosts. Work there goes on while this dashboard is closed.');
-				S.select({
-					label: 'Host', bind: A.ref($form, 'host'),
-					options: () => [
-						...sortedHosts().map(([id]) => ({ value: id, label: hostName(id) })),
-						{ value: ADD_HOST, label: 'Add host…' },
-					],
-				});
-				// "Add host…" is not a host but a detour: it opens that dialog at
-				// once, and whatever it adds takes its place in the list.
-				A(() => {
-					if ($form.host !== ADD_HOST) { host = $form.host; return; }
-					void addHostDialog().then(added => { $form.host = added ?? host; });
-				});
+				A('p rich=', 'A directory holding a git repository on this host. Work there goes on while this dashboard is closed.');
 				S.textline({
 					label: 'Directory', placeholder: '~/projects/app', required: true, bind: A.ref($form, 'dir'),
 					input: (e: Event) => {
@@ -179,22 +165,19 @@ export function addProjectDialog(hid?: string): void {
 					label: 'Name', help: 'What to call it in the list; the directory name by default.', bind: A.ref($form, 'name'),
 					input: () => { named = true; },
 				});
-				// Adding waits for the host to answer, and one being reached for the
-				// first time may want a login. That question waits in the sidebar,
-				// which this dialog covers — so while we wait, it comes here instead.
+				// Adding waits for the host to answer, which may want a login first.
+				// That question waits in the sidebar, which this dialog covers — so
+				// while we wait, it comes here instead.
 				A(() => {
 					if (!$busy.adding) return;
 					A('p.s-help #Waiting for the host…');
-					if ($state.hosts?.[$form.host]?.ask) showAsk($form.host);
+					if ($state.hosts?.[hid]?.ask) showAsk(hid);
 				});
 			},
 			actions: () => S.button({ content: 'Add', icon: plus, type: 'submit' }),
 		});
 	}});
 }
-
-/** The value the host selector uses for its last entry; no host id can be it. */
-const ADD_HOST = '\x00add-host';
 
 /** The name a directory suggests: its last part, if that says anything. */
 function dirName(dir: string): string {
@@ -260,65 +243,38 @@ export function drawProjectFacts($p: any): void {
 }
 
 /**
- * Everything about the project that is set rather than done: what it is called
- * and what stands for it in the sidebar, and — kept apart, being about the
- * tasks to come rather than the project itself — what its new tasks start out
- * with. Every field saves itself as it is changed, so there is nothing here to
- * confirm and nothing lost by closing the dialog.
+ * Everything about the project that is set rather than done: what it is
+ * called, and — kept apart, being about the tasks to come rather than the
+ * project itself — what its new tasks start out with. Every field saves
+ * itself as it is changed, so there is nothing here to confirm and nothing
+ * lost by closing the dialog.
  */
 export function projectSettingsDialog(pid: string, $p: any): void {
 	const save = (patch: object) => void cmd('setProject', { pid, ...patch });
 	void S.dialog({ header: 'Project settings', attrs: 'w:36rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => {
 		// The values are read once and written back by the fields themselves: a
 		// redraw while typing would take the cursor with it.
-		A('div display:flex flex-direction:column gap:$2', () => {
-			S.textline({
-				label: 'Name', value: A.peek($p, 'name') ?? '',
-				input: debounce(600, (e: Event) => {
-					const name = (e.target as HTMLInputElement).value.trim();
-					if (name) save({ name });
-				}),
-			});
-			drawColorField(pid, $p);
+		S.textline({
+			label: 'Name', value: A.peek($p, 'name') ?? '',
+			input: debounce(600, (e: Event) => {
+				const name = (e.target as HTMLInputElement).value.trim();
+				if (name) save({ name });
+			}),
 		});
-		// A section of its own, boxed and headed, so what it is about is not
+		// A section of its own under a heading, so what it is about is not
 		// mistaken for more of the project's own settings.
-		S.box({
-			// A box clips what it does not fit, and a flex item that clips is
-			// allowed to shrink below its content: squeezed by the dialog's
-			// height, this one would swallow its own last fields instead of
-			// letting the dialog scroll. It keeps its height, and the dialog does
-			// the scrolling.
-			header: 'Default task settings', attrs: 'mt:0 flex-shrink:0',
-			contentAttrs: 'display:flex flex-direction:column gap:$2',
-			content: () => {
-				A('p.s-help m:0 #Copied into every new task of this project; the tasks that exist keep what they have.');
-				A(() => {
-					// The defaults land with the project itself; each is patched on its
-					// own, so typing in one is not interrupted by another being saved.
-					const $d = $p.defaults;
-					if (!$d) return;
-					drawTaskFields(pid, undefined, $d, patch => save({ defaults: patch }));
-				});
-			},
+		A('div display:flex flex-direction:column gap:$2', () => {
+			A('h3 m:0 mt:$2 font-size:1em #Default task settings');
+			A('p.s-help m:0 #Copied into every new task of this project; the tasks that exist keep what they have.');
+			A(() => {
+				// The defaults land with the project itself; each is patched on its
+				// own, so typing in one is not interrupted by another being saved.
+				const $d = $p.defaults;
+				if (!$d) return;
+				drawTaskFields(pid, undefined, $d, patch => save({ defaults: patch }));
+			});
 		});
 	}});
-}
-
-/** The project's colour, as a field of the settings: the palette, with the one in use ticked. */
-function drawColorField(pid: string, $p: any): void {
-	A('div.s-field', () => {
-		A('label #Colour');
-		A('div display:flex flex-wrap:wrap gap:$2', () => {
-			for (const color of PROJECT_COLORS) {
-				A('button type=button w:2.4rem h:2.4rem r:50% border:0 cursor:pointer display:inline-flex align-items:center justify-content:center fg:#14161a',
-					`bg:${color}`, 'aria-label=', color,
-					'click=', () => void cmd('setProject', { pid, color }),
-					() => { A(() => { if (projectColor($p) === color) check({ size: '1.2em' }); }); });
-			}
-		});
-		A('span.s-help #What the sidebar shows the project and its tasks in.');
-	});
 }
 
 /**

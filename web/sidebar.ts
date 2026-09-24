@@ -1,23 +1,27 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { chevronLeft, folder, panelLeftClose, panelLeftOpen, plus, server, settings } from 'staffa/icons.js';
+import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, settings } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
-import { addHostDialog, drawAction, hostDialog, hostInk, hostOrder, hostState } from './hosts.ts';
-import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
+import { addHostDialog, drawAction, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
+import { projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
-import { drawTaskIcon, ELLIPSIS, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
+import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
  *
- * Under the logo, every project in the order the user put them in, on a wash
- * of its colour; under each, the tasks that are *open*: those waiting for a
- * human (the bright ones among them), those an agent is working on, and the
- * one on screen. Then Add
- * project and Add host, and at the bottom every host, each saying what it is
- * doing and leading to its own dialog.
+ * Under the logo, every host, and on each the projects it holds in the order
+ * the user put them in; under each project, the tasks that are *open*: those
+ * waiting for a human, those an agent is working on, and the one on screen.
+ *
+ * What belongs together is told by the space between it rather than by lines.
+ * A host is a small label over a block with rounded outer corners; its
+ * projects are the tiles that block is made of, held apart by a sliver of the
+ * sidebar showing through. Nothing is indented: that would cost the width the
+ * collapsed strip has none of. A host folds away by its chevron, and folded
+ * says how many of its tasks wait for you.
  *
  * Nothing here moves: what is going on is the board's story and the task's
  * own, and a list one glances at is the last place for an animation.
@@ -28,41 +32,54 @@ import { drawTaskIcon, ELLIPSIS, hostName, pathTo, phaseOrder, projectColor, sel
  * the tooltip. It folds by the icon in the corner, which is in the same spot
  * either way so that one spot folds it both ways, and stays wherever it was put.
  */
-export const $ui = A.proxy({ collapsed: false });
+export const $ui = A.proxy({ collapsed: false, folded: {} as Record<string, boolean> });
 
 export const SIDEBAR_OPEN = '16rem';
 export const SIDEBAR_CLOSED = '4.5rem';
 
+/**
+ * The ink of each phase a listed task can be in. Subtle, as the colour is a
+ * hint: it tints the icon, and in the collapsed strip, where there is no
+ * icon, the title itself.
+ */
+const PHASE_INK: Record<string, string> = {
+	human: 'var(--s-warning)', agent: 'var(--s-link)', review: '#a58bf2', merge: 'var(--s-success)',
+};
+
 A.insertGlobalCss({
 	'.tps-side': 'display:flex flex-direction:column h:100% min-width:0 overflow:hidden border-right: 1px solid $s-faint;',
-	// A project and its tasks are one block because they sit on one wash of the
-	// project's colour, rather than beside a bar in it: colour behind the rows
-	// costs no width, which is what the collapsed strip has none of to spare.
-	'.tps-side .tps-group': 'margin: 0 $1 $1 $1; r:$s-radius-sm overflow:hidden background: color-mix(in oklab, var(--tps-color), transparent 90%);',
-	// The border every row carries is the room the current one's edge takes, so
-	// that marking it moves nothing.
-	'.tps-side .tps-row': 'display:flex align-items:center gap:$2 min-width:0 text-decoration:none fg:$s-text border-right: 3px solid transparent; transition: background 0.12s, border-color 0.12s;',
-	'.tps-side .tps-row:hover': 'background: color-mix(in oklab, $s-text, transparent 90%);',
-	// What you are looking at is an edge in the project's colour, rather than a
-	// lighter background: a row lit up reads as one lifted out of the group,
-	// while the edge belongs to the group as much as the wash under it does.
-	'.tps-side .tps-row.tps-current': 'border-right-color: var(--tps-color);',
-	// The project's colour is on its name, which costs the strip no width and
-	// is what its rows are recognised by, here and on its own page.
-	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600 fg:var(--tps-color)',
+	'.tps-side .tps-host': 'margin: 0 $1 $3 $1;',
+	'.tps-side .tps-tiles': 'display:flex flex-direction:column gap:2px r:$s-radius-sm overflow:hidden',
+	'.tps-side .tps-tile': 'pb:0.15em background: color-mix(in oklab, $s-text, transparent 95%);',
+	'.tps-side .tps-row': 'display:flex align-items:center gap:$2 min-width:0 text-decoration:none fg:$s-text transition: background 0.12s;',
+	'.tps-side .tps-row:hover': 'background: color-mix(in oklab, $s-text, transparent 92%);',
+	// What you are looking at is lit in the accent, dimly: it is where you
+	// are, and brightness is for what wants you.
+	'.tps-side .tps-row.tps-current': 'background: color-mix(in oklab, $s-primary, transparent 86%);',
+	'.tps-side .tps-hosthead': 'ph:$1 pt:0.2em pb:0.35em gap:0.3em font-size:0.75em font-weight:600 letter-spacing:0.06em text-transform:uppercase fg:$s-muted r:$s-radius-sm',
+	// A label sits on no tile to light up: its page on screen is said by its ink.
+	'.tps-side .tps-hosthead.tps-current': 'background:none fg:$s-accent',
+	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600',
 	'.tps-side .tps-task': 'ph:$1 pv:0.15em font-size:0.9em fg:$s-muted',
-	// Waiting for you is said by coming out of the dim the other rows are in:
-	// the colours here belong to the projects, and the phase icon, where there is
-	// room for one, says the rest. The row on screen is not lit — its edge says
-	// where you are, and brightness is for what wants you.
+	// Waiting for you is said by coming out of the dim the other rows are in.
 	'.tps-side .tps-task.tps-yours': 'fg:$s-text',
 	'.tps-side .tps-clip': 'flex:1 min-width:0 white-space:nowrap overflow:hidden text-overflow:ellipsis',
-	'.tps-side.tps-collapsed .tps-group': 'margin: 0 0.3rem $1 0.3rem;',
+	// The chevron keeps out of sight until the label is pointed at, unless it
+	// is folded, which it is there to say.
+	'.tps-side .tps-fold': 'display:inline-flex flex-shrink:0 border:0 p:0 bg:transparent fg:inherit cursor:pointer opacity:0 transition: opacity 0.12s;',
+	'.tps-side .tps-hosthead:hover .tps-fold, .tps-side .tps-fold.tps-folded': 'opacity:0.8',
+	'.tps-side .tps-fold:hover': 'opacity:1',
+	'.tps-side.tps-collapsed .tps-host': 'margin: 0 0.3rem $3 0.3rem;',
+	// Collapsed, the label gives its chevron and its capitals to the name.
+	'.tps-side.tps-collapsed .tps-hosthead': 'ph:0.3em text-transform:none letter-spacing:0',
+	'.tps-side.tps-collapsed .tps-fold': 'display:none',
 	'.tps-side.tps-collapsed .tps-project': 'ph:0.3em pv:0.35em',
-	'.tps-side.tps-collapsed .tps-task': 'ph:0.3em gap:0.3em',
+	'.tps-side.tps-collapsed .tps-task': 'ph:0.3em',
+	'.tps-side.tps-collapsed .tps-task .tps-clip': 'fg: color-mix(in oklab, var(--tps-ink, currentColor), $s-text 45%);',
 	// Every character the strip holds is a character of the name, so a title
 	// runs off its edge rather than spending three of them on saying that it does.
 	'.tps-side.tps-collapsed .tps-clip': 'text-overflow:clip',
+	'.tps-side .tps-addhost': 'ph:$1 pv:0.3em font-size:0.85em fg:$s-muted r:$s-radius-sm gap:0.3em cursor:pointer',
 });
 
 export function drawSidebar(): void {
@@ -70,11 +87,14 @@ export function drawSidebar(): void {
 		A(() => A('.tps-collapsed=', $ui.collapsed));
 		A(() => drawHeader($ui.collapsed));
 		A('div flex:1 min-height:0 overflow-y:auto overflow-x:hidden pv:$1', () => {
-			A.onEach($state.projects, ($p: any, pid: string) => drawProject(pid, $p), projectSortKey);
-		});
-		A(() => drawButtons($ui.collapsed));
-		A('div display:flex flex-direction:column gap:$1 p:$1', () => {
 			A.onEach($state.hosts, ($h: any, hid: string) => drawHost(hid, $h), (_$h: any, hid: string) => hostOrder(hid));
+			A('a.tps-row.tps-addhost margin: 0 $1;', 'click=', () => void addHostDialog(), () => {
+				A('span display:inline-flex flex-shrink:0', () => plus({ size: '1em' }));
+				A(() => {
+					if ($ui.collapsed) S.addTooltip({ tip: 'Add host', placement: 'right' });
+					else A('span.tps-clip #Add host');
+				});
+			});
 		});
 	});
 }
@@ -103,15 +123,61 @@ function drawHeader(collapsed: boolean): void {
 	});
 }
 
+/**
+ * One host: its label, leading to its page, and under it the block of its
+ * projects. The label says in its ink what the host is doing when that is not
+ * simply working; a host that wants something now (a password, a host key, a
+ * connection to make) says so on a line of its own, with the button for it.
+ */
+function drawHost(hid: string, $h: any): void {
+	A('div.tps-host', () => {
+		const state = hostState(hid, $h);
+		const folded = !!$ui.folded[hid];
+		A('a.tps-row.tps-hosthead', 'href=', hostPath(hid), () => {
+			S.addContextMenu({ link: hostPath(hid), get items(): S.MenuEntry[] { return hostMenuItems(hid, $h); } });
+			A(() => A('.tps-current=', selection().hid === hid));
+			if (!state.ok) A(`fg:${hostInk(state.color)}`);
+			S.addTooltip({ tip: () => A('text=', `${hostName(hid)}: ${state.text}`), placement: 'right' });
+			A('span.tps-clip text=', hostName(hid));
+			if (folded) drawBadge(waiting(hid));
+			A('button.tps-fold type=button', 'aria-label=', folded ? 'Show its projects' : 'Hide its projects',
+				'.tps-folded=', folded,
+				'click=', (e: Event) => { e.preventDefault(); $ui.folded[hid] = !folded; },
+				() => (folded ? chevronRight : chevronDown)({ size: '1.2em' }));
+		});
+		if (folded) return;
+		if (!$ui.collapsed && (state.color === 'warning' || state.color === 'danger')) {
+			A(`div display:flex align-items:center gap:$1 ph:$1 pb:$1 font-size:0.85em fg:${hostInk(state.color)}`, () => {
+				A('span.tps-clip text=', state.text);
+				drawAction(state);
+			});
+		}
+		A('div.tps-tiles', () => {
+			A.onEach($state.projects, ($p: any, pid: string) => {
+				if ($p.host === hid) drawProject(pid, $p);
+			}, projectSortKey);
+		});
+	});
+}
+
+/** How many of the host's tasks wait for a human: what folding it must not hide. */
+function waiting(hid: string): number {
+	let count = 0;
+	for (const $p of Object.values($state.projects) as any[]) {
+		if ($p.host !== hid) continue;
+		for (const $t of Object.values($p.tasks ?? {}) as any[]) if ($t.phase === 'human') count++;
+	}
+	return count;
+}
+
 // Browsers can fire a click on the row a drag started from once that drag
 // ends, which would open the project the user just moved. Any real click
 // starts with a pointerdown, so that is where the flag is cleared.
 let dragged = false;
 
-/** One project, with the tasks open in it under it: a group in the project's colour. */
+/** One project, with the tasks open in it under it: a tile of its host's block. */
 function drawProject(pid: string, $p: any): void {
-	A('div.tps-group', () => {
-		A(() => A('--tps-color:' + projectColor($p)));
+	A('div.tps-tile', () => {
 		A('a.tps-row.tps-project draggable=true', 'href=', pathTo(pid), () => {
 			S.addContextMenu({ link: pathTo(pid), get items(): S.MenuEntry[] { return projectMenuItems(pid, $p); } });
 			A('pointerdown=', () => { dragged = false; },
@@ -136,15 +202,13 @@ function drawProject(pid: string, $p: any): void {
 				if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
 			});
 		});
-		A('div', () => {
-			A.onEach($p.tasks, ($t: any, tid: string) => {
-				if (!isOpen(pid, tid, $t)) return;
-				drawTask(pid, tid, $t);
-			}, phaseOrder);
-			A(() => {
-				const { pid: shown, base } = selection();
-				if ($p.codePort || (shown === pid && base)) drawBase(pid, $p);
-			});
+		A.onEach($p.tasks, ($t: any, tid: string) => {
+			if (!isOpen(pid, tid, $t)) return;
+			drawTask(pid, tid, $t);
+		}, phaseOrder);
+		A(() => {
+			const { pid: shown, base } = selection();
+			if ($p.codePort || (shown === pid && base)) drawBase(pid);
 		});
 	});
 }
@@ -169,6 +233,7 @@ function drawTask(pid: string, tid: string, $t: any): void {
 		}});
 		// Yours to act on: it waits for you, or it is a plan you have yet to start.
 		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan'));
+		A(() => A('--tps-ink:', PHASE_INK[$t.phase] ?? 'currentColor'));
 		A(() => {
 			const { pid: shown, tid: shownTid } = selection();
 			A('.tps-current=', shown === pid && shownTid === tid);
@@ -184,14 +249,14 @@ function drawTask(pid: string, tid: string, $t: any): void {
 				} });
 				return;
 			}
-			drawTaskIcon(pid, $t, { busy: false, color: 'var(--tps-color)' });
+			drawTaskIcon(pid, $t, { busy: false, color: 'var(--tps-ink)' });
 		});
 		A('span.tps-clip', () => A('text=', taskTitle($t)));
 	});
 }
 
 /** The project's own checkout, listed like a task while VS Code runs on it. */
-function drawBase(pid: string, $p: any): void {
+function drawBase(pid: string): void {
 	A('a.tps-row.tps-task', 'href=', pathTo(pid, 'base'), () => {
 		A(() => {
 			const { pid: shown, base } = selection();
@@ -201,60 +266,8 @@ function drawBase(pid: string, $p: any): void {
 			// Collapsed the row is its text and nothing else, as a task's is; the
 			// italic is what tells the checkout from a task either way.
 			if ($ui.collapsed) S.addTooltip({ tip: 'Project directory', placement: 'right' });
-			else A('span display:inline-flex flex-shrink:0 fg:var(--tps-color)', () => folder({ size: '1.1em' }));
+			else A('span display:inline-flex flex-shrink:0', () => folder({ size: '1.1em' }));
 			A('span.tps-clip font-style:italic text=', 'Project directory');
-		});
-	});
-}
-
-function drawButtons(collapsed: boolean): void {
-	if (collapsed) {
-		A('div display:flex flex-wrap:wrap justify-content:center gap:$1 pv:$1', () => {
-			S.iconButton({ icon: plus, ariaLabel: 'Add project', attrs: '.small', click: () => addProjectDialog() });
-			S.iconButton({ icon: server, ariaLabel: 'Add host', attrs: '.small', click: () => void addHostDialog() });
-		});
-	} else {
-		A('div display:flex gap:$1 p:$1', () => {
-			S.button({ content: 'Add project', icon: plus, attrs: '.small .neutral flex:1', click: () => addProjectDialog() });
-			S.button({ content: 'Add host', icon: server, attrs: '.small .neutral flex:1', click: () => void addHostDialog() });
-		});
-	}
-}
-
-/**
- * One host at the foot of the sidebar: its name, in the colour of what it is
- * doing, and the line it has to say for itself, cut off at the edge. The row
- * opens the host's dialog, where the whole of that is — an ssh error can be a
- * paragraph — and where everything to do with the host lives; a host that
- * wants something now (a password, a host key, a connection to make) gets a
- * button for it on the row, as that is all most hosts ever want.
- */
-function drawHost(hid: string, $h: any): void {
-	A('div display:flex align-items:center gap:$1 min-width:0', () => {
-		A(() => {
-			const name = hostName(hid);
-			const state = hostState(hid, $h);
-			const ink = hostInk(state.color);
-			if ($ui.collapsed) {
-				A('div flex:1 display:flex justify-content:center', () => {
-					S.iconButton({ icon: state.icon, ariaLabel: `${name}: ${state.text}`, attrs: `.small fg:${ink}`, click: () => hostDialog(hid) });
-				});
-				return;
-			}
-			S.button({
-				attrs: '.neutral .small flex:1 min-width:0 justify-content:flex-start text-align:left',
-				icon: () => A(`span display:inline-flex flex-shrink:0 fg:${ink}`, () => state.icon({ size: '1em' })),
-				tooltip: () => A('text=', `${name}: ${state.text}`),
-				content: () => A('div flex:1 display:flex flex-direction:column min-width:0', () => {
-					A(`span ${ELLIPSIS} text=`, name);
-					// A host that works says nothing beyond its name; the rest say what they want.
-					if (!state.ok) A(`span font-size:0.85em ${ELLIPSIS} fg:${ink} text=`, state.text);
-				}),
-				click: () => hostDialog(hid),
-			});
-			// A button on the row is for a host that wants you now; the quiet
-			// states keep theirs for the dialog.
-			if (state.color === 'warning' || state.color === 'danger') drawAction(state);
 		});
 	});
 }

@@ -61,26 +61,6 @@ export function canMerge($t: any): boolean {
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
 
-/**
- * The accents a project may wear (the daemon hands a new project one of them
- * at random; the list here is the palette to change it from): hues that sit
- * well on the dark surfaces and apart from one another, so a colour tells
- * projects apart where a name would not fit.
- */
-export const PROJECT_COLORS = [
-	'#5b9cf5', '#9b7bf0', '#e07bd6', '#f06b8a', '#d9a441',
-	'#c8d35a', '#7bd36f', '#45c4d6', '#f2d35b', '#b98a6a',
-];
-
-/** The project's accent colour: what its daemon gave it, or one from its name for a daemon that gives none. */
-export function projectColor($p: any): string {
-	const color = $p?.color;
-	if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) return color;
-	let hash = 0;
-	for (const ch of $p?.name ?? '') hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-	return PROJECT_COLORS[hash % PROJECT_COLORS.length];
-}
-
 /** A line about something that wants attention, with what to do about it beside it. */
 export function drawStrip(color: string, text: string, action?: () => void): void {
 	A(`div.s-s.${color}.tonal p:$2 r:$s-radius-sm display:flex flex-wrap:wrap align-items:center gap:$2`, () => {
@@ -116,11 +96,13 @@ export function taskBusy($t: any): boolean {
 }
 
 /**
- * What the URL selects: a project, and within it a task, its base worktree, or
- * neither. Everything on screen follows from this, so navigating is a link.
+ * What the URL selects: a host, or a project and within it a task, its base
+ * worktree, or neither. Everything on screen follows from this, so navigating
+ * is a link.
  */
-export function selection(): { pid?: string; tid?: string; base?: boolean } {
+export function selection(): { hid?: string; pid?: string; tid?: string; base?: boolean } {
 	const p = route.current.p;
+	if (p[0] === 'h' && p[1]) return { hid: p[1] };
 	if (p[0] !== 'p' || !p[1]) return {};
 	return { pid: p[1], tid: p[2] === 't' ? p[3] : undefined, base: p[2] === 'base' };
 }
@@ -131,6 +113,11 @@ export function selection(): { pid?: string; tid?: string; base?: boolean } {
  */
 export function pathTo(pid: string, tid?: string): string {
 	return `/p/${pid}` + (tid === 'base' ? '/base' : tid ? `/t/${tid}` : '');
+}
+
+/** The path of a host's page. */
+export function hostPath(hid: string): string {
+	return `/h/${hid}`;
 }
 
 /** How many things wait for a human, as a pill. Nothing waiting draws nothing. */
@@ -240,10 +227,9 @@ export function taskTip(pid: string, $t: any): string {
  * `tip: false` is for where something around it already tells that story — the
  * collapsed sidebar, whose rows carry it themselves. `busy: false` keeps the
  * icon still where motion beside the navigation would be distraction rather
- * than news: the sidebar. `color` is for where the icon belongs to something it
- * should look part of — the sidebar again, where it wears the project's colour
- * like the rest of the group — and gives way to the status colour when the
- * workspace is in trouble, which no cohesion is worth hiding.
+ * than news: the sidebar. `color` is for where the icon wears another ink —
+ * the sidebar again, where it is the phase's — and gives way to the status
+ * colour when the workspace is in trouble, which no ink is worth hiding.
  */
 export function drawTaskIcon(pid: string, $t: any, { tip = true, busy = true, color }: { tip?: boolean; busy?: boolean; color?: string } = {}): void {
 	A(() => {
