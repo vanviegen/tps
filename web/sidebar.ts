@@ -1,14 +1,14 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { gitBranch, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
+import { folder, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { $holds, holdKey, isHeld, release } from './holds.ts';
 import { addHostDialog, drawAction, hostDialog, hostInk, hostOrder, hostState } from './hosts.ts';
 import { addProjectDialog, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { closeTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { branchLabel, drawTaskIcon, ELLIPSIS, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
+import { drawTaskIcon, ELLIPSIS, hostName, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -197,9 +197,9 @@ function drawBase(pid: string, $p: any): void {
 		A(() => {
 			// Collapsed the row is its text and nothing else, as a task's is; the
 			// italic is what tells the checkout from a task either way.
-			if ($ui.collapsed) S.addTooltip({ tip: branchLabel($p), placement: 'right' });
-			else A('span display:inline-flex flex-shrink:0 fg:var(--tps-color)', () => gitBranch({ size: '1.1em' }));
-			A('span.tps-clip font-style:italic text=', branchLabel($p));
+			if ($ui.collapsed) S.addTooltip({ tip: 'Project directory', placement: 'right' });
+			else A('span display:inline-flex flex-shrink:0 fg:var(--tps-color)', () => folder({ size: '1.1em' }));
+			A('span.tps-clip font-style:italic text=', 'Project directory');
 		});
 	});
 }

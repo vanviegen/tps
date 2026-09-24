@@ -9,7 +9,7 @@ import { $state } from './conn.ts';
 import { hold } from './holds.ts';
 import { addHostDialog, drawAction, hostInk, hostState, sortedHosts } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { branchLabel, cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
+import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
@@ -88,7 +88,7 @@ async function removeProject(pid: string, $p: any): Promise<boolean> {
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	return [
 		{ label: 'Create task', icon: plus, click: () => addTask(pid) },
-		{ label: `Open ${branchLabel($p)}`, icon: gitBranch, click: () => void route.go(pathTo(pid, 'base')) },
+		{ label: 'Open project directory', icon: folder, click: () => void route.go(pathTo(pid, 'base')) },
 		{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
 		{ separator: true },
 		{ label: 'Move up', icon: arrowUp, click: () => moveProject(pid, -1) },
@@ -114,7 +114,7 @@ export function drawProjectPage(pid: string, $p: any): void {
 			// KEYS in main.ts).
 			A('div display:flex gap:$2 flex-wrap:wrap', () => {
 				S.button({ content: 'Create task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: () => addTask(pid) });
-				S.button({ content: `Open ${branchLabel($p)}`, icon: gitBranch, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
+				S.button({ content: 'Open project directory', icon: folder, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
 				S.button({ content: 'Settings', icon: settings, attrs: '.small .neutral', click: () => projectSettingsDialog(pid, $p) });
 			});
 		});

@@ -6,7 +6,7 @@ import { $state } from './conn.ts';
 import { sortedProjects } from './projects.ts';
 import { closeBase } from './sidebar.ts';
 import { addTask, closeTask } from './task.ts';
-import { branchLabel, isFinished, pathTo, phaseOrder, PHASE_LABELS, selection, taskTitle, type Phase } from './util.ts';
+import { isFinished, pathTo, phaseOrder, PHASE_LABELS, selection, taskTitle, type Phase } from './util.ts';
 
 /**
  * Go anywhere without the mouse: a key opens a field, you type a few letters of
@@ -63,16 +63,16 @@ function closeEntry(): { label: string; act: () => void } | undefined {
 	const $p = pid ? $state.projects[pid] : undefined;
 	if (!pid || !$p) return;
 	if (tid && $p.tasks?.[tid]) return { label: 'Close task', act: () => closeTask(pid, tid) };
-	if (base) return { label: `Close ${branchLabel($p)}`, act: () => closeBase(pid) };
+	if (base) return { label: 'Close project directory', act: () => closeBase(pid) };
 }
 
 /**
  * Everywhere the palette can take you, in the order the board would show it:
  * projects with something waiting first, and under each its own checkout —
- * named for its branch, as the sidebar and the tab title name it — then the
+ * the project directory, as the sidebar and the tab title name it — then the
  * task to start, which is the one entry here that makes its destination
  * rather than going to it, and then its tasks. The two that open something
- * rather than going somewhere say so, as "main branch" on its own reads as a
+ * rather than going somewhere say so, as "project directory" on its own reads as a
  * place and Create task set the pattern. A finished one — merged, or
  * closed without it — is left out: it is done with, and what the board keeps
  * of it is a record rather than somewhere to go. The label carries the
@@ -93,7 +93,7 @@ function destinations(): Destination[] {
 		if (pid === here) blocks.unshift(out);
 		else blocks.push(out);
 		out.push({ value: pathTo(pid), label: $p.name });
-		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › Open ${branchLabel($p)}` });
+		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › Open project directory` });
 		out.push({ value: CREATE + pid, label: `${$p.name} › Create task` });
 		const tasks = (Object.entries($p.tasks ?? {}) as [string, any][]).filter(([, $t]) => !isFinished($t));
 		tasks.sort((a, b) => {

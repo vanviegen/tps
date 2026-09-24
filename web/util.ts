@@ -135,15 +135,6 @@ export function selection(): { pid?: string; tid?: string; base?: boolean } {
 }
 
 /**
- * What the project's own checkout is called wherever it is listed or opened:
- * its branch, so "main branch" for most. The sidebar row, the tab title, the
- * palette and the project's menu all say the same.
- */
-export function branchLabel($p: any): string {
-	return `${$p?.defaultBranch ?? 'main'} branch`;
-}
-
-/**
  * The path selecting a project, and in it a task — `'base'` for the base
  * worktree. Task ids are numbers, so that name cannot collide with one.
  */
