@@ -77,7 +77,7 @@ func lastMark(t *testing.T, task *Task) string {
 // A run's changes become a commit, and the point that names it holds that
 // commit next to the length of every transcript claude had then.
 func TestMarkCommits(t *testing.T) {
-	task, _ := markTask(t)
+	task, origin := markTask(t)
 	transcript(t, task, "s.jsonl", "one", "two")
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "changed\n")
 
@@ -89,11 +89,17 @@ func TestMarkCommits(t *testing.T) {
 	if points[0].Text != "Agent: changed a.txt" {
 		t.Errorf("point is called %q", points[0].Text)
 	}
-	if subject, _ := git(task.repoDir(), "log", "-1", "--format=%s"); subject != "Agent: changed a.txt" {
-		t.Errorf("the commit is called %q", subject)
+	if subject, _ := git(task.repoDir(), "log", "-1", "--format=%s", stepsBranch); subject != "Agent: changed a.txt" {
+		t.Errorf("the step is called %q", subject)
 	}
-	if dirty, _ := dirtyTree(task.repoDir()); dirty {
+	if dirty, _ := task.dirtyTree(task.repoDir()); dirty {
 		t.Error("the tree is still dirty after the point was taken")
+	}
+	if gitRun(t, task.repoDir(), "rev-parse", "HEAD") != gitRun(t, origin, "rev-parse", "HEAD") {
+		t.Error("HEAD left the base")
+	}
+	if gitRun(t, task.repoDir(), "diff", "--name-only", "HEAD") != "a.txt" {
+		t.Error("the work is not uncommitted on the base")
 	}
 	if got := points[0].Mark.Sessions["projects/-work/s.jsonl"]; got != 8 {
 		t.Errorf("the transcript was measured at %d bytes, want 8", got)
@@ -113,7 +119,7 @@ func TestMarkCommits(t *testing.T) {
 
 // Reverting puts back all three: the tree, the log and what claude remembers.
 func TestRevert(t *testing.T) {
-	task, _ := markTask(t)
+	task, origin := markTask(t)
 	path := transcript(t, task, "s.jsonl", "one", "two")
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "first run\n")
 	task.mark("Agent", "first")
@@ -136,6 +142,12 @@ func TestRevert(t *testing.T) {
 	}
 	if body := readFile(filepath.Join(task.repoDir(), "a.txt")); body != "first run\n" {
 		t.Errorf("a.txt is %q after the revert", body)
+	}
+	if gitRun(t, task.repoDir(), "rev-parse", stepsBranch) != marks(t, task)[0].Mark.Commit {
+		t.Error("the steps were not put back to the point's")
+	}
+	if gitRun(t, task.repoDir(), "rev-parse", "HEAD") != gitRun(t, origin, "rev-parse", "HEAD") {
+		t.Error("HEAD left the base")
 	}
 	if exists(filepath.Join(task.repoDir(), "b.txt")) {
 		t.Error("a file the undone run added is still there")
@@ -189,7 +201,7 @@ func TestForkFull(t *testing.T) {
 	if exists(filepath.Join(fork.repoDir(), "c.txt")) {
 		t.Error("the fork got work from after the point")
 	}
-	if dirty, _ := dirtyTree(fork.repoDir()); dirty {
+	if dirty, _ := fork.dirtyTree(fork.repoDir()); dirty {
 		t.Error("the fork's work was not committed")
 	}
 	if !fork.info.Started {

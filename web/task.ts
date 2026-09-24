@@ -170,18 +170,16 @@ async function confirmOvertake(pid: string, $t: any): Promise<boolean> {
 
 /**
  * Bring the workspace onto the latest main branch, without merging anything
- * into it. It is the front half of a merge, and goes the same way: the work is
- * taken off as a patch, the tree reset to the branch, and the work put back on
- * top — with what does not merge cleanly left in the files, marked, for you or
- * the agent to resolve.
+ * into it. It is the front half of a merge, and goes the same way: the branch
+ * is merged into the task's steps, and the result left uncommitted on top of
+ * it — with what does not merge cleanly sent to the agent to resolve.
  */
 async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
 	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
 	const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped first.' : '';
-	if (!(await S.confirm(`Put this task's work onto the latest ${branch}? The workspace is reset to the branch and the work `
-		+ `— uncommitted changes and untracked files alike — is applied on top of it again, so nothing is lost. What does not `
-		+ `merge cleanly is left in the files with conflict markers, for you or the agent, which is told what happened the `
-		+ `next time it is sent in.${busy}`))) return;
+	if (!(await S.confirm(`Put this task's work onto the latest ${branch}? ${branch} is merged into the work — uncommitted `
+		+ `changes and untracked files alike — so nothing is lost. What does not merge cleanly is left in the files with `
+		+ `conflict markers, and the agent is sent in to resolve them.${busy}`))) return;
 	void cmd('rebaseTask', { pid, tid });
 }
 

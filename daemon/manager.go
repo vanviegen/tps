@@ -632,7 +632,7 @@ func (m *Manager) refreshWatched() {
 	}
 	m.mu.Unlock()
 	for _, t := range watched {
-		t.refreshChanges()
+		go t.refreshChanges() // it may wait on a clone; one at a time per task (see refreshing)
 		t.syncDeclared()
 	}
 }

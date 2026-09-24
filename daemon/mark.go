@@ -20,8 +20,8 @@ import (
 // things that make up that state are already append-only, so a point is a
 // position in each and costs nothing to keep:
 //
-//   - the work, as a commit in the task's own clone (a merge squashes those
-//     back into one, see replant);
+//   - the work, as a commit on the steps branch of the task's own clone (see
+//     step; a merge squashes the work back into one commit);
 //   - the chat log, as the bytes up to the entry the point is;
 //   - what the agent remembers, as the length of each of its session
 //     transcripts. It only ever appends to those, also when a later process
@@ -32,7 +32,7 @@ import (
 
 // Mark is one save point, carried by the chat entry that shows it.
 type Mark struct {
-	Commit string `json:"commit"` // the task clone's HEAD at the point
+	Commit string `json:"commit"` // the step the point made on stepsBranch
 	// Transcript, relative to the agent's state dir → the length it had. The
 	// JSON name is the one every save point on disk carries: a point whose
 	// lengths cannot be read back deletes transcripts instead of cutting them.
@@ -138,57 +138,109 @@ func rewindTranscripts(p Provider, dir string, lengths map[string]int64) error {
 	return nil
 }
 
-// dirtyTree: the working tree has something no commit of the clone holds.
-// Ignored files are not work (see the merge, which stages the same set).
-func dirtyTree(repo string) (bool, error) {
-	out, err := git(repo, "status", "--porcelain")
-	return strings.TrimSpace(out) != "", err
+// stepsBranch is where a task's clone keeps its steps: a commit of the whole
+// tree at every save point, each on top of the one before, and a merge with
+// the new base wherever a rebase moved it (see plant). The branch checked out
+// stays at the base, so that what the tree differs from it in is the task's
+// work as a whole, uncommitted.
+const stepsBranch = "tps-steps"
+
+// lastStep is the tip of stepsBranch, or — before the first step — HEAD.
+func lastStep(repo string) (string, error) {
+	if tip, err := git(repo, "rev-parse", "--verify", "--quiet", stepsBranch); err == nil {
+		return tip, nil
+	}
+	return git(repo, "rev-parse", "HEAD")
+}
+
+// writeTree makes a tree object of the working tree, untracked files
+// included. Ignored files are not work (see the merge, which stages the same
+// set).
+func (t *Task) writeTree(repo string) (string, error) {
+	env, cleanup, err := t.stageAll(repo)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	r, err := runCmd([]string{"git", "-C", repo, "write-tree"}, RunOpts{Env: env})
+	return strings.TrimSpace(r.Out), err
+}
+
+// dirtyTree: the working tree has something the last step does not hold.
+func (t *Task) dirtyTree(repo string) (bool, error) {
+	tree, err := t.writeTree(repo)
+	if err != nil {
+		return false, err
+	}
+	last, err := lastStep(repo)
+	return !gitOK(repo, "diff", "--quiet", last, tree), err
+}
+
+// step records the working tree on stepsBranch — as a commit of its own if it
+// holds anything the last step does not — and puts HEAD and the index back on
+// the base, the tree untouched: whatever was committed or staged in the
+// workspace itself is unstaged work again. A base the steps do not have yet, a
+// rebase's, becomes the commit's second parent. Answers the branch's tip, and
+// whether that is a new commit.
+func (t *Task) step(repo, message string) (string, bool, error) {
+	base, err := t.base(repo, "HEAD")
+	if err != nil {
+		return "", false, err
+	}
+	last, err := lastStep(repo)
+	if err != nil {
+		return "", false, err
+	}
+	tree, err := t.writeTree(repo)
+	if err != nil {
+		return "", false, err
+	}
+	parents := []string{"-p", last}
+	if !gitOK(repo, "merge-base", "--is-ancestor", base, last) {
+		parents = append(parents, "-p", base)
+	}
+	head, made := last, len(parents) > 2 || !gitOK(repo, "diff", "--quiet", last, tree)
+	if made {
+		if head, err = git(repo, append([]string{"commit-tree", tree, "-m", message}, parents...)...); err != nil {
+			return "", false, err
+		}
+	}
+	if _, err := git(repo, "update-ref", "refs/heads/"+stepsBranch, head); err != nil {
+		return "", false, err
+	}
+	_, err = git(repo, "reset", "--quiet", base)
+	return head, made, err
 }
 
 // markSummary is how long a one-line summary of a run may be: a commit subject.
 const markSummary = 200
 
-// mark closes an agent run at a point the task can be put back to: what is in
-// the working tree becomes a commit, and the log gets a save point holding
-// that commit next to the length of every transcript the agent has.
+// mark closes an agent run at a point the task can be put back to: the working
+// tree becomes a step (see step), and the log gets a save point holding that
+// step next to the length of every transcript the agent has.
 //
 // `by` names the point and heads the commit message: "Agent", with the summary
 // of the run it gave in its TPS-DONE line, "Human" for what was in the tree
-// before an agent was sent in, or "Start" for the point every task opens on. A
-// run that changed nothing still gets a point, the conversation having moved
-// even where the tree did not, and so does the start; a humans nothing is
+// before an agent was sent in, "Rebase" for a merge of the latest branch (see
+// Rebase), or "Start" for the point every task opens on. A run that changed
+// nothing still gets a point, the conversation having moved even where the
+// tree did not, and so does the start; a human's or a rebase's nothing is
 // nothing at all.
-func (t *Task) mark(by, summary string) {
+func (t *Task) mark(by, summary string) error {
 	if !t.hasWorkspace() {
-		return // in Plan, or finished: no tree to commit and nothing to come back to
+		return nil // in Plan, or finished: no tree to commit and nothing to come back to
 	}
-	repo := t.repoDir()
 	message := by
 	if summary = oneLine(summary, markSummary); summary != "" {
 		message = by + ": " + summary
 	}
-	dirty, err := dirtyTree(repo)
+	head, made, err := t.step(t.repoDir(), message)
 	if err != nil {
-		t.noteErr("reading the workspace failed, so no save point was made", err)
-		return
+		t.noteErr("committing the work so far failed, so no save point was made", err)
+		return err
 	}
-	if !dirty && by == "Human" {
-		return
-	}
-	if dirty {
-		if _, err := git(repo, "add", "-A"); err != nil {
-			t.noteErr("committing the work so far failed", err)
-			return
-		}
-		if _, err := git(repo, "commit", "--no-verify", "-m", message); err != nil {
-			t.noteErr("committing the work so far failed", err)
-			return
-		}
-	}
-	head, err := git(repo, "rev-parse", "HEAD")
-	if err != nil {
-		t.noteErr("reading the workspace's commit failed", err)
-		return
+	if !made && (by == "Human" || by == "Rebase") {
+		return nil
 	}
 	agent, _ := t.agent()
 	t.settleTranscripts(agent)
@@ -201,6 +253,7 @@ func (t *Task) mark(by, summary string) {
 	e.Mark = m
 	t.addEntry(e)
 	go t.refreshChanges()
+	return nil
 }
 
 // --- finding a point back in the log ---
@@ -252,7 +305,7 @@ func nextPrompt(rest []byte) string {
 type Use struct {
 	Fork bool // to a second task, rather than to this one
 	Chat bool // the chat log and the agent's memory end at the point
-	Work bool // the working tree holds the point's commit
+	Work bool // the working tree and the steps are back at the point's step
 }
 
 // explains: exactly one of the two was rewound, so the agent's memory and the
@@ -294,11 +347,11 @@ func (t *Task) UsePoint(id string, use Use) (tid, draft string, err error) {
 	return tid, nextPrompt(log[at:]), nil
 }
 
-// revert puts this task back to the point: the working tree to the commit it
-// holds, the agent's memory to the length it had, and the log to the entry
-// itself — whichever of those was asked for. What it undoes is gone: this is
-// the dashboard's one destructive action that no patch or archive keeps a copy
-// of.
+// revert puts this task back to the point: the working tree and the steps to
+// the step it holds and HEAD to that step's base, the agent's memory to the
+// length it had, and the log to the entry itself — whichever of those was
+// asked for. What it undoes is gone: this is the dashboard's one destructive
+// action that no patch or archive keeps a copy of.
 //
 // The workspace is moved rather than made anew, so what is in it but not in
 // git — an ignored build directory, installed dependencies — is still there
@@ -308,11 +361,15 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 	// truncation, and would keep the memory this is undoing besides.
 	t.stopAgent()
 	if use.Work {
-		if _, err := git(t.repoDir(), "reset", "--quiet", "--hard", point.Mark.Commit); err != nil {
+		repo, step := t.repoDir(), point.Mark.Commit
+		base, err := t.base(repo, step)
+		if err != nil {
 			return err
 		}
-		if _, err := git(t.repoDir(), "clean", "--quiet", "-fd"); err != nil {
-			return err
+		for _, args := range [][]string{{"reset", "--quiet", "--hard", step}, {"clean", "--quiet", "-fd"}, {"update-ref", "refs/heads/" + stepsBranch, step}, {"reset", "--quiet", base}} {
+			if _, err := git(repo, args...); err != nil {
+				return err
+			}
 		}
 	}
 	if use.Chat {
@@ -417,12 +474,16 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	// The work first, as a patch beside the fork's task dir: making the
 	// workspace plants it onto the branch as it is now, the way picking a
 	// closed task back up does (see ensureWorkspace). The tree left alone is
-	// this task's as it stands, the point's being what rewinding it means.
-	from := "HEAD"
-	if use.Work {
-		from = mark.Commit
+	// this task's as it stands, the point's step being what rewinding it means.
+	of, work := mark.Commit, mark.Commit
+	if !use.Work {
+		tree, err := t.writeTree(t.repoDir())
+		if err != nil {
+			return f.tid, err
+		}
+		of, work = "HEAD", tree
 	}
-	if err := t.forkPatch(f, from); err != nil {
+	if err := t.forkPatch(f, of, work); err != nil {
 		return f.tid, err
 	}
 	// The log the fork opens on, and what the user attached, which it refers to
@@ -453,16 +514,11 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	if err := f.ensureWorkspace(); err != nil {
 		return f.tid, err
 	}
-	// One commit of the work, as the fork's starting point, under the message
+	// One step of the work, as the fork's starting point, under the message
 	// the work came with.
 	if f.hasWorkspace() {
-		if _, err := git(f.repoDir(), "add", "-A"); err != nil {
+		if _, _, err := f.step(f.repoDir(), cmp.Or(f.commitMessage(), title)); err != nil {
 			return f.tid, err
-		}
-		if !gitOK(f.repoDir(), "diff", "--cached", "--quiet") {
-			if _, err := git(f.repoDir(), "commit", "--no-verify", "-m", cmp.Or(f.commitMessage(), title)); err != nil {
-				return f.tid, err
-			}
 		}
 	}
 	f.lock()
@@ -479,18 +535,18 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	return f.tid, nil
 }
 
-// forkPatch writes the work up to a point as the fork's patch: everything the
-// point's commit has that the branch it grew from does not, in the format
-// ensureWorkspace plants (see savePatch).
-func (t *Task) forkPatch(f *Task, commit string) error {
+// forkPatch writes work as the fork's patch — a step, or a tree of the
+// workspace as it stands — against the base of the commit named by `of`, in
+// the format ensureWorkspace plants (see savePatch).
+func (t *Task) forkPatch(f *Task, of, work string) error {
 	repo := t.repoDir()
-	base, err := git(repo, "merge-base", commit, "origin/"+t.p.defaultBranch)
+	base, err := t.base(repo, of)
 	if err != nil {
 		return err
 	}
 	// Not through git(), which trims: a patch is bytes, and git apply wants
 	// the last line ended.
-	r, err := runCmd([]string{"git", "-C", repo, "diff", "--binary", "--full-index", "--no-renames", base, commit}, RunOpts{})
+	r, err := runCmd([]string{"git", "-C", repo, "diff", "--binary", "--full-index", "--no-renames", base, work}, RunOpts{})
 	if err != nil {
 		return err
 	}

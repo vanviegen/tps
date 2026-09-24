@@ -28,7 +28,12 @@ Rules:
   what you changed about it — that is what the git history is for.
 - Do not commit, and never push, pull, fetch, merge, rebase or switch branches: TPS
   commits your working tree itself, at the end of each of your turns and again when
-  the user merges the task. Read-only git is fine. What that last commit says is yours
+  the user merges the task. Read-only git is fine. HEAD stays at the commit the task
+  is based on, so 'git diff HEAD' and the untracked files are the whole of the task's
+  work. The branch 'tps-steps' has a commit of the tree for every step — each of your
+  turns, the user's edits in between, a reviewer's fixes, and a merge wherever the base
+  moved: 'git log -p tps-steps' is how the work got here, and 'git diff tps-steps' what
+  changed since the last step. What the commit made at merge says is yours
   to keep in /work/.tps-commit-message: write it as soon as you change anything and
   bring it up to date as you change more, so that it always covers everything the task
   has done since it branched off rather than your latest batch of work. Keep it short —
@@ -327,8 +332,8 @@ the task stands before continuing, and keep the remaining room in mind.`, budget
 // replantedPrompt tells the agent that its workspace was brought onto the
 // latest default branch while it wasn't running.
 func replantedPrompt(branch string) string {
-	return fmt.Sprintf(`Your workspace was brought up to date while you were not running: what you had in /work
-has been put back on top of the latest '%[1]s', which had moved on since this task started.
+	return fmt.Sprintf(`Your workspace was brought up to date while you were not running: the latest '%[1]s',
+which had moved on since this task started, was merged into your work, and is HEAD now.
 Your work is all there, uncommitted as before, but the files around it may have changed,
 so re-read what you are about to rely on rather than trusting your notes on it.`, branch)
 }
@@ -352,8 +357,8 @@ func conflictsPrompt(files []string) string {
 
 %s
 
-Those files hold conflict markers ('ours'/HEAD is the branch; 'theirs' is this task's work),
-or — for a file the branch deleted and this task changed — this task's version of it. The
+Those files hold conflict markers ('ours'/HEAD is this task's work; 'theirs' is the branch),
+or — for a file deleted on one side and changed on the other — the changed version. The
 commit messages on the branch (git log) explain the intent of its side. Before anything else,
 resolve every conflict so the result honors BOTH sides, and remove the markers. Do not commit.`, "- "+strings.Join(files, "\n- "))
 }
@@ -381,8 +386,8 @@ other changes since this task started, and these files did not merge cleanly:
 
 %[2]s
 
-They hold conflict markers ('ours'/HEAD is the latest %[1]s; 'theirs' is this task's work),
-or — for a file %[1]s deleted and this task changed — this task's version of it. You know
+They hold conflict markers ('ours'/HEAD is this task's work; 'theirs' is the latest %[1]s),
+or — for a file deleted on one side and changed on the other — the changed version. You know
 what this task's side is for; the commit messages on %[1]s (git log) explain the other.
 
 Resolve every conflict so the result honors BOTH sides, and remove the markers. Do not
@@ -403,7 +408,7 @@ func pointPrompt(use Use) string {
 	if use.Chat {
 		return `This conversation has been put back to an earlier point, deliberately: what came after it
 is no longer yours to remember. The working tree was left as it stands, so /work holds work
-from beyond that point. Read it — git log, git diff — before you build on or change any of
+from beyond that point. Read it — git diff, git log tps-steps — before you build on or change any of
 it, and take it as given rather than as something to redo or to explain.`
 	}
 	return `The working tree has been put back to an earlier point, deliberately: /work no longer holds

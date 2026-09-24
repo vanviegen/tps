@@ -41,6 +41,16 @@ func testTask(t *testing.T) (*Task, string) {
 	m.projects[p.pid] = p
 	task := newTask(p, "1", &TaskInfo{Phase: PhaseAgent})
 	p.tasks[task.tid] = task
+	// A test's directories go the way a task's do (see dropWorkspace): with
+	// the workspaces held, so that no refresh still running reads one away.
+	t.Cleanup(func() {
+		m.mu.Lock()
+		tasks := p.taskListL()
+		m.mu.Unlock()
+		for _, task := range tasks {
+			task.cloneMu.Lock()
+		}
+	})
 	return task, origin
 }
 
@@ -246,7 +256,7 @@ func writeWork(t *testing.T, task *Task, name, content string) {
 }
 
 // A rebase replays the task's work — an edit, an untracked file, and a commit
-// the agent made against the rules — onto the branch as a patch: what merges
+// the agent made against the rules — by merging the branch into it: what merges
 // cleanly is back as uncommitted work, what does not is left with markers and
 // named, and no git operation stays in progress.
 func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
@@ -289,6 +299,11 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 	if len(task.info.Conflicts) != 1 || len(task.info.Pending) != 1 || task.info.Pending[0].Key != "conflicts" {
 		t.Errorf("conflicts %v, pending %v", task.info.Conflicts, task.info.Pending)
 	}
+	// The steps hold the work as it was before, the agent's commit folded in;
+	// the merge is not one of them until it is resolved.
+	if got := gitRun(t, repo, "log", "--format=%s", "-1", stepsBranch); got != "Human" {
+		t.Errorf("last step: %q", got)
+	}
 
 	// Merging with the markers still in is refused; resolved, the merge lands
 	// everything as one commit on the branch, and the notes about the
@@ -298,6 +313,10 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 	}
 	if task.info.Phase != PhaseHuman {
 		t.Errorf("phase after the refused merge: %s", task.info.Phase)
+	}
+	// The step that attempt made of the tree first is the replay's merge.
+	if gitRun(t, repo, "rev-parse", stepsBranch+"^2") != gitRun(t, origin, "rev-parse", "HEAD") {
+		t.Error("the replay is not a merge of the branch into the steps")
 	}
 	writeWork(t, task, "a.txt", "one both\n")
 	if err := task.Merge("the task"); err != nil {
@@ -448,5 +467,38 @@ func TestParkAtStartup(t *testing.T) {
 	}
 	if got := readFile(filepath.Join(task.repoDir(), "a.txt")); got != "one task\n" {
 		t.Errorf("a.txt: %q", got)
+	}
+}
+
+// A clean rebase is a step of its own: the branch merged into the steps. One
+// that conflicts is the agent's to resolve, and is no step until it is.
+func TestRebaseMergesTheBranchIntoTheSteps(t *testing.T) {
+	task, origin := markTask(t)
+	repo := task.repoDir()
+	writeWork(t, task, "a.txt", "one task\n")
+	commitUpstream(t, origin, "upstream", map[string]string{"b.txt": "two\n"})
+	if err := task.Rebase(); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRun(t, repo, "log", "--format=%s", "-2", stepsBranch); got != "Rebase: onto the latest main\nHuman" {
+		t.Errorf("steps: %q", got)
+	}
+	if gitRun(t, repo, "rev-parse", stepsBranch+"^2") != gitRun(t, origin, "rev-parse", "HEAD") ||
+		gitRun(t, repo, "rev-parse", "HEAD") != gitRun(t, origin, "rev-parse", "HEAD") {
+		t.Error("the rebase is not a merge of the branch, with HEAD on it")
+	}
+	if gitRun(t, repo, "diff", "--name-only", "HEAD") != "a.txt" {
+		t.Error("the work is not uncommitted on the new base")
+	}
+
+	commitUpstream(t, origin, "upstream again", map[string]string{"a.txt": "one upstream\n"})
+	if err := task.Rebase(); err != nil {
+		t.Fatal(err)
+	}
+	if task.info.Phase != PhaseAgent {
+		t.Errorf("phase: %s", task.info.Phase)
+	}
+	if got := gitRun(t, repo, "log", "--format=%s", "-1", stepsBranch); got != "Rebase: onto the latest main" {
+		t.Errorf("the conflicted merge became a step: %q", got)
 	}
 }

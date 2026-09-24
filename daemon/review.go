@@ -72,7 +72,7 @@ func (t *Task) StartReview() error {
 // task's own answers say what becomes of the verdict (see finishReview); asking
 // for a review is what this does.
 func (t *Task) beginReview() {
-	base, err := git(t.repoDir(), "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
+	base, err := t.base(t.repoDir(), "HEAD")
 	if err != nil {
 		t.noteErr("the automated review needs the commit this task grew from, and could not read it", err)
 		t.lock()

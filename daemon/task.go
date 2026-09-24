@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -182,7 +183,7 @@ type Task struct {
 	limitTimer    *time.Timer // running while the task waits out a usage limit (see armLimitL)
 	limitWaits    int         // waits in a row that ran straight into the limit again
 	chatMu        sync.Mutex
-	cloneMu       sync.Mutex // one workspace at a time: two messages can want one at once
+	cloneMu       sync.Mutex // one workspace at a time — two messages can want one at once — and none dropped while it is read (see refreshChanges)
 
 	declared      []declaredService // the services Containerfile.dev names, known along with the container
 	services      []serviceState    // their state and that of the ad hoc ones, as last read (see services.go)
@@ -1185,9 +1186,11 @@ func (t *Task) merge(repo, message string) error {
 	}
 	// Before the task is Done, so it never sits there with a workspace someone
 	// could still open or merge a second time.
+	t.cloneMu.Lock()
 	if err := t.dropWorkspace(); err != nil {
 		logf("%s: dropping the workspace: %v", t.key(), err)
 	}
+	t.cloneMu.Unlock()
 	t.lock()
 	t.info.CommitMessage = ""
 	t.info.Conflicts = nil
@@ -1207,9 +1210,9 @@ func (t *Task) merge(repo, message string) error {
 
 // Rebase brings the workspace onto the latest default branch without merging
 // anything into it: the replay a merge starts with (see replant), and nothing
-// after it. Conflicts are left in the files for whoever comes next — the user
-// in VS Code, or the agent, which is told what happened to its workspace the
-// next time it is sent in (see queueL).
+// after it but the step that commits the merge. Conflicts send the agent in
+// to resolve them instead, the step its turn ends on being the merge; either
+// way it is told what happened to its workspace (see queueL).
 func (t *Task) Rebase() error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
@@ -1223,31 +1226,35 @@ func (t *Task) Rebase() error {
 		t.noteErr("rebase failed", err)
 		return err
 	}
+	t.queue("rebase", replantedPrompt(branch))
 	if len(conflicts) > 0 {
-		t.note(fmt.Sprintf("rebased onto the latest %s; conflicts in %s are left to resolve", branch, strings.Join(conflicts, ", ")))
+		t.note(fmt.Sprintf("rebased onto the latest %s; conflicts in %s, sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
+		t.lock()
+		t.dropPendingL("conflicts") // the prompt says it
+		// The agent's already, so that the merge is not made a step of the
+		// user's on the way in (see kick): its resolution is the step.
+		t.setPhaseL(PhaseAgent)
+		t.unlock()
+		t.kick(conflictsPrompt(conflicts))
 	} else {
+		t.mark("Rebase", "onto the latest "+branch)
 		t.note("rebased onto the latest " + branch + " ✔")
 	}
-	t.queue("rebase", replantedPrompt(branch))
 	go t.refreshChanges()
 	return nil
 }
 
 // --- the work as a patch ---
 //
-// A task's work is what its tree differs from the branch in: from the commit
-// it was cloned at, uncommitted changes and untracked files included. Taken
-// off as a patch, that can be put back on top of any later commit with git's
-// merge machinery — by making a commit of it on its base, and cherry-picking
-// that without committing — which is how a workspace is brought up to date
-// (replant) and how a closed task, which keeps nothing but the patch, gets a
-// workspace back (ensureWorkspace). No git operation stays in progress
-// afterwards: conflicts are markers in the files, and the work is uncommitted
-// again, whatever the outcome.
-
-// workSubject is the throwaway commit's message; the conflict markers name it
-// (see markedFiles).
-const workSubject = "TPS task work"
+// A task's work is what its tree differs from its base in: the commit of the
+// branch its steps last took in, uncommitted changes and untracked files
+// included. It is brought up to date by merging the latest branch into its
+// steps (replant). Taken off as a patch, it can be put back on top of any later
+// commit the same way — by making a commit of it on its base, and merging the
+// branch into that — which is how a closed task, which keeps nothing but the
+// patch, gets a workspace back (ensureWorkspace). No git operation stays in
+// progress afterwards: conflicts are markers in the files, and the work is
+// uncommitted on top of the branch again, whatever the outcome.
 
 // tmpIndex is a place for a throwaway index, so the real one stays untouched;
 // the environment makes git use it (and make it: git wants none or a whole one).
@@ -1284,6 +1291,12 @@ func (t *Task) stageAll(repo string) (env []string, cleanup func(), err error) {
 	return env, cleanup, nil
 }
 
+// base is the commit of the default branch that the work up to a commit —
+// HEAD's, a step's — stands on.
+func (t *Task) base(repo, of string) (string, error) {
+	return git(repo, "merge-base", of, "origin/"+t.p.defaultBranch)
+}
+
 // savePatch writes the tree's work since base to the patch file, headed by the
 // commit it is against (git skips the line). No work, no patch.
 func (t *Task) savePatch(repo, base string) error {
@@ -1305,7 +1318,7 @@ func (t *Task) savePatch(repo, base string) error {
 
 // workCommit makes a commit of the patch's work on top of its base, in the
 // clone's object store — the patch applied to the base's tree in an index of
-// its own, never the working tree — for plant to replay.
+// its own, never the working tree — for plant to merge the branch into.
 func (t *Task) workCommit(repo string) (string, error) {
 	head, _, _ := strings.Cut(readFile(t.patchFile()), "\n")
 	base, ok := strings.CutPrefix(head, "base ")
@@ -1326,65 +1339,65 @@ func (t *Task) workCommit(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return git(repo, "commit-tree", strings.TrimSpace(r.Out), "-p", base, "-m", workSubject)
+	return git(repo, "commit-tree", strings.TrimSpace(r.Out), "-p", base, "-m", "TPS task work")
 }
 
-// plant replays the work commit onto the working tree, which is clean at the
-// branch's tip, and leaves it uncommitted work again: nothing staged, no
-// cherry-pick in progress. Returned are the files that did not merge cleanly:
-// left with conflict markers, or — deleted on the branch and changed by the
-// task — as the task had them.
-func plant(repo, work string) ([]string, error) {
-	var conflicts []string
-	if _, err := git(repo, "cherry-pick", "--no-commit", work); err != nil {
-		if out, _ := git(repo, "diff", "--name-only", "-z", "--diff-filter=U"); out != "" {
-			conflicts = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
-		}
-		if len(conflicts) == 0 {
-			return nil, err
-		}
-		if _, err := git(repo, "cherry-pick", "--quit"); err != nil {
-			return nil, err
-		}
-	}
-	if _, err := git(repo, "reset", "--quiet"); err != nil {
+// plant merges the latest default branch into a commit of the task's work, in
+// the working tree — which holds nothing that commit does not — and leaves the
+// result there as uncommitted work on the branch's tip: nothing staged, no
+// merge in progress. What did not merge cleanly is remembered in Conflicts
+// and returned: files left with conflict markers, or — deleted on one side
+// and changed on the other — as the side that changed them had them. A merge
+// that never started leaves HEAD where it was.
+func (t *Task) plant(repo, work string) ([]string, error) {
+	branch := t.p.defaultBranch
+	if _, err := git(repo, "checkout", "--quiet", "--force", "--detach", work); err != nil {
 		return nil, err
 	}
+	var conflicts []string
+	onto := "origin/" + branch
+	_, err := git(repo, "merge", "--quiet", "--no-commit", onto)
+	if out, _ := git(repo, "diff", "--name-only", "-z", "--diff-filter=U"); out != "" {
+		conflicts, err = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00"), nil
+	}
+	if err != nil {
+		onto = branch // the merge never started: back where HEAD was, the branch not having moved
+	}
+	for _, args := range [][]string{{"merge", "--quit"}, {"symbolic-ref", "HEAD", "refs/heads/" + branch}, {"reset", "--quiet", onto}} {
+		if _, err := git(repo, args...); err != nil {
+			return nil, err
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	t.lock()
+	defer t.unlock()
+	t.setConflictsL(conflicts)
 	return conflicts, nil
 }
 
-// replant brings the workspace onto the latest default branch: its work comes
-// off as a patch, the tree is reset to the branch's tip, and the work goes
-// back on top (see plant), what did not merge cleanly being remembered in
-// Conflicts. Commits the agent made despite the rules are folded into the
-// work. Shared by the merge, which commits afterwards, and by Rebase, which
-// stops here.
+// replant brings the workspace onto the latest default branch: what the tree
+// holds is made a step first, and the branch is merged into the steps (see
+// plant). The merge is left uncommitted, for whoever finishes it: Rebase, or
+// the agent resolving its conflicts, whose step the merge becomes (see step);
+// a merge commits it to the branch instead.
 func (t *Task) replant(repo string) ([]string, error) {
 	branch := t.p.defaultBranch
 	if _, err := git(repo, "fetch", "--quiet", "origin"); err != nil {
+		return nil, err
+	}
+	if err := t.mark("Human", ""); err != nil {
 		return nil, err
 	}
 	target, err := git(repo, "rev-parse", "origin/"+branch)
 	if err != nil {
 		return nil, err
 	}
-	if head, _ := git(repo, "rev-parse", "HEAD"); head == target {
+	if base, _ := t.base(repo, "HEAD"); base == target {
 		return nil, nil // the branch has nothing this workspace lacks
 	}
-	base, err := git(repo, "merge-base", "HEAD", target)
-	if err != nil {
-		return nil, err
-	}
-	if err := t.savePatch(repo, base); err != nil {
-		return nil, err
-	}
-	if _, err := git(repo, "reset", "--quiet", "--hard", target); err != nil {
-		return nil, err
-	}
-	if _, err := git(repo, "clean", "--quiet", "-fd"); err != nil { // the patch has the untracked files; ignored ones stay
-		return nil, err
-	}
-	return t.plantPatch(repo)
+	return t.plant(repo, stepsBranch)
 }
 
 // plantPatch puts the patch file's work onto the workspace and removes it: a
@@ -1397,17 +1410,11 @@ func (t *Task) plantPatch(repo string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	conflicts, err := plant(repo, work)
+	conflicts, err := t.plant(repo, work)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Remove(t.patchFile()); err != nil {
-		return nil, err
-	}
-	t.lock()
-	defer t.unlock()
-	t.setConflictsL(conflicts)
-	return conflicts, nil
+	return conflicts, os.Remove(t.patchFile())
 }
 
 // setConflictsL records what the last replay could not merge, for the
@@ -1423,14 +1430,11 @@ func (t *Task) setConflictsL(files []string) {
 	t.publishL()
 }
 
-// markerRe matches the closing marker plant leaves: git names the commit in
-// it, and the commit is ours.
-var markerRe = `^>>>>>>> [0-9a-f]+ \(` + workSubject + `\)`
-
 // markedFiles are the files in the workspace that still hold conflict markers
-// from a replay: what a merge stops on.
+// from a replay — the closing one, which names the branch plant merged in —
+// what a merge stops on.
 func (t *Task) markedFiles(repo string) ([]string, error) {
-	base, err := git(repo, "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
+	base, err := t.base(repo, "HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -1439,7 +1443,8 @@ func (t *Task) markedFiles(repo string) ([]string, error) {
 		return nil, err
 	}
 	defer cleanup()
-	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--name-only", "-z", "-E", "-G" + markerRe, base}, RunOpts{Env: env})
+	marker := "^>>>>>>> origin/" + regexp.QuoteMeta(t.p.defaultBranch)
+	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--name-only", "-z", "-E", "-G" + marker, base}, RunOpts{Env: env})
 	if err != nil || r.Out == "" {
 		return nil, err
 	}
@@ -1482,7 +1487,7 @@ func (t *Task) park() {
 			_, err := git(repo, "fetch", "--quiet", "origin")
 			var base string
 			if err == nil {
-				base, err = git(repo, "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
+				base, err = t.base(repo, "HEAD")
 			}
 			if err == nil {
 				err = t.savePatch(repo, base)
@@ -1602,7 +1607,7 @@ func (t *Task) ensureWorkspace() error {
 // dropWorkspace throws the clone away, container first: what the task knows
 // stays — claude's own state and the chat log live beside the clone, not in
 // it — and picking the task up again clones the branch afresh, the way
-// leaving Plan does.
+// leaving Plan does. The caller holds cloneMu.
 func (t *Task) dropWorkspace() error {
 	t.down()
 	if err := rmTree(t.repoDir()); err != nil {
@@ -1680,9 +1685,11 @@ func (t *Task) Discard() error {
 	t.down()
 	nestPurge(t.containerName(), nestDir(t.dir()))
 	_ = rmContainer(t.containerName()) // also one the daemon never knew about
+	t.cloneMu.Lock() // see refreshChanges
 	if err := rmTree(t.dir()); err != nil {
 		logf("%s: discarding the workspace: %v", t.key(), err)
 	}
+	t.cloneMu.Unlock()
 	t.lock()
 	defer t.unlock()
 	t.info.Started = false
@@ -1702,9 +1709,11 @@ func (t *Task) Delete() error {
 	t.down()
 	nestPurge(t.containerName(), nestDir(t.dir()))
 	_ = rmContainer(t.containerName())
+	t.cloneMu.Lock() // see refreshChanges
 	if err := rmTree(t.dir()); err != nil {
 		logf("%s: deleting the workspace: %v", t.key(), err)
 	}
+	t.cloneMu.Unlock()
 	t.lock()
 	defer t.unlock()
 	delete(t.p.info.Tasks, t.tid)
@@ -1741,7 +1750,7 @@ func (t *Task) changes() ([]change, error) {
 		}
 		return parseNumstat(r.Out), nil
 	}
-	base, err := git(repo, "merge-base", "HEAD", "origin/"+t.p.defaultBranch)
+	base, err := t.base(repo, "HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -1785,6 +1794,10 @@ func (t *Task) refreshChanges() {
 	}
 	t.refreshing = true
 	t.unlock()
+	// The workspace holds still until the overview is out: one dropped
+	// meanwhile would leave it published after the workspace was gone.
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
 	changes, err := t.changes()
 	message := ""
 	if t.hasWorkspace() {
@@ -1816,11 +1829,13 @@ func (t *Task) refreshChanges() {
 // after a fetch brought newer commits into the clone without replaying onto
 // them — and the project repo counts the distance from there to its branch.
 func (t *Task) refreshBehind() {
+	t.cloneMu.Lock() // as refreshChanges does
+	defer t.cloneMu.Unlock()
 	repo := t.repoDir()
 	behind := 0
 	if t.hasWorkspace() {
 		branch := t.p.defaultBranch
-		if base, err := git(repo, "merge-base", "HEAD", "origin/"+branch); err == nil {
+		if base, err := t.base(repo, "HEAD"); err == nil {
 			if out, err := git(t.p.dir(), "rev-list", "--count", base+".."+branch); err == nil {
 				behind, _ = strconv.Atoi(strings.TrimSpace(out))
 			}
@@ -2425,7 +2440,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// to become and for the words that work is to be committed under.
 	dirty, message := false, ""
 	if t.hasWorkspace() {
-		dirty, _ = dirtyTree(t.repoDir())
+		dirty, _ = t.dirtyTree(t.repoDir())
 		message = t.commitMessage()
 	}
 	t.lock()
@@ -2500,6 +2515,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			return
 		}
 		t.unlock()
+		t.mark("Agent", changes) // the resolution is its step, not the user's (see replant)
 		t.note("conflicts resolved; merging")
 		_ = t.Merge("")
 		return
@@ -2518,6 +2534,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			return
 		case t.onReadyL() == AnswerMerge:
 			t.unlock()
+			t.mark("Agent", changes) // its step, not the user's (see replant)
 			t.note("the agent reports the task is ready; merging")
 			_ = t.Merge("")
 			return
