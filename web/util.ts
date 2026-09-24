@@ -1,32 +1,39 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { bellOff, check, circle, circleSlash, gitMerge, globe, hourglass, listTodo, monitor, scanEye, server, user } from 'staffa/icons.js';
+import { check, circle, folderGit2, gitMerge, globe, hourglass, listTodo, monitor, scanEye, server, user } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state, send } from './conn.ts';
 
 /**
  * The phases a task can be in. Review is a second agent reading the work over
- * before it is handed on. Muted is Human with the task put away: it waits
- * for you too, but quietly — at the foot of the Human column, and out of the
- * sidebar. Closed is Done without the merge: the task is over, but its work
- * is kept as a patch rather than landing on the branch.
+ * before it is handed on. Muted, shown as Started, is Human with the task put
+ * away: its work and conversation are kept, but it sits atop the Plan column,
+ * out of the sidebar. Closed is Done without the merge: the task is over, but
+ * its work is kept as a patch rather than landing on the branch.
  */
 export const PHASES = ['plan', 'agent', 'review', 'human', 'muted', 'merge', 'done', 'closed'] as const;
 export type Phase = typeof PHASES[number];
 
 /**
  * The columns of the board. Three phases have none of their own: Muted sits
- * under the Human column, and Merging and Closed share the Done one — merging
+ * in the Plan column, and Merging and Closed share the Done one — merging
  * is a moment on the way there, closing is arriving without it (see board.ts).
  */
 export const COLUMNS: Phase[] = ['plan', 'agent', 'review', 'human', 'done'];
 
 export const PHASE_LABELS: Record<Phase, string> = {
-	plan: 'Plan', agent: 'Agent', review: 'Review', human: 'Human', muted: 'Muted', merge: 'Merging', done: 'Done', closed: 'Not merged',
+	plan: 'Plan', agent: 'Agent', review: 'Review', human: 'Human', muted: 'Started', merge: 'Merging', done: 'Done', closed: 'Not merged',
 };
 
-export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, review: scanEye, human: user, muted: bellOff, merge: gitMerge, done: check, closed: circleSlash };
+// Started and Not merged share an icon: each sits in a column of tasks with no
+// work of their own, while it still holds work that is on no branch.
+export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, review: scanEye, human: user, muted: folderGit2, merge: gitMerge, done: check, closed: folderGit2 };
+
+/** Whether the task holds work that is not on the branch while its column's others hold none: Started, or Not merged. */
+export function keepsWork($t: any): boolean {
+	return $t.phase === 'muted' || $t.phase === 'closed';
+}
 
 /** Whether the task has a workspace right now: what the daemon says it sees on disk. */
 export function hasWorkspace($t: any): boolean {
@@ -231,7 +238,9 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 
 /** Where the task stands, in one line: its phase, whether claude is on it, and what its workspace is doing. */
 export function taskTip(pid: string, $t: any): string {
-	const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
+	const phase = $t.phase === 'muted' ? 'Started: this task still has its workspace and conversation. Open it to carry on where it was left.'
+		: $t.phase === 'closed' ? 'Not merged: this task was finished without merging. Its work is kept, off the branch, and comes back if the task is picked up again.'
+		: PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 	return `${phase}${$t.working ? ', the agent is working' : ''} · ${taskActivity(pid, $t).text}`;
 }
 

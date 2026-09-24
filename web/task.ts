@@ -57,9 +57,8 @@ export function closeTask(pid: string, tid: string): void {
 /**
  * The phases the task can be moved to; the one it is in is the disabled one.
  * The three ways a task ends are one entry — Done asks which of them is meant
- * (see doneDialog) — and the two that are not places to be put but states to
- * be in only show where they do mean something: Muted is Human with the task
- * put away, so it is offered while it waits for you.
+ * (see doneDialog) — and putting a task away (Started) is one of the answers
+ * Plan asks for (see planDialog).
  */
 function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	const items: S.MenuEntry[] = (['plan', 'agent', 'review', 'human'] as Phase[]).map(phase => ({
@@ -70,11 +69,10 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 		attrs: phase === 'plan' ? 'fg:$s-danger' : '',
 		click: () => void moveTask(pid, tid, $t, phase),
 	}));
-	if ($t.phase === 'human') items.push({ label: PHASE_LABELS.muted, icon: PHASE_ICONS.muted, click: () => void moveTask(pid, tid, $t, 'muted') });
 	items.push({
 		label: 'Done…', icon: check,
 		disabled: isFinished($t) || $t.phase === 'merge',
-		click: () => doneDialog(pid, tid, $t),
+		click: () => void moveTask(pid, tid, $t, 'done'),
 	});
 	return items;
 }
@@ -101,16 +99,57 @@ export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEn
  * with something to do after it.
  */
 export async function moveTask(pid: string, tid: string, $t: any, phase: string): Promise<boolean> {
+	if (phase === 'plan' && $t.phase !== 'plan') {
+		const meant = await planDialog($t);
+		if (!meant) return false;
+		phase = meant;
+	}
 	if (phase === $t.phase) return false;
-	if (phase === 'plan') {
-		const busy = $t.working ? ' The agent is still working; it is stopped.' : '';
-		if (!(await S.confirm(`Move this task back to Plan? All work is discarded: the workspace, the chat, and every unmerged change.${busy}`))) return false;
-	} else if (phase === 'done' || phase === 'closed' || phase === 'merge') {
-		if ($t.phase !== 'merge') doneDialog(pid, tid, $t); // in Merging it is already on its way there
-		return false;
-	} else if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
+	if (phase === 'done' || phase === 'closed' || phase === 'merge') {
+		if ($t.phase === 'merge' || isFinished($t)) return false; // in Merging it is already on its way there
+		// Nothing changed since the task branched off: nothing to merge or to
+		// keep, so it simply ends. Only a count the daemon made says so.
+		if ($t.phase !== 'plan' && $t.changes?.length !== 0) {
+			doneDialog(pid, tid, $t);
+			return false;
+		}
+		finishUnmerged(pid, tid);
+		return true;
+	}
+	if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
 	void cmd('moveTask', { pid, tid, phase });
 	return true;
+}
+
+/**
+ * Where a task sent back to Plan leaves its work: discarded, or kept, the task
+ * waiting at the top of the Plan column as Started until it is taken up again.
+ * Resolves to the phase meant, or to nothing when the task is to stay where it
+ * is.
+ */
+async function planDialog($t: any): Promise<Phase | undefined> {
+	let meant: Phase | undefined;
+	await S.dialog({ header: 'Move this task back to Plan', attrs: 'w:34rem', content: close => {
+		const pick = (phase: Phase) => { meant = phase; close(); };
+		A('p mt:0 #Keep the work and the conversation, so you can pick up the task later.');
+		A('p #Or discard all of it: the workspace, the conversation and any unmerged changes.');
+		if ($t.working) A('p #The agent is still working. Either way, it is stopped.');
+		A('div display:flex gap:$2 justify-content:flex-end', () => {
+			S.button({ content: 'Cancel', attrs: '.neutral fg:$s-muted', click: close });
+			S.button({ content: 'Discard', icon: trash2, attrs: '.danger .outlined', click: () => pick('plan') });
+			S.button({ content: 'Keep', icon: PHASE_ICONS.muted, click: () => pick('muted') });
+		});
+	}});
+	return meant;
+}
+
+/**
+ * End the task without merging. Its VS Code goes with it, the way Close does
+ * it; opening the task again brings the session back.
+ */
+function finishUnmerged(pid: string, tid: string): void {
+	void cmd('moveTask', { pid, tid, phase: 'closed' });
+	closeTask(pid, tid);
 }
 
 /**
@@ -152,17 +191,14 @@ async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
  * work kept as a patch, off the branch. Everything that ends a task lands
  * here, since which of the two is meant is worth being sure of.
  *
- * A task with nothing to merge (one still in Plan) and one that is closed
- * already (nothing left to put away) have only one answer between them, and
- * get that tab's content without the strip above it.
+ * A task with nothing to merge yet (its workspace still in the making) has
+ * only the one answer, and gets that tab's content without the strip above it.
  */
 export function doneDialog(pid: string, tid: string, $t: any): void {
 	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
-	const mergeable = $t.phase !== 'plan' && hasWorkspace($t);
-	const closable = $t.phase !== 'closed';
-	if (!mergeable && !closable) return;
+	const mergeable = hasWorkspace($t);
 	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string });
-	void S.dialog({ header: mergeable && !closable ? 'Merge this task' : 'Finish this task', attrs: 'w:44rem', content: close => {
+	void S.dialog({ header: 'Finish this task', attrs: 'w:44rem', content: close => {
 		const drawMerge = (): void => {
 			S.form({
 				submit: () => {
@@ -186,19 +222,15 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 				? `The task ends as it stands: its work is kept as a patch, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work onto the latest ${branch}, where it can still be merged.`
 				: `This task has nothing to merge, so this is the only way it ends: it is put away as it stands.`);
 			A('div display:flex gap:$2 justify-content:flex-end', () => {
-				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined',
-					// The task is over: its VS Code goes with it, the way Close does
-					// it. Opening the task again brings the session back.
-					click: () => { close(); void cmd('moveTask', { pid, tid, phase: 'closed' }); closeTask(pid, tid); } });
+				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined', click: () => { close(); finishUnmerged(pid, tid); } });
 			});
 		};
-		if (mergeable && closable) {
+		if (mergeable) {
 			S.tabs({ contentAttrs: 'pt:$3', tabs: [
 				{ id: 'merge', label: `Merge into ${branch}`, icon: gitMerge, content: drawMerge },
 				{ id: 'closed', label: 'Don’t merge', icon: circleSlash, content: drawDontMerge },
 			]});
-		} else if (mergeable) drawMerge();
-		else drawDontMerge();
+		} else drawDontMerge();
 	}});
 }
 

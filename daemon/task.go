@@ -24,7 +24,7 @@ const (
 	PhasePlan   Phase = "plan"
 	PhaseAgent  Phase = "agent"
 	PhaseHuman  Phase = "human"
-	PhaseMuted  Phase = "muted"  // waiting for a human too, but parked: out of the sidebar and at the foot of its column
+	PhaseMuted  Phase = "muted"  // waiting for a human too, but parked: out of the sidebar and at the top of the Plan column
 	PhaseReview Phase = "review" // a second agent is reading the work over before it is handed on (see review.go)
 	PhaseMerge  Phase = "merge"  // TPS is merging: replaying the work onto the branch, or an agent resolving conflicts in it
 	PhaseDone   Phase = "done"   // merged: its work is on the branch and its workspace is gone

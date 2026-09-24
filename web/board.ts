@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { funnel, plus, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { addTask, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * The project's board: a box per column, a card dropped anywhere in a box's
@@ -15,14 +15,15 @@ import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawCont
  * icon — so a card repeats none of that: it carries a glyph only where it has
  * something else to say (see saysMore).
  *
- * Two columns hold more than their own phase, the extra one under a marker:
- * Human has the muted tasks at its foot (still waiting for you, just not out
- * loud), and Done has the ones closed without merging. Merging is a moment on
- * the way to Done rather than a place of its own, so those cards simply sit at
- * the top of the Done column, wearing the merge icon until it is over.
+ * Two columns hold more than their own phase, the extra cards wearing the icon
+ * that tells them apart. Plan has the started (muted) tasks at its top: put
+ * away with their work kept, to be taken up again. Done has the ones closed
+ * without merging mixed in with the merged ones. Merging is a moment on the
+ * way to Done rather than a place of its own, so those cards simply sit at the
+ * top of the Done column, wearing the merge icon until it is over.
  *
- * A column is one drop area, marker and all: which of its parts a card lands
- * on says nothing, as muting and closing are not things to do by accident.
+ * A column is one drop area: where in it a card lands says nothing, as muting
+ * and closing are not things to do by accident.
  */
 const boardWidths = A.insertCss({
 	'&': `--col: clamp(190px, calc((100% - ${COLUMNS.length - 1} * var(--m3)) / ${COLUMNS.length}), 320px);`,
@@ -139,61 +140,41 @@ function drawColumn(pid: string, $p: any, phase: Phase): void {
 		'drop=', (e: DragEvent) => {
 			e.preventDefault();
 			const tid = e.dataTransfer?.getData('text/tps');
-			if (tid && $p.tasks[tid]) void moveTask(pid, tid, $p.tasks[tid], phase);
+			// A started card let go in Plan is already where it sits.
+			if (!tid || !$p.tasks[tid] || (phase === 'plan' && $p.tasks[tid].phase === 'muted')) return;
+			void moveTask(pid, tid, $p.tasks[tid], phase);
 		},
 		() => {
-			// The ones on their way to Done go above the ones that got there.
-			if (phase === 'done') drawCards(pid, $p, 'merge', key);
-			drawCards(pid, $p, phase, key);
-			if (phase === 'human') drawSection(pid, $p, 'muted', key);
-			if (phase === 'done') drawSection(pid, $p, 'closed', key);
+			// The ones on their way to Done go above the ones that got there, and
+			// the started ones above the ones never begun.
+			if (phase === 'done') drawCards(pid, $p, ['merge'], key);
+			if (phase === 'plan') drawCards(pid, $p, ['muted'], key);
+			drawCards(pid, $p, phase === 'done' ? ['done', 'closed'] : [phase], key);
 		});
 }
 
 /**
- * The cards of one phase, oldest change at the bottom, and only the ones the
- * column's filter lets through; `dim` is for the half that should not draw the
- * eye.
+ * The cards of some phases, oldest change at the bottom, and only the ones the
+ * column's filter lets through.
  */
-function drawCards(pid: string, $p: any, phase: Phase, key: string, dim = false): void {
+function drawCards(pid: string, $p: any, phases: Phase[], key: string): void {
 	A.onEach($p.tasks, ($t: any, tid: string) => {
-		if ($t.phase !== phase) return; // each card lives in its phase's column
+		if (!phases.includes($t.phase)) return; // each card lives in its phase's column
 		if (!passesFilter($t, key)) return;
-		drawCard(pid, tid, $t, dim);
+		drawCard(pid, tid, $t);
 	}, phaseOrder);
-}
-
-/**
- * The quieter half of a column: its cards under a marker naming them, and
- * nothing at all while there are none of them — an empty column says enough
- * by being empty. The marker sits right under the cards above it, in the same
- * rhythm, so it reads as a line between them rather than as a second column.
- */
-function drawSection(pid: string, $p: any, phase: Phase, key: string): void {
-	// Whether there is anything to head is derived into a flag of its own, so a
-	// task arriving or leaving doesn't rebuild every card below the marker. A
-	// filter counts here too: a marker over nothing would be a line to nowhere.
-	const $any = A.proxy({ value: false });
-	A(() => { $any.value = Object.values($p.tasks as Record<string, any>).some($t => $t.phase === phase && passesFilter($t, key)); });
-	A(() => {
-		if (!$any.value) return;
-		A('div display:flex align-items:center gap:$2 fg:$s-muted font-size:0.8em', () => {
-			A('span flex:none text=', PHASE_LABELS[phase]);
-			A('span flex:1 h:1px bg:$s-faint');
-		});
-	});
-	drawCards(pid, $p, phase, key, true);
 }
 
 /**
  * Whether a card's icon would say more than the column it sits in: the task is
  * waiting (for the tasks it follows, or for claude's usage limit), it is being
- * merged among the ones already merged, or its workspace is in trouble — which
- * the icon carries as its colour. Everything else the icon could show is the
- * phase, and that is the column's to say.
+ * merged among the ones already merged, it keeps work the others in its column
+ * do not (see keepsWork), or its workspace is in trouble — which the icon
+ * carries as its colour. Everything else the icon could show is the phase, and
+ * that is the column's to say.
  */
 function saysMore(pid: string, $t: any): boolean {
-	return autoStarts($t) || !!$t.limitUntil || $t.phase === 'merge' || taskActivity(pid, $t).color === 'danger';
+	return autoStarts($t) || !!$t.limitUntil || $t.phase === 'merge' || keepsWork($t) || taskActivity(pid, $t).color === 'danger';
 }
 
 // Browsers can fire a click on the card a drag started from once that drag
@@ -201,8 +182,8 @@ function saysMore(pid: string, $t: any): boolean {
 // click starts with a pointerdown, so that is where the flag is cleared.
 let dragged = false;
 
-function drawCard(pid: string, tid: string, $t: any, dim: boolean): void {
-	A(`div draggable=true${dim ? ' opacity:0.6' : ''}`,
+function drawCard(pid: string, tid: string, $t: any): void {
+	A('div draggable=true',
 		'pointerdown=', () => { dragged = false; },
 		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', tid); },
 		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
@@ -212,7 +193,7 @@ function drawCard(pid: string, tid: string, $t: any, dim: boolean): void {
 			}});
 			S.box({ attrs: 'cursor:pointer', contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
 				A('div display:flex align-items:center gap:$2 font-weight:600', () => {
-					A(() => { if (saysMore(pid, $t)) drawTaskIcon(pid, $t); });
+					A(() => { if (saysMore(pid, $t)) drawTaskIcon(pid, $t, { color: keepsWork($t) ? '$s-warning' : undefined }); });
 					A('span flex:1 text=', taskTitle($t));
 					drawLiveLink($t);
 				});
