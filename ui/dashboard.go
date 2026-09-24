@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,10 +13,10 @@ import (
 )
 
 // The dashboard's own state is the host list — which daemons to connect to —
-// and the order the user put the projects in. The projects themselves belong
-// to their host's daemon, so every dashboard using it sees the same ones,
-// under the same names and colours; only their order spans hosts, and so
-// lives here.
+// the names the user gave them, and the order the user put the projects in.
+// The projects themselves belong to their host's daemon, so every dashboard
+// using it sees the same ones, under the same names and colours; only their
+// order spans hosts, and so lives here.
 
 func configFile(name string) string {
 	home, _ := os.UserHomeDir()
@@ -30,17 +31,20 @@ type legacyProject struct {
 	Name string `json:"name"`
 }
 
-// loadHosts reads the ssh destinations to connect to, the project order, and
-// the names an older dashboard gave the projects there.
-func loadHosts() (hosts, order []string, names []legacyProject) {
-	var saved struct {
-		Hosts    []string        `json:"hosts"`
-		Order    []string        `json:"order"`
-		Projects []legacyProject `json:"projects"`
-	}
+// dashboardFile is dashboard.json: the ssh destinations to connect to, the
+// names given to hosts (by host id), the project order, and the names an older
+// dashboard gave the projects there.
+type dashboardFile struct {
+	Hosts     []string          `json:"hosts"`
+	HostNames map[string]string `json:"hostNames"`
+	Order     []string          `json:"order"`
+	Projects  []legacyProject   `json:"projects,omitempty"`
+}
+
+func loadHosts() (saved dashboardFile) {
 	if data, err := os.ReadFile(configFile("dashboard.json")); err == nil {
 		_ = json.Unmarshal(data, &saved)
-		return saved.Hosts, saved.Order, saved.Projects
+		return saved
 	}
 	// Older still: hosts.json, with the hosts as objects.
 	var older struct {
@@ -52,19 +56,22 @@ func loadHosts() (hosts, order []string, names []legacyProject) {
 		_ = json.Unmarshal(data, &older)
 	}
 	for _, h := range older.Hosts {
-		hosts = append(hosts, h.Dest)
+		saved.Hosts = append(saved.Hosts, h.Dest)
 	}
-	return hosts, nil, nil
+	return saved
 }
 
-func saveHosts(hosts, order []string) error {
-	if hosts == nil {
-		hosts = []string{}
+func saveHosts(saved dashboardFile) error {
+	if saved.Hosts == nil {
+		saved.Hosts = []string{}
 	}
-	if order == nil {
-		order = []string{}
+	if saved.HostNames == nil {
+		saved.HostNames = map[string]string{}
 	}
-	data, _ := json.MarshalIndent(map[string]any{"hosts": hosts, "order": order}, "", "\t")
+	if saved.Order == nil {
+		saved.Order = []string{}
+	}
+	data, _ := json.MarshalIndent(saved, "", "\t")
 	path := configFile("dashboard.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -92,7 +99,7 @@ func (u *UI) addHostEntry(dest string) {
 }
 
 // renameHostEntry puts another destination in a host's place in the list, and
-// carries the project order over to the host id that comes with it.
+// carries its name and the project order over to the host id that comes with it.
 func (u *UI) renameHostEntry(old, dest string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -101,6 +108,10 @@ func (u *UI) renameHostEntry(old, dest string) {
 		return
 	}
 	u.hosts[i] = dest
+	if name, ok := u.names[hostID(old)]; ok {
+		delete(u.names, hostID(old))
+		u.names[hostID(dest)] = name
+	}
 	was, now := hostID(old)+":", hostID(dest)+":"
 	for j, id := range u.order {
 		if pid, ok := strings.CutPrefix(id, was); ok {
@@ -115,6 +126,7 @@ func (u *UI) removeHostEntry(dest string) {
 	defer u.mu.Unlock()
 	if i := u.indexHostL(dest); i >= 0 {
 		u.hosts = append(u.hosts[:i], u.hosts[i+1:]...)
+		delete(u.names, hostID(dest))
 		u.saveL()
 	}
 }
@@ -129,9 +141,23 @@ func (u *UI) indexHostL(dest string) int {
 }
 
 func (u *UI) saveL() {
-	if err := saveHosts(u.hosts, u.order); err != nil {
+	if err := saveHosts(dashboardFile{Hosts: u.hosts, HostNames: u.names, Order: u.order}); err != nil {
 		log.Printf("saving the host list failed: %v", err)
 	}
+}
+
+// nameHost gives a host the name it is shown by; an empty one gives it back
+// the name its destination makes.
+func (u *UI) nameHost(hid, name string) {
+	u.mu.Lock()
+	if name = strings.TrimSpace(name); name != "" {
+		u.names[hid] = name
+	} else {
+		delete(u.names, hid)
+	}
+	u.saveL()
+	u.mu.Unlock()
+	u.publish()
 }
 
 // --- the project order: ids ("<host id>:<pid>") as the user arranged them ---
@@ -157,13 +183,17 @@ func (u *UI) setProjectOrder(raw json.RawMessage) (any, error) {
 	u.order = order
 	u.saveL()
 	u.mu.Unlock()
-	u.publishOrder()
+	u.publish()
 	return nil, nil
 }
 
-func (u *UI) publishOrder() {
+// publish puts the dashboard's own state in the state tree: the project order
+// and the host names.
+func (u *UI) publish() {
 	u.mu.Lock()
 	order := append([]string{}, u.order...)
+	names := maps.Clone(u.names)
 	u.mu.Unlock()
 	u.hub.Set([]string{"projectOrder"}, order)
+	u.hub.Set([]string{"hostNames"}, names)
 }

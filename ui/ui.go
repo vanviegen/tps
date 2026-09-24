@@ -37,9 +37,10 @@ type UI struct {
 	hub   *hub.Hub
 	webFS fs.FS
 	mu    sync.Mutex
-	links map[string]*Link // by host id
-	hosts []string         // the ssh destinations listed in dashboard.json; this machine is always shown
-	order []string         // project ids as the user arranged them in the sidebar; see dashboard.go
+	links map[string]*Link  // by host id
+	hosts []string          // the ssh destinations listed in dashboard.json; this machine is always shown
+	names map[string]string // the names the user gave hosts, by host id
+	order []string          // project ids as the user arranged them in the sidebar; see dashboard.go
 
 	daemonBinary string
 	askpass      *askpassServer
@@ -51,7 +52,7 @@ var daemonCmds = []string{"setProject", "removeProject", "openProjectCode", "cre
 
 func Run(o Options) error {
 	u := &UI{
-		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.FallbackModels, "projectOrder": []string{}}),
+		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.FallbackModels, "projectOrder": []string{}, "hostNames": map[string]string{}}),
 		webFS: o.WebFS, links: map[string]*Link{},
 		daemonBinary: o.DaemonBinary,
 	}
@@ -61,8 +62,12 @@ func Run(o Options) error {
 	}
 	u.registerCmds()
 	u.hub.OnWatch = u.onWatch
-	hosts, order, legacy := loadHosts()
-	u.order = order
+	saved := loadHosts()
+	hosts, legacy := saved.Hosts, saved.Projects
+	u.order, u.names = saved.Order, saved.HostNames
+	if u.names == nil {
+		u.names = map[string]string{}
+	}
 	// This machine is always shown, and shown first; the rest are those listed
 	// (and those a project of an older dashboard lived on).
 	seen := map[string]bool{"": true}
@@ -78,7 +83,7 @@ func Run(o Options) error {
 	u.mu.Lock()
 	u.saveL()
 	u.mu.Unlock()
-	u.publishOrder()
+	u.publish()
 	u.linkTo("", legacy)
 	for _, dest := range u.hosts {
 		u.linkTo(dest, legacy)

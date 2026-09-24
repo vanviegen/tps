@@ -4,7 +4,7 @@ import { check, download, ellipsisVertical, keyRound, plug, plus, power, refresh
 import { showAsk } from './ask.ts';
 import { $state } from './conn.ts';
 import { addProjectDialog, projectsOn } from './projects.ts';
-import { cmd, drawStrip, ELLIPSIS, hostIcon, hostName } from './util.ts';
+import { cmd, destName, drawStrip, ELLIPSIS, hostIcon, hostName } from './util.ts';
 
 /**
  * The hosts: the machines projects run on, this one and the ones reached over
@@ -112,28 +112,30 @@ function drawHostFacts(hid: string): void {
 }
 
 /**
- * The foot of the dialog: the ssh destination the host is reached at, to
- * point it at another machine, with its own Save — nothing typed there
- * reaches the host until that is pressed, and Cancel drops it. Saving drops
- * the connection and makes it anew, as if the host were added again: the
- * projects found there take the place of the ones it had.
+ * The foot of the dialog: the name the host is shown by, and the ssh
+ * destination it is reached at, to point it at another machine, with their own
+ * Save — nothing typed there reaches the host until that is pressed, and
+ * Cancel drops it. Saving another destination drops the connection and makes
+ * it anew, as if the host were added again: the projects found there take the
+ * place of the ones it had. This machine has no destination to point
+ * elsewhere, so it only takes a name.
  *
- * Beside them, out of the way, the menu of what else there is to do with the
- * host. This machine has no destination to point elsewhere, so it is all the
- * foot it has.
+ * Beside the buttons, out of the way, the menu of what else there is to do
+ * with the host.
  */
 function drawHostFoot(hid: string, close: () => void): void {
-	if (hid === 'local') {
-		A('div display:flex', () => drawHostMenu(hid, $state.hosts?.[hid] ?? {}));
-		return;
-	}
-	const $form = A.proxy({ dest: A.peek(() => $state.hosts?.[hid]?.dest ?? '') });
+	const $form = A.proxy(A.peek(() => ({ name: $state.hostNames?.[hid] ?? '', dest: $state.hosts?.[hid]?.dest ?? '' })));
 	S.form({
-		submit: () => void cmd('setHost', { hid, dest: $form.dest.trim() }),
-		content: () => S.textline({
-			label: 'Host', placeholder: 'user@host', required: true, bind: A.ref($form, 'dest'),
-			help: 'Whatever you would type after `ssh` (options like `-p 2222` go in front).',
-		}),
+		submit: async () => {
+			if (await cmd('setHost', { hid, name: $form.name, dest: $form.dest.trim() })) close();
+		},
+		content: () => {
+			S.textline({ label: 'Name', placeholder: A.peek(() => destName(hid)), bind: A.ref($form, 'name'), help: 'What to call it in the sidebar.' });
+			if (hid !== 'local') S.textline({
+				label: 'Host', placeholder: 'user@host', required: true, bind: A.ref($form, 'dest'),
+				help: 'Whatever you would type after `ssh` (options like `-p 2222` go in front).',
+			});
+		},
 		actionsAttrs: 'justify-content:flex-start',
 		actions: () => {
 			A(() => drawHostMenu(hid, $state.hosts?.[hid] ?? {}));

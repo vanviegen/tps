@@ -66,24 +66,24 @@ func (u *UI) addHost(raw json.RawMessage) (any, error) {
 	return map[string]any{"hid": hostID(dest)}, nil
 }
 
-// setHost points a host at another ssh destination — a machine that moved, a
-// port that changed. The old link is dropped and a new one takes its place in
-// the list, connecting like a freshly added host and bringing along the
-// projects it finds there, in the place the old one's had in the sidebar.
+// setHost names a host and points it at another ssh destination — a machine
+// that moved, a port that changed. The old link is dropped and a new one takes
+// its place in the list, connecting like a freshly added host and bringing
+// along the projects it finds there, in the place the old one's had in the
+// sidebar. This machine only takes a name.
 func (u *UI) setHost(raw json.RawMessage) (any, error) {
 	var args struct {
 		Hid  string `json:"hid"`
 		Dest string `json:"dest"`
+		Name string `json:"name"`
 	}
 	_ = json.Unmarshal(raw, &args)
 	l, err := u.link(args.Hid)
 	if err != nil {
 		return nil, err
 	}
-	if l.dest == "" {
-		return nil, errors.New("This machine is always listed")
-	}
-	if strings.TrimSpace(args.Dest) == l.dest {
+	u.nameHost(l.hid, args.Name)
+	if l.dest == "" || strings.TrimSpace(args.Dest) == l.dest {
 		return map[string]any{"hid": l.hid}, nil
 	}
 	dest, err := u.listable(args.Dest, l.hid)
@@ -92,7 +92,7 @@ func (u *UI) setHost(raw json.RawMessage) (any, error) {
 	}
 	u.unlist(l)
 	u.renameHostEntry(l.dest, dest)
-	u.publishOrder()
+	u.publish()
 	u.linkTo(dest, nil).Wake()
 	return map[string]any{"hid": hostID(dest)}, nil
 }

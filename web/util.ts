@@ -165,8 +165,13 @@ export function hostIcon(hid: string): typeof monitor {
 	return hid === 'local' ? monitor : server;
 }
 
-/** A host's name as shown to the user. */
+/** A host's name as shown to the user: the one given to it, or else its destination's. */
 export function hostName(hid: string): string {
+	return $state.hostNames?.[hid] || destName(hid);
+}
+
+/** The name a host goes by when none is given to it. */
+export function destName(hid: string): string {
 	return hid === 'local' ? 'localhost' : $state.hosts?.[hid]?.name ?? hid;
 }
 
