@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { folder, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
+import { chevronLeft, folder, panelLeftClose, panelLeftOpen, plus, server, settings, x } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { $holds, holdKey, isHeld, release } from './holds.ts';
@@ -80,7 +80,11 @@ export function drawSidebar(): void {
 	});
 }
 
-/** The way to fold the sidebar, in the corner it keeps either way, and the logo beside it while there is room for it. */
+/**
+ * The way to fold the sidebar, in the corner it keeps either way, and the logo
+ * beside it while there is room for it. On a task, the other corner leads back
+ * to its project's board.
+ */
 function drawHeader(collapsed: boolean): void {
 	A('div display:flex align-items:center gap:$2 ph:$1 pv:$2', () => {
 		S.iconButton({
@@ -89,9 +93,14 @@ function drawHeader(collapsed: boolean): void {
 			key: 'mod+b', attrs: '.small',
 			click: () => { $ui.collapsed = !collapsed; },
 		});
-		if (collapsed) return;
-		bot({ size: '1.4em', color: 'var(--s-accent)' });
-		A('b flex:1 #TPS');
+		if (!collapsed) {
+			bot({ size: '1.4em', color: 'var(--s-accent)' });
+			A('b flex:1 #TPS');
+		}
+		A(() => {
+			const { pid, tid } = selection();
+			if (pid && tid) S.iconButton({ icon: chevronLeft, ariaLabel: 'Back to the board', attrs: '.small margin-left:auto', click: () => void route.back(pathTo(pid)) });
+		});
 	});
 }
 
