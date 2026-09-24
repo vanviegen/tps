@@ -157,7 +157,7 @@ func run(args []string) error {
 	cmd := exec.CommandContext(ctx, "podman", args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	runErr := cmd.Run()
-	if err := p.RemoveContainers(context.Background()); err != nil {
+	if err := p.Clear(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, "podnester:", err)
 	}
 	return runErr

@@ -100,12 +100,12 @@ func nestFor(name, dir string) (*podnester.Proxy, error) {
 	return p, nil
 }
 
-// nestClear removes a task's sub-containers, its socket still served. They
-// run in the task container's user namespace (podnester puts them there, so
-// they can join each other's namespaces), which makes them dependents podman
-// refuses to remove that container before: clearing them is where removing a
-// task container begins, and a container being replaced needs them gone
-// while its socket lives on.
+// nestClear removes a task's sub-containers and their networks, its socket
+// still served. They run in the task container's user namespace (podnester
+// puts them there, so they can join each other's namespaces), which makes
+// them dependents podman refuses to remove that container before: clearing
+// them is where removing a task container begins, and a container being
+// replaced needs them gone while its socket lives on.
 func nestClear(name, dir string) {
 	var p *podnester.Proxy
 	nests.Lock()
@@ -122,7 +122,7 @@ func nestClear(name, dir string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := p.RemoveContainers(ctx); err != nil {
+	if err := p.Clear(ctx); err != nil {
 		logf("%s: removing sub-containers: %v", name, err)
 	}
 }

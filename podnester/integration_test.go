@@ -224,7 +224,7 @@ func TestAgainstPodman(t *testing.T) {
 	// Removing the siblings gets every one of them, whichever order podman
 	// wants: probe is in db's network namespace, and a container another one
 	// depends on is not removed before it.
-	if err := p.RemoveContainers(ctx); err != nil {
+	if err := p.Clear(ctx); err != nil {
 		t.Errorf("removing the siblings: %v", err)
 	}
 	if list, err := up.listContainers(ctx, p.ownerLabel()); err != nil || len(list) != 0 {

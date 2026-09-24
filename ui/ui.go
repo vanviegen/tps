@@ -174,6 +174,7 @@ func (u *UI) registerCmds() {
 	u.hub.Cmds["removeHost"] = u.removeHost
 	u.hub.Cmds["connectHost"] = u.connectHost
 	u.hub.Cmds["login"] = u.login
+	u.hub.Cmds["signInCode"] = u.signInCode
 	u.hub.Cmds["stopDaemon"] = u.stopDaemon
 	u.hub.Cmds["updateDaemon"] = u.updateDaemon
 	u.hub.Cmds["answer"] = u.answer

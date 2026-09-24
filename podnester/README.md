@@ -48,8 +48,9 @@ only after holding it to what that container may have:
   is a symlink to it works for the usual commands, as the CLIs mirror each
   other; a real podman with `CONTAINER_HOST` set gets a clear pointer to docker.
 - Sub-containers are removed when the top-level container stops, like the
-  processes in it. Its volumes and networks stay for its next run; `purge`
-  removes those too.
+  processes in it, and so are the networks made for them: a container coming
+  back is on none of them, and has them made again, and joins them, when
+  asked. Its volumes stay for its next run; `purge` removes those too.
 
 ## Running
 

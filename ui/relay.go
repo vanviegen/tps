@@ -54,12 +54,14 @@ type Link struct {
 	homeDir         string         // the daemon user's home there, for showing paths as ~/…
 	protocol        int
 	restarting      bool
-	models          []any  // the models the agents on this host offer
-	modelsError     string // why they are the built-in fallback instead
-	agentPrompt     string // the rules its daemon puts above every agent conversation
-	login           string // what its claude login needs, if anything (see daemon/login.go)
-	signin          string // how a sign-in for it here is going, or failed (see login.go)
-	autoUpgraded    bool   // this UI already asked the daemon to restart into its build
+	models          []any          // the models the agents on this host offer
+	modelsError     string         // why they are the built-in fallback instead
+	agentPrompt     string         // the rules its daemon puts above every agent conversation
+	login           string         // what its claude login needs, if anything (see daemon/login.go)
+	signin          string         // how a sign-in for it here is going, or failed (see login.go)
+	signinURL       string         // the page it is made on, while it can be
+	signinCode      io.WriteCloser // where the code that page shows goes, while a sign-in is under way
+	autoUpgraded    bool           // this UI already asked the daemon to restart into its build
 }
 
 type replyFn func(result json.RawMessage, err error)
@@ -172,6 +174,10 @@ func (l *Link) publishHost() {
 	}
 	if l.signin != "" {
 		host["signin"] = l.signin
+	}
+	if l.signinCode != nil {
+		host["signingIn"] = true
+		host["signinURL"] = l.signinURL
 	}
 	if l.status == "connected" {
 		host["updatable"] = l.build != BuildID()

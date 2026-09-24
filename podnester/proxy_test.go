@@ -449,7 +449,7 @@ func TestRemoveContainersRetries(t *testing.T) {
 	}
 	// a is only removable once b is gone, and the list has it first.
 	h, gone := removable(false)
-	if err := proxyOn(t, h).RemoveContainers(context.Background()); err != nil {
+	if err := proxyOn(t, h).removeContainers(context.Background()); err != nil {
 		t.Errorf("removing the siblings: %v", err)
 	}
 	if !gone["a"] || !gone["b"] {
@@ -457,7 +457,7 @@ func TestRemoveContainersRetries(t *testing.T) {
 	}
 	// Nothing can go: the error is reported rather than retried forever.
 	h, _ = removable(true)
-	if err := proxyOn(t, h).RemoveContainers(context.Background()); err == nil {
+	if err := proxyOn(t, h).removeContainers(context.Background()); err == nil {
 		t.Error("a removal that gets nowhere is reported as done")
 	}
 }

@@ -32,9 +32,10 @@ func authDir() string {
 	return dir
 }
 
-// claudeEnv is what a claude run by the daemon itself gets.
+// claudeEnv is what a claude run by the daemon itself gets: the credentials
+// dir named too, as a TPS running in a task inherits one pointing elsewhere.
 func claudeEnv() []string {
-	return []string{"CLAUDE_CONFIG_DIR=" + authDir()}
+	return []string{"CLAUDE_CONFIG_DIR=" + authDir(), "CLAUDE_SECURESTORAGE_CONFIG_DIR=" + authDir()}
 }
 
 func credentialsFile() string { return filepath.Join(authDir(), ".credentials.json") } // where claude keeps a login

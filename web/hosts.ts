@@ -61,6 +61,7 @@ export function hostState(hid: string, $h: any): HostState {
 		default: return { color: 'danger', icon: serverCrash, text: `${$h.status}${$h.error ? ' · ' + $h.error : ''}`, ok: false, action: connect };
 	}
 	// Connected: whatever the daemon there has to say for itself.
+	if ($h.signingIn) return { color: 'warning', icon: keyRound, text: $h.signin, ok: false, action: { label: 'Sign in', run: () => signInDialog(hid) } };
 	if ($h.signin || $h.login) return { color: 'warning', icon: keyRound, text: $h.signin || $h.login, ok: false };
 	if ($h.warning) return { color: 'warning', icon: triangleAlert, text: $h.warning, ok: false };
 	if ($h.restarting) return { color: 'neutral', icon: refreshCw, text: 'the daemon restarts into this build once nothing is running', ok: false };
@@ -154,7 +155,7 @@ function drawHostMenu(hid: string, $h: any): void {
 		items.push(
 			{ label: 'Add project…', icon: plus, click: () => addProjectDialog(hid) },
 			// Also for a login that still works, to replace it with another account.
-			{ label: 'Sign in to claude', icon: keyRound, click: () => void cmd('login', { hid }) },
+			{ label: 'Sign in to claude', icon: keyRound, click: () => void signIn(hid) },
 			{ label: 'Stop daemon…', icon: power, click: () => void stopDaemon(hid) },
 		);
 	}
@@ -164,6 +165,36 @@ function drawHostMenu(hid: string, $h: any): void {
 	}
 	if (!items.length) return;
 	S.menuButton({ button: { icon: ellipsisVertical, ariaLabel: 'What else to do with this host', attrs: '.small .neutral' }, items });
+}
+
+async function signIn(hid: string): Promise<void> {
+	if (await cmd('login', { hid })) signInDialog(hid);
+}
+
+/**
+ * The sign-in page claude offers, and a field for the code it shows. Where
+ * the dashboard runs beside the browser, claude opens a tab of its own that
+ * needs no code; either way the dialog goes once the sign-in is over.
+ */
+function signInDialog(hid: string): void {
+	const $form = A.proxy({ code: '' });
+	void S.dialog({ header: 'Sign in to claude', attrs: 'w:32rem', content: close => {
+		A(() => { if (!$state.hosts?.[hid]?.signingIn) close(); });
+		S.form({
+			submit: () => { if ($form.code.trim()) void cmd('signInCode', { hid, code: $form.code }); },
+			content: () => {
+				A('p', () => {
+					const url = $state.hosts?.[hid]?.signinURL;
+					if (!url) return A('text=', 'Waiting for claude to offer its sign-in page…');
+					A('text=', 'Open ');
+					A('a target=_blank text="the sign-in page"', 'href=', url);
+					A('text=', ', authorise TPS there and paste the code it shows here. A tab claude opened itself finishes without one.');
+				});
+				S.textline({ label: 'Code', bind: A.ref($form, 'code') });
+			},
+			actions: () => S.button({ content: 'Sign in', icon: check, type: 'submit' }),
+		});
+	}});
 }
 
 async function stopDaemon(hid: string): Promise<void> {

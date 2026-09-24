@@ -220,8 +220,8 @@ func (p *Proxy) Serve(ctx context.Context, l net.Listener) error {
 }
 
 // watchOwner removes the siblings when the owner stops: they are meant to
-// live as long as its run, like processes in it. Volumes and networks stay,
-// for the next run to pick up.
+// live as long as its run, like processes in it. Their networks go with them
+// (see Clear); volumes stay, for the next run to pick up.
 func (p *Proxy) watchOwner(ctx context.Context) {
 	if insp, err := p.up.inspectContainer(ctx, p.cfg.Owner); err == nil && !insp.State.Running {
 		p.ownerStopped(ctx)
@@ -252,14 +252,21 @@ func (p *Proxy) ownerStopped(ctx context.Context) {
 	if insp, err := p.up.inspectContainer(ctx, p.cfg.Owner); err == nil && insp.State.Running {
 		return // back already
 	}
-	if err := p.RemoveContainers(ctx); err != nil {
-		p.logf("removing the siblings of a stopped owner: %v", err)
+	if err := p.Clear(ctx); err != nil {
+		p.logf("clearing up after a stopped owner: %v", err)
 	}
 }
 
-// RemoveContainers removes every sibling (and their forwarders); volumes and
-// networks stay.
-func (p *Proxy) RemoveContainers(ctx context.Context) error {
+// Clear removes every sibling (and their forwarders) and the networks made
+// for them: the owner's next run, a new container more often than not, is on
+// none of them, and a client asking for one again has it made, and the owner
+// joined to it. Volumes stay, and so does the owner's own network, which it
+// runs on.
+func (p *Proxy) Clear(ctx context.Context) error {
+	return errors.Join(p.removeContainers(ctx), p.removeNetworks(ctx, p.Network()))
+}
+
+func (p *Proxy) removeContainers(ctx context.Context) error {
 	p.stopForwarders()
 	list, err := p.up.listContainers(ctx, p.ownerLabel())
 	if err != nil {
@@ -292,16 +299,7 @@ func (p *Proxy) RemoveContainers(ctx context.Context) error {
 // Purge removes everything of the owner's: containers, networks and (when
 // asked) volumes. For when the owner is gone for good.
 func (p *Proxy) Purge(ctx context.Context, volumes bool) error {
-	errs := []error{p.RemoveContainers(ctx)}
-	var nets []networkInspect
-	if err := p.up.call(ctx, "GET", "/networks", url.Values{"filters": {labelFilter(p.ownerLabel())}}, nil, &nets); err != nil {
-		errs = append(errs, err)
-	}
-	for _, n := range nets {
-		if err := p.removeNetwork(ctx, n.Name); err != nil && !isNotFound(err) {
-			errs = append(errs, err)
-		}
-	}
+	errs := []error{p.removeContainers(ctx), p.removeNetworks(ctx, "")}
 	if volumes {
 		var vols struct{ Volumes []volumeInspect }
 		if err := p.up.call(ctx, "GET", "/volumes", url.Values{"filters": {labelFilter(p.ownerLabel())}}, nil, &vols); err != nil {
@@ -311,6 +309,24 @@ func (p *Proxy) Purge(ctx context.Context, volumes bool) error {
 			if err := p.up.call(ctx, "DELETE", "/volumes/"+url.PathEscape(v.Name), url.Values{"force": {"true"}}, nil, nil); err != nil && !isNotFound(err) {
 				errs = append(errs, err)
 			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// removeNetworks deletes the owner's networks, all but keep.
+func (p *Proxy) removeNetworks(ctx context.Context, keep string) error {
+	var nets []networkInspect
+	if err := p.up.call(ctx, "GET", "/networks", url.Values{"filters": {labelFilter(p.ownerLabel())}}, nil, &nets); err != nil {
+		return err
+	}
+	var errs []error
+	for _, n := range nets {
+		if n.Name == keep {
+			continue
+		}
+		if err := p.removeNetwork(ctx, n.Name); err != nil && !isNotFound(err) {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
