@@ -293,7 +293,7 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 	if out := gitRun(t, repo, "diff", "--cached", "--name-only"); out != "" {
 		t.Errorf("staged: %q", out)
 	}
-	if exists(filepath.Join(repo, ".git", "CHERRY_PICK_HEAD")) || exists(filepath.Join(repo, ".git", "MERGE_MSG")) || exists(task.patchFile()) {
+	if exists(filepath.Join(repo, ".git", "CHERRY_PICK_HEAD")) || exists(filepath.Join(repo, ".git", "MERGE_MSG")) {
 		t.Error("something is left in progress")
 	}
 	if len(task.info.Conflicts) != 1 || len(task.info.Pending) != 1 || task.info.Pending[0].Key != "conflicts" {
@@ -384,10 +384,10 @@ func TestMergeTakesItsMessageFromTheWorkspace(t *testing.T) {
 	}
 }
 
-// Closed without merging, a task keeps its work as a patch and its data
-// compressed, and nothing else; picked up again, the work goes onto the
-// branch as it is then, and the conversation is back as it was.
-func TestCloseKeepsAPatch(t *testing.T) {
+// Closed without merging, a task keeps its work as a bundle and its data
+// compressed, and nothing else; picked up again, the work is back as it was —
+// its commits, and what was uncommitted — and so is the conversation.
+func TestCloseKeepsABundle(t *testing.T) {
 	task, origin := testTask(t)
 	if err := task.ensureWorkspace(); err != nil {
 		t.Fatal(err)
@@ -395,22 +395,22 @@ func TestCloseKeepsAPatch(t *testing.T) {
 	task.note("before the close")
 	transcript(t, task, "s.jsonl", "what the agent remembers")
 	writeWork(t, task, "a.txt", "one task\n")
+	task.mark("Agent", "a save point")
+	step := gitRun(t, task.repoDir(), "rev-parse", stepsBranch)
+	base := gitRun(t, task.repoDir(), "rev-parse", "HEAD")
 	writeWork(t, task, "new.txt", "new\n")
 	if err := task.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if task.info.Phase != PhaseClosed || exists(task.repoDir()) {
-		t.Fatalf("phase %s, workspace left: %v", task.info.Phase, exists(task.repoDir()))
-	}
-	if !strings.HasPrefix(readFile(task.patchFile()), "base "+gitRun(t, origin, "rev-parse", "HEAD")+"\n") {
-		t.Error("the patch does not name its base")
+	if task.info.Phase != PhaseClosed || exists(task.repoDir()) || !exists(task.bundleFile()) {
+		t.Fatalf("phase %s, workspace left: %v, bundle: %v", task.info.Phase, exists(task.repoDir()), exists(task.bundleFile()))
 	}
 	if !exists(task.archiveFile()) || exists(task.chatFile()) || exists(task.agentDir(claudeCLI{})) {
 		t.Error("the data was not compressed")
 	}
 	changes, err := task.changes()
 	if err != nil || len(changes) != 2 {
-		t.Errorf("changes of the patch: %v, %v", changes, err)
+		t.Errorf("changes of the bundle: %v, %v", changes, err)
 	}
 	task.note("while closed") // beside the archive; kept
 	if entries := task.readChat(); len(entries) < 2 {
@@ -425,12 +425,19 @@ func TestCloseKeepsAPatch(t *testing.T) {
 		t.Errorf("phase: %s", task.info.Phase)
 	}
 	repo := task.repoDir()
-	for name, want := range map[string]string{"a.txt": "one task\n", "new.txt": "new\n", "b.txt": "two\n"} {
-		if got := readFile(filepath.Join(repo, name)); got != want {
-			t.Errorf("%s: %q", name, got)
-		}
+	if got := gitRun(t, repo, "rev-parse", "HEAD"); got != base {
+		t.Errorf("HEAD is %s, not the base %s", got, base)
 	}
-	if exists(task.patchFile()) || exists(task.archiveFile()) || !exists(task.chatFile()) || !exists(task.agentDir(claudeCLI{})) {
+	if !gitOK(repo, "merge-base", "--is-ancestor", step, stepsBranch) {
+		t.Error("the save point's step is not among the steps")
+	}
+	if got := gitRun(t, repo, "status", "--porcelain"); got != " M a.txt\n?? new.txt" {
+		t.Errorf("uncommitted: %q", got)
+	}
+	if exists(filepath.Join(repo, "b.txt")) {
+		t.Error("the work was moved onto the latest branch")
+	}
+	if exists(task.bundleFile()) || exists(task.archiveFile()) || !exists(task.chatFile()) || !exists(task.agentDir(claudeCLI{})) {
 		t.Error("the task's data did not come back out of the archive")
 	}
 	log := readFile(task.chatFile())
@@ -443,13 +450,45 @@ func TestCloseKeepsAPatch(t *testing.T) {
 	if err := task.Merge("closed, then merged"); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(filepath.Join(origin, "a.txt")); got != "one task\n" {
-		t.Errorf("a.txt on the branch: %q", got)
+	for name, want := range map[string]string{"a.txt": "one task\n", "new.txt": "new\n", "b.txt": "two\n"} {
+		if got := readFile(filepath.Join(origin, name)); got != want {
+			t.Errorf("%s on the branch: %q", name, got)
+		}
+	}
+}
+
+// Muting parks a task like closing does, and moving it on brings it back.
+func TestMuteParks(t *testing.T) {
+	task, _ := testTask(t)
+	task.info.Phase = PhaseHuman
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "a.txt", "one task\n")
+	if err := task.MoveTo(PhaseMuted); err != nil {
+		t.Fatal(err)
+	}
+	if task.info.Phase != PhaseMuted || exists(task.repoDir()) || !exists(task.bundleFile()) {
+		t.Fatal("the muted task was not parked")
+	}
+	for _, phase := range []Phase{PhaseClosed, PhaseMuted} { // parked either way, and not picked up in between
+		if err := task.MoveTo(phase); err != nil {
+			t.Fatal(err)
+		}
+		if task.info.Phase != phase || exists(task.repoDir()) || !exists(task.bundleFile()) {
+			t.Fatalf("%s: not parked", phase)
+		}
+	}
+	if err := task.MoveTo(PhaseHuman); err != nil {
+		t.Fatal(err)
+	}
+	if task.info.Phase != PhaseHuman || readFile(filepath.Join(task.repoDir(), "a.txt")) != "one task\n" {
+		t.Errorf("phase %s, a.txt %q", task.info.Phase, readFile(filepath.Join(task.repoDir(), "a.txt")))
 	}
 }
 
 // A closed task an older TPS left with its workspace in place is parked at
-// startup: its work becomes the patch, the workspace goes.
+// startup: its work becomes the bundle, the workspace goes.
 func TestParkAtStartup(t *testing.T) {
 	task, _ := testTask(t)
 	if err := task.ensureWorkspace(); err != nil {
@@ -457,11 +496,11 @@ func TestParkAtStartup(t *testing.T) {
 	}
 	writeWork(t, task, "a.txt", "one task\n")
 	task.info.Phase = PhaseClosed
-	task.p.m.parkFinished()
-	if exists(task.repoDir()) || !exists(task.patchFile()) || !exists(task.archiveFile()) {
+	task.p.m.parkAll()
+	if exists(task.repoDir()) || !exists(task.bundleFile()) || !exists(task.archiveFile()) {
 		t.Error("the closed task was not parked")
 	}
-	task.p.m.parkFinished() // nothing more to do
+	task.p.m.parkAll() // nothing more to do
 	if err := task.reopen(); err != nil {
 		t.Fatal(err)
 	}

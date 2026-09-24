@@ -32,8 +32,8 @@ ones, VS Code and forwarded ports included. The heavy lifting happens on the
 big desktop while you steer from the laptop.
 
 **Merges that land themselves.** A task becomes one commit on the default
-branch, with a merge message proposed by the agent. If the branch moved on, the work
-is put on top of it first, as a patch, and a conflict is handed to the task's agent
+branch, with a merge message proposed by the agent. If the branch moved on, it is
+merged into the work first, and a conflict is handed to the task's agent
 to resolve. Tasks can also be configured to merge as soon as the agent is done,
 or as soon as a review of its work accepts it.
 
@@ -72,9 +72,9 @@ message later and the agent continues in a new clone, knowing what it did the
 first time.
 
 **Finished tasks weigh little.** A task that is done keeps its conversation
-compressed, and one closed without merging keeps its work as a patch rather
-than a checkout; picking it up again puts the work onto the branch as it is
-then, conflicts marked in the files.
+compressed, and one closed without merging — or muted, put away for later —
+keeps its work as a git bundle of its commits rather than a checkout; picking
+it up again puts the work back exactly as it was, save points and all.
 
 **It keeps going.** The remote daemons continue work while your laptop sleeps.
 It will drive agents forward, do auto-merges, initiate tasks queued with

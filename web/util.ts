@@ -10,7 +10,7 @@ import { $state, send } from './conn.ts';
  * before it is handed on. Muted, shown as Started, is Human with the task put
  * away: its work and conversation are kept, but it sits atop the Plan column,
  * out of the sidebar. Closed is Done without the merge: the task is over, but
- * its work is kept as a patch rather than landing on the branch.
+ * its work is kept rather than landing on the branch.
  */
 export const PHASES = ['plan', 'agent', 'review', 'human', 'muted', 'merge', 'done', 'closed'] as const;
 export type Phase = typeof PHASES[number];
@@ -229,7 +229,7 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 
 /** Where the task stands, in one line: its phase, whether claude is on it, and what its workspace is doing. */
 export function taskTip(pid: string, $t: any): string {
-	const phase = $t.phase === 'muted' ? 'Started: this task still has its workspace and conversation. Open it to carry on where it was left.'
+	const phase = $t.phase === 'muted' ? 'Started: its work and conversation are kept. Open it to carry on where it was left.'
 		: $t.phase === 'closed' ? 'Not merged: this task was finished without merging. Its work is kept, off the branch, and comes back if the task is picked up again.'
 		: PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 	return `${phase}${$t.working ? ', the agent is working' : ''} · ${taskActivity(pid, $t).text}`;

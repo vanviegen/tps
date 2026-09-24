@@ -25,11 +25,11 @@ const (
 	PhasePlan   Phase = "plan"
 	PhaseAgent  Phase = "agent"
 	PhaseHuman  Phase = "human"
-	PhaseMuted  Phase = "muted"  // waiting for a human too, but parked: out of the sidebar and at the top of the Plan column
+	PhaseMuted  Phase = "muted"  // waiting for a human too, but put away: out of the sidebar, at the top of the Plan column, and parked like a closed task
 	PhaseReview Phase = "review" // a second agent is reading the work over before it is handed on (see review.go)
 	PhaseMerge  Phase = "merge"  // TPS is merging: replaying the work onto the branch, or an agent resolving conflicts in it
 	PhaseDone   Phase = "done"   // merged: its work is on the branch and its workspace is gone
-	PhaseClosed Phase = "closed" // closed without merging: its work is kept as a patch, off the branch, and its workspace is gone
+	PhaseClosed Phase = "closed" // closed without merging: its work is kept as a bundle, off the branch, and its workspace is gone
 )
 
 var phases = []Phase{PhasePlan, PhaseAgent, PhaseReview, PhaseHuman, PhaseMuted, PhaseMerge, PhaseDone, PhaseClosed}
@@ -147,8 +147,8 @@ type flight[T any] struct {
 // modified in place), created when the task leaves the plan phase and kept
 // until the task finishes or is discarded back to plan. A sibling dir holds
 // the claude conversation state, another file the condensed chat log; a
-// finished task has those compressed into one archive, and a closed one its
-// work as a patch beside it (see park).
+// parked task has those compressed into one archive, and one closed or muted
+// its work as a bundle beside it (see park).
 //
 // Methods with an L suffix expect the manager lock to be held; the others
 // take it themselves and never hold it across I/O.
@@ -168,9 +168,10 @@ type Task struct {
 	codeError    string
 	live         map[int]portProbe // by container port: what answers there (see checkLive)
 	checkingLive bool
-	refreshing   bool // a changes overview is being computed
-	autoStarting bool // an auto-start is under way, so it isn't started twice
-	behind       int  // commits on the default branch the workspace doesn't have yet (see refreshBehind)
+	refreshing   bool     // a changes overview is being computed
+	bundled      []change // what the bundle beside a parked task changes, once read (see bundleChanges); cloneMu guards it
+	autoStarting bool     // an auto-start is under way, so it isn't started twice
+	behind       int      // commits on the default branch the workspace doesn't have yet (see refreshBehind)
 
 	session       Session
 	sessionFlight *flight[Session]
@@ -198,7 +199,7 @@ func (t *Task) key() string           { return t.p.pid + "/" + t.tid }
 func (t *Task) dir() string           { return filepath.Join(t.p.tasksDir(), t.tid) }
 func (t *Task) repoDir() string       { return filepath.Join(t.dir(), "repo") }
 func (t *Task) chatFile() string      { return filepath.Join(t.dir(), "chat.jsonl") }
-func (t *Task) patchFile() string     { return filepath.Join(t.dir(), "work.patch") }
+func (t *Task) bundleFile() string    { return filepath.Join(t.dir(), "work.bundle") }
 func (t *Task) archiveFile() string   { return filepath.Join(t.dir(), "archive.tar.gz") }
 func (t *Task) containerName() string { return "tps-" + t.p.pid + "-" + t.tid }
 func (t *Task) workingL() bool        { return t.session != nil && t.session.TurnActive() }
@@ -1028,6 +1029,13 @@ func (t *Task) MoveTo(phase Phase) error {
 	if !valid || phase == current {
 		return nil
 	}
+	// A muted task is parked: going anywhere it is worked on brings its
+	// workspace back first.
+	if current == PhaseMuted && phase != PhasePlan && phase != PhaseClosed {
+		if err := t.reopen(); err != nil {
+			return err
+		}
+	}
 	switch phase {
 	case PhasePlan:
 		return t.Discard()
@@ -1040,17 +1048,19 @@ func (t *Task) MoveTo(phase Phase) error {
 		return t.StartReview()
 	case PhaseHuman, PhaseMuted:
 		// Both wait for a human; muting is that with the task put away. Getting
-		// there is the same work either way, and only the phase set at the end
-		// differs — a task coming from Plan or a closed one has a workspace
-		// made first.
+		// there is the same work either way — a task coming from Plan or a
+		// closed one has a workspace made first — and a muted one is parked at
+		// the end.
 		switch current {
 		case PhasePlan:
 			if err := t.Assign("human"); err != nil {
 				return err
 			}
-		case PhaseDone, PhaseClosed:
-			if err := t.reopen(); err != nil {
-				return err
+		case PhaseDone, PhaseClosed: // muted, it stays parked as it is
+			if phase == PhaseHuman {
+				if err := t.reopen(); err != nil {
+					return err
+				}
 			}
 		case PhaseAgent, PhaseReview, PhaseMerge:
 			if err := t.StopAgent(); err != nil {
@@ -1058,9 +1068,12 @@ func (t *Task) MoveTo(phase Phase) error {
 			}
 		}
 		t.lock()
-		defer t.unlock()
 		if t.info.Phase != phase {
 			t.setPhaseL(phase)
+		}
+		t.unlock()
+		if phase == PhaseMuted {
+			t.park()
 		}
 		return nil
 	case PhaseClosed:
@@ -1070,7 +1083,7 @@ func (t *Task) MoveTo(phase Phase) error {
 	}
 }
 
-// Close puts a task away without merging it: its work is kept as a patch,
+// Close puts a task away without merging it: its work is kept as a bundle,
 // off the default branch (see park), and comes back when the task is picked
 // up again — or is thrown out with the task. The dashboard offers this
 // beside merging, and recommends merging.
@@ -1244,17 +1257,14 @@ func (t *Task) Rebase() error {
 	return nil
 }
 
-// --- the work as a patch ---
+// --- the work, and the latest branch ---
 //
 // A task's work is what its tree differs from its base in: the commit of the
 // branch its steps last took in, uncommitted changes and untracked files
 // included. It is brought up to date by merging the latest branch into its
-// steps (replant). Taken off as a patch, it can be put back on top of any later
-// commit the same way — by making a commit of it on its base, and merging the
-// branch into that — which is how a closed task, which keeps nothing but the
-// patch, gets a workspace back (ensureWorkspace). No git operation stays in
-// progress afterwards: conflicts are markers in the files, and the work is
-// uncommitted on top of the branch again, whatever the outcome.
+// steps (replant). No git operation stays in progress afterwards: conflicts
+// are markers in the files, and the work is uncommitted on top of the branch
+// again, whatever the outcome.
 
 // tmpIndex is a place for a throwaway index, so the real one stays untouched;
 // the environment makes git use it (and make it: git wants none or a whole one).
@@ -1297,61 +1307,16 @@ func (t *Task) base(repo, of string) (string, error) {
 	return git(repo, "merge-base", of, "origin/"+t.p.defaultBranch)
 }
 
-// savePatch writes the tree's work since base to the patch file, headed by the
-// commit it is against (git skips the line). No work, no patch.
-func (t *Task) savePatch(repo, base string) error {
-	env, cleanup, err := t.stageAll(repo)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--binary", "--full-index", "--no-renames", base}, RunOpts{Env: env})
-	if err != nil {
-		return err
-	}
-	if r.Out == "" {
-		os.Remove(t.patchFile())
-		return nil
-	}
-	return os.WriteFile(t.patchFile(), []byte("base "+base+"\n\n"+r.Out), 0o644)
-}
-
-// workCommit makes a commit of the patch's work on top of its base, in the
-// clone's object store — the patch applied to the base's tree in an index of
-// its own, never the working tree — for plant to merge the branch into.
-func (t *Task) workCommit(repo string) (string, error) {
-	head, _, _ := strings.Cut(readFile(t.patchFile()), "\n")
-	base, ok := strings.CutPrefix(head, "base ")
-	if !ok {
-		return "", errors.New("the patch names no base commit")
-	}
-	env, cleanup, err := t.tmpIndex()
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	for _, args := range [][]string{{"read-tree", base}, {"apply", "--cached", "--binary", t.patchFile()}} {
-		if _, err := runCmd(append([]string{"git", "-C", repo}, args...), RunOpts{Env: env}); err != nil {
-			return "", err
-		}
-	}
-	r, err := runCmd([]string{"git", "-C", repo, "write-tree"}, RunOpts{Env: env})
-	if err != nil {
-		return "", err
-	}
-	return git(repo, "commit-tree", strings.TrimSpace(r.Out), "-p", base, "-m", "TPS task work")
-}
-
-// plant merges the latest default branch into a commit of the task's work, in
-// the working tree — which holds nothing that commit does not — and leaves the
-// result there as uncommitted work on the branch's tip: nothing staged, no
-// merge in progress. What did not merge cleanly is remembered in Conflicts
-// and returned: files left with conflict markers, or — deleted on one side
-// and changed on the other — as the side that changed them had them. A merge
-// that never started leaves HEAD where it was.
-func (t *Task) plant(repo, work string) ([]string, error) {
+// plant merges the latest default branch into the last step, in the working
+// tree — which holds nothing that step does not — and leaves the result there
+// as uncommitted work on the branch's tip: nothing staged, no merge in
+// progress. What did not merge cleanly is remembered in Conflicts and
+// returned: files left with conflict markers, or — deleted on one side and
+// changed on the other — as the side that changed them had them. A merge that
+// never started leaves HEAD where it was.
+func (t *Task) plant(repo string) ([]string, error) {
 	branch := t.p.defaultBranch
-	if _, err := git(repo, "checkout", "--quiet", "--force", "--detach", work); err != nil {
+	if _, err := git(repo, "checkout", "--quiet", "--force", "--detach", stepsBranch); err != nil {
 		return nil, err
 	}
 	var conflicts []string
@@ -1397,24 +1362,7 @@ func (t *Task) replant(repo string) ([]string, error) {
 	if base, _ := t.base(repo, "HEAD"); base == target {
 		return nil, nil // the branch has nothing this workspace lacks
 	}
-	return t.plant(repo, stepsBranch)
-}
-
-// plantPatch puts the patch file's work onto the workspace and removes it: a
-// patch beside a workspace is work the workspace lacks (see ensureWorkspace).
-func (t *Task) plantPatch(repo string) ([]string, error) {
-	if !exists(t.patchFile()) {
-		return nil, nil
-	}
-	work, err := t.workCommit(repo)
-	if err != nil {
-		return nil, err
-	}
-	conflicts, err := t.plant(repo, work)
-	if err != nil {
-		return nil, err
-	}
-	return conflicts, os.Remove(t.patchFile())
+	return t.plant(repo)
 }
 
 // setConflictsL records what the last replay could not merge, for the
@@ -1451,9 +1399,90 @@ func (t *Task) markedFiles(repo string) ([]string, error) {
 	return strings.Split(strings.TrimSuffix(r.Out, "\x00"), "\x00"), nil
 }
 
-// --- finished tasks: parked, and picked up again ---
+// --- the work as a bundle ---
+//
+// A parked task keeps its work as a git bundle of its steps: the commits of
+// stepsBranch that the branch it grew from does not have, the tree as it was
+// left being made a step first. Only those commits are in it; the rest of
+// their history is the project repo's, which every clone starts from, so
+// fetching the bundle into a fresh clone makes the steps again, commit for
+// commit — the ones save points name included (see revert).
 
-// archived is what a finished task keeps besides its patch, compressed into
+// workRef is the ref a bundle holds its work under: git bundles refs, not
+// commits.
+const workRef = "refs/tps/work"
+
+// saveBundle writes the steps up to tip, from its base on, to file — or
+// removes the file when there are none.
+func (t *Task) saveBundle(repo, tip, file string) error {
+	base, err := t.base(repo, tip)
+	if err != nil {
+		return err
+	}
+	if tip == base {
+		os.Remove(file)
+		return nil
+	}
+	if _, err := git(repo, "update-ref", workRef, tip); err != nil {
+		return err
+	}
+	defer git(repo, "update-ref", "-d", workRef)
+	_, err = git(repo, "bundle", "create", "--quiet", file, workRef, "^"+base)
+	return err
+}
+
+// unbundle puts the bundle's steps into the workspace, the tree at the last
+// of them (see checkoutStep), and removes the bundle.
+func (t *Task) unbundle(repo string) error {
+	if _, err := git(repo, "fetch", "--quiet", t.bundleFile(), workRef); err != nil {
+		return err
+	}
+	tip, err := git(repo, "rev-parse", "FETCH_HEAD")
+	if err != nil {
+		return err
+	}
+	if err := t.checkoutStep(repo, tip); err != nil {
+		return err
+	}
+	t.bundled = nil
+	return os.Remove(t.bundleFile())
+}
+
+// bundleChanges lists what a parked task's bundle changes, read in a scratch
+// clone that borrows the project repo's objects: once, the bundle staying as
+// it is for as long as the task is parked. The caller holds cloneMu.
+func (t *Task) bundleChanges() ([]change, error) {
+	if t.bundled != nil {
+		return t.bundled, nil
+	}
+	tmp, err := os.MkdirTemp("", "tps-bundle-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	for _, args := range [][]string{
+		{"clone", "--quiet", "--bare", "--shared", t.p.dir(), tmp},
+		{"-C", tmp, "fetch", "--quiet", t.bundleFile(), workRef},
+	} {
+		if _, err := runCmd(append([]string{"git"}, args...), RunOpts{}); err != nil {
+			return nil, err
+		}
+	}
+	base, err := git(tmp, "merge-base", "FETCH_HEAD", t.p.defaultBranch)
+	if err != nil {
+		return nil, err
+	}
+	r, err := runCmd([]string{"git", "-C", tmp, "diff", "--numstat", "--no-renames", "-z", base, "FETCH_HEAD"}, RunOpts{})
+	if err != nil {
+		return nil, err
+	}
+	t.bundled = parseNumstat(r.Out)
+	return t.bundled, nil
+}
+
+// --- parked tasks: put away, and picked up again ---
+
+// archived is what a parked task keeps besides its bundle, compressed into
 // one archive: what its agents remember, the chat log, the files the user
 // attached, and the services' last output.
 var archived = archivedNames()
@@ -1466,39 +1495,42 @@ func archivedNames() []string {
 	return names
 }
 
-// park puts a finished task's data away, so that a task nobody looks at costs
-// as little disk as it can: the workspace goes — with its work kept as a
-// patch if the task was closed without merging; a merged one's is on the
-// branch — and what the task keeps is compressed (see archived). Picking the
-// task up undoes it (see ensureWorkspace). Done when a task finishes, and at
-// startup for those an older TPS left as they were.
+// park puts a finished or muted task's data away, so that a task nobody looks
+// at costs as little disk as it can: the workspace goes — with its work kept
+// as a bundle, unless the task was merged and its work is on the branch — and
+// what the task keeps is compressed (see archived). Picking the task up
+// undoes it (see ensureWorkspace). Done when a task finishes or is muted, and
+// at startup for those an older TPS left as they were.
 func (t *Task) park() {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
 	t.lock()
-	finished, closed := t.finishedL(), t.info.Phase == PhaseClosed
+	phase := t.info.Phase
 	t.unlock()
-	if !finished {
+	if phase != PhaseDone && phase != PhaseClosed && phase != PhaseMuted {
 		return
 	}
 	if t.hasWorkspace() {
-		if closed {
+		if phase != PhaseDone {
 			repo := t.repoDir()
 			_, err := git(repo, "fetch", "--quiet", "origin")
-			var base string
+			var tip string
 			if err == nil {
-				base, err = t.base(repo, "HEAD")
+				err = t.mark("Human", "") // the tree as it is left is a point to come back to
 			}
 			if err == nil {
-				err = t.savePatch(repo, base)
+				tip, err = lastStep(repo)
+			}
+			if err == nil {
+				err = t.saveBundle(repo, tip, t.bundleFile())
 			}
 			if err != nil {
-				t.noteErr("keeping the work as a patch failed", err) // the workspace stays: it is all there is of the work
+				t.noteErr("keeping the work as a bundle failed", err) // the workspace stays: it is all there is of the work
 				return
 			}
-			if exists(t.patchFile()) {
-				t.note(fmt.Sprintf("closed without merging: the work is kept as a patch, off %[1]s; picking the task up applies it onto the latest %[1]s", t.p.defaultBranch))
-			} else {
+			if phase == PhaseClosed && exists(t.bundleFile()) {
+				t.note(fmt.Sprintf("closed without merging: the work is kept, off %s, and comes back as it was when the task is picked up", t.p.defaultBranch))
+			} else if phase == PhaseClosed {
 				t.note("closed without merging; there was no work to keep")
 			}
 		}
@@ -1509,7 +1541,7 @@ func (t *Task) park() {
 	if err := t.archive(); err != nil {
 		logf("%s: compressing the task's data: %v", t.key(), err)
 	}
-	go t.refreshChanges() // the patch, from here on
+	go t.refreshChanges() // the bundle's, from here on
 }
 
 // archive compresses what a finished task keeps (see archived) into one
@@ -1573,11 +1605,9 @@ func (t *Task) unarchive() error {
 }
 
 // ensureWorkspace gives the task a workspace with its work in it, if it has
-// none: a finished task's data comes out of its archive, the branch is cloned
-// afresh, and the patch a closed task kept goes on top — onto the branch as it
-// is now, so the work meets what landed since (see plant). A task that has a
-// workspace already is left alone, except for a patch waiting beside it (a
-// replay the daemon died in the middle of), which is planted.
+// none: a parked task's data comes out of its archive, the branch is cloned
+// afresh, and the bundle a closed or muted task kept puts its work back as it
+// was (see unbundle).
 func (t *Task) ensureWorkspace() error {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
@@ -1587,20 +1617,13 @@ func (t *Task) ensureWorkspace() error {
 	if err := t.clone(); err != nil {
 		return err
 	}
-	if !exists(t.patchFile()) {
-		return nil
+	if exists(t.bundleFile()) {
+		if err := t.unbundle(t.repoDir()); err != nil {
+			return err
+		}
+		t.note("the task's work was put back as it was, save points and all")
+		t.queue("reopened", reopenedPrompt(t.p.defaultBranch))
 	}
-	branch := t.p.defaultBranch
-	conflicts, err := t.plantPatch(t.repoDir())
-	if err != nil {
-		return err
-	}
-	if len(conflicts) > 0 {
-		t.note(fmt.Sprintf("the task's work was applied onto the latest %s; conflicts in %s are left to resolve", branch, strings.Join(conflicts, ", ")))
-	} else {
-		t.note("the task's work was applied onto the latest " + branch + " ✔")
-	}
-	t.queue("reopened", reopenedPrompt(branch))
 	return nil
 }
 
@@ -1685,7 +1708,7 @@ func (t *Task) Discard() error {
 	t.down()
 	nestPurge(t.containerName(), nestDir(t.dir()))
 	_ = rmContainer(t.containerName()) // also one the daemon never knew about
-	t.cloneMu.Lock() // see refreshChanges
+	t.cloneMu.Lock()                   // see refreshChanges
 	if err := rmTree(t.dir()); err != nil {
 		logf("%s: discarding the workspace: %v", t.key(), err)
 	}
@@ -1736,19 +1759,15 @@ type change struct {
 }
 
 // changes lists what the working tree changed since the commit the task
-// started from, untracked files included (see stageAll) — or, for a closed
-// task, what its patch holds.
+// started from, untracked files included (see stageAll) — or, for a parked
+// task, what its bundle holds.
 func (t *Task) changes() ([]change, error) {
 	repo := t.repoDir()
 	if !t.hasWorkspace() {
-		if !exists(t.patchFile()) {
+		if !exists(t.bundleFile()) {
 			return nil, nil
 		}
-		r, err := runCmd([]string{"git", "apply", "--numstat", "-z", t.patchFile()}, RunOpts{Dir: t.p.dir()})
-		if err != nil {
-			return nil, err
-		}
-		return parseNumstat(r.Out), nil
+		return t.bundleChanges()
 	}
 	base, err := t.base(repo, "HEAD")
 	if err != nil {

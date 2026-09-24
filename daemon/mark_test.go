@@ -169,7 +169,8 @@ func TestRevert(t *testing.T) {
 	}
 }
 
-// Forking leaves the original alone and gives the copy the work as one commit.
+// Forking leaves the original alone and gives the copy the work up to the
+// point, commits and all.
 func TestForkFull(t *testing.T) {
 	task, _ := markTask(t)
 	task.info.Title = "Do the thing"
@@ -178,6 +179,7 @@ func TestForkFull(t *testing.T) {
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "forked from here\n")
 	task.mark("Agent", "did the thing")
 	id := lastMark(t, task)
+	point := gitRun(t, task.repoDir(), "rev-parse", stepsBranch)
 	// Work after the point, which the fork must not have.
 	write(t, filepath.Join(task.repoDir(), "c.txt"), "later\n")
 
@@ -203,6 +205,9 @@ func TestForkFull(t *testing.T) {
 	}
 	if dirty, _ := fork.dirtyTree(fork.repoDir()); dirty {
 		t.Error("the fork's work was not committed")
+	}
+	if steps := gitRun(t, fork.repoDir(), "rev-parse", stepsBranch); steps != point {
+		t.Errorf("the fork's steps end at %s, not the point's %s", steps, point)
 	}
 	if !fork.info.Started {
 		t.Error("the fork does not carry the conversation on")

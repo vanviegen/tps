@@ -212,6 +212,21 @@ func (t *Task) step(repo, message string) (string, bool, error) {
 	return head, made, err
 }
 
+// checkoutStep puts the working tree and the steps at a step, and HEAD and
+// the index at its base, so that the step is uncommitted work again.
+func (t *Task) checkoutStep(repo, step string) error {
+	base, err := t.base(repo, step)
+	if err != nil {
+		return err
+	}
+	for _, args := range [][]string{{"reset", "--quiet", "--hard", step}, {"clean", "--quiet", "-fd"}, {"update-ref", "refs/heads/" + stepsBranch, step}, {"reset", "--quiet", base}} {
+		if _, err := git(repo, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // markSummary is how long a one-line summary of a run may be: a commit subject.
 const markSummary = 200
 
@@ -325,7 +340,7 @@ func (t *Task) UsePoint(id string, use Use) (tid, draft string, err error) {
 		return "", "", errors.New("This task has no workspace to work from; pick it up first")
 	}
 	// A finished task keeps its conversation compressed; this reads from the
-	// files, and the task is parked again by itself (see parkFinished).
+	// files, and the task is parked again by itself (see parkAll).
 	if err := t.unarchive(); err != nil {
 		return "", "", err
 	}
@@ -351,7 +366,7 @@ func (t *Task) UsePoint(id string, use Use) (tid, draft string, err error) {
 // the step it holds and HEAD to that step's base, the agent's memory to the
 // length it had, and the log to the entry itself — whichever of those was
 // asked for. What it undoes is gone: this is the dashboard's one destructive
-// action that no patch or archive keeps a copy of.
+// action that no bundle or archive keeps a copy of.
 //
 // The workspace is moved rather than made anew, so what is in it but not in
 // git — an ignored build directory, installed dependencies — is still there
@@ -361,15 +376,8 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 	// truncation, and would keep the memory this is undoing besides.
 	t.stopAgent()
 	if use.Work {
-		repo, step := t.repoDir(), point.Mark.Commit
-		base, err := t.base(repo, step)
-		if err != nil {
+		if err := t.checkoutStep(t.repoDir(), point.Mark.Commit); err != nil {
 			return err
-		}
-		for _, args := range [][]string{{"reset", "--quiet", "--hard", step}, {"clean", "--quiet", "-fd"}, {"update-ref", "refs/heads/" + stepsBranch, step}, {"reset", "--quiet", base}} {
-			if _, err := git(repo, args...); err != nil {
-				return err
-			}
 		}
 	}
 	if use.Chat {
@@ -471,19 +479,26 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	if err := os.MkdirAll(f.dir(), 0o755); err != nil {
 		return f.tid, err
 	}
-	// The work first, as a patch beside the fork's task dir: making the
-	// workspace plants it onto the branch as it is now, the way picking a
-	// closed task back up does (see ensureWorkspace). The tree left alone is
-	// this task's as it stands, the point's step being what rewinding it means.
-	of, work := mark.Commit, mark.Commit
+	// The work first, as a bundle beside the fork's task dir: making the
+	// workspace puts its steps back (see ensureWorkspace), so the save points
+	// the fork's log keeps are ones it can go back to. The tree left alone is
+	// this task's as it stands, made a step of the fork's own on top of the
+	// last one; the point's step is what rewinding it means.
+	repo, tip := t.repoDir(), mark.Commit
 	if !use.Work {
-		tree, err := t.writeTree(t.repoDir())
+		tree, err := t.writeTree(repo)
 		if err != nil {
 			return f.tid, err
 		}
-		of, work = "HEAD", tree
+		last, err := lastStep(repo)
+		if err != nil {
+			return f.tid, err
+		}
+		if tip, err = git(repo, "commit-tree", tree, "-p", last, "-m", "Human"); err != nil {
+			return f.tid, err
+		}
 	}
-	if err := t.forkPatch(f, of, work); err != nil {
+	if err := t.saveBundle(repo, tip, f.bundleFile()); err != nil {
 		return f.tid, err
 	}
 	// The log the fork opens on, and what the user attached, which it refers to
@@ -514,16 +529,9 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	if err := f.ensureWorkspace(); err != nil {
 		return f.tid, err
 	}
-	// One step of the work, as the fork's starting point, under the message
-	// the work came with.
-	if f.hasWorkspace() {
-		if _, _, err := f.step(f.repoDir(), cmp.Or(f.commitMessage(), title)); err != nil {
-			return f.tid, err
-		}
-	}
 	f.lock()
-	// Planting the patch left the note a closed task gets when it is picked
-	// back up; this is a fork, and what it is comes from pointPrompt instead.
+	// Unbundling left the note a parked task gets when it is picked back up;
+	// this is a fork, and what it is comes from pointPrompt instead.
 	f.dropPendingL("reopened")
 	if use.explains() {
 		f.queueL("point", pointPrompt(use))
@@ -533,27 +541,6 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	t.note(fmt.Sprintf("forked from this point into %q", title))
 	go f.refreshChanges()
 	return f.tid, nil
-}
-
-// forkPatch writes work as the fork's patch — a step, or a tree of the
-// workspace as it stands — against the base of the commit named by `of`, in
-// the format ensureWorkspace plants (see savePatch).
-func (t *Task) forkPatch(f *Task, of, work string) error {
-	repo := t.repoDir()
-	base, err := t.base(repo, of)
-	if err != nil {
-		return err
-	}
-	// Not through git(), which trims: a patch is bytes, and git apply wants
-	// the last line ended.
-	r, err := runCmd([]string{"git", "-C", repo, "diff", "--binary", "--full-index", "--no-renames", base, work}, RunOpts{})
-	if err != nil {
-		return err
-	}
-	if r.Out == "" {
-		return nil
-	}
-	return os.WriteFile(f.patchFile(), []byte("base "+base+"\n\n"+r.Out), 0o644)
 }
 
 // copyTree copies a directory, if it is there at all.

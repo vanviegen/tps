@@ -338,16 +338,15 @@ Your work is all there, uncommitted as before, but the files around it may have 
 so re-read what you are about to rely on rather than trusting your notes on it.`, branch)
 }
 
-// reopenedPrompt tells the agent that the task it works on was closed without
-// merging, and picked back up: its work went onto a fresh clone.
+// reopenedPrompt tells the agent that the task it works on was put away and
+// picked back up: its work came back in a fresh clone.
 func reopenedPrompt(branch string) string {
-	return fmt.Sprintf(`This task was closed without merging since your last turn, and has now been picked back
-up. /work is a new clone of the latest '%[1]s' with the task's work put back on top of it,
-uncommitted: everything the old workspace differed from the branch in, untracked files
+	return fmt.Sprintf(`This task was put away since your last turn, and has now been picked back up. /work is a
+new clone with the task's work put back exactly as it was: the same steps on 'tps-steps',
+and the work uncommitted on top of the same commit of '%[1]s' it grew from, untracked files
 included. The old workspace itself is gone, with anything only it had — ignored files such
 as build output or dependencies, and tools installed by hand rather than through
-Containerfile.dev — and '%[1]s' may have moved on meanwhile, so re-read what you are about
-to rely on. Everything you know about the task itself still holds.`, branch)
+Containerfile.dev. Everything you know about the task itself still holds.`, branch)
 }
 
 // conflictsPrompt names the files a replay onto the branch could not merge

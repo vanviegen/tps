@@ -238,7 +238,7 @@ func (m *Manager) Start() error {
 	}
 	m.hub.Set([]string{"ready"}, true)
 	m.publishLogin()
-	go m.parkFinished()
+	go m.parkAll()
 	go m.refreshModels()
 	go m.ticker(60*time.Second, m.refreshModels) // until the CLIs answer
 	go m.ticker(60*time.Second, m.sweep)
@@ -489,9 +489,9 @@ func (m *Manager) allTasksL() []*Task {
 	return out
 }
 
-// parkFinished puts away the finished tasks an older TPS left with their
+// parkAll puts away the finished and muted tasks an older TPS left with their
 // workspace in place or their data uncompressed (see park), one at a time.
-func (m *Manager) parkFinished() {
+func (m *Manager) parkAll() {
 	m.mu.Lock()
 	tasks := m.allTasksL()
 	m.mu.Unlock()
