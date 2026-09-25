@@ -130,7 +130,8 @@ function drawHeader(collapsed: boolean): void {
  * One host: its label, leading to its page, and under it the block of its
  * projects. A host that wants something now (a password, a host key, a
  * connection to make) says so above them, in a word or two of its ink that do
- * it; the tooltip, and the host's page, spell out what it is.
+ * it; the tooltip, and the host's page, spell out what it is. Until it is
+ * connected there are no projects to show, so what it is doing takes their place.
  */
 function drawHost(hid: string, $h: any): void {
 	A('div.tps-host', () => {
@@ -148,12 +149,12 @@ function drawHost(hid: string, $h: any): void {
 				() => (folded ? chevronRight : chevronDown)({ size: '1.2em' }));
 		});
 		if (folded) return;
-		if (state.color === 'warning' || state.color === 'danger') {
+		if (state.color === 'warning' || state.color === 'danger' || $h.status !== 'connected') {
 			A(`a.tps-row.tps-hostissue fg:${hostInk(state.color)}`, () => {
 				if (state.action) A('click=', state.action.run);
 				else A('href=', hostPath(hid));
 				S.addTooltip({ tip: state.text, placement: 'right' });
-				A('span.tps-clip text=', state.action?.label ?? 'Needs attention');
+				A('span.tps-clip text=', state.action?.label ?? (state.color === 'neutral' ? state.text : 'Needs attention'));
 			});
 		}
 		A('div.tps-tiles', () => {

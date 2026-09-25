@@ -104,7 +104,8 @@ export function drawHostPage(hid: string): void {
 		S.box({ header: 'Projects', attrs: 'mt:0', contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
 			A(() => {
 				const projects = projectsOn(hid);
-				if (!projects.length) A('p m:0 fg:$s-muted rich=', 'No projects here yet. A project is a directory holding a git repository on this host: *Add project* picks one, and its board starts out empty.');
+				if ($state.hosts?.[hid]?.status !== 'connected') A('p m:0 fg:$s-muted #Its projects are listed once it is connected.');
+				else if (!projects.length) A('p m:0 fg:$s-muted rich=', 'No projects here yet. A project is a directory holding a git repository on this host: *Add project* picks one, and its board starts out empty.');
 				for (const [pid, $p] of projects) drawProjectRow(pid, $p);
 			});
 		}});
