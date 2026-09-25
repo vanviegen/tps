@@ -63,9 +63,9 @@ function statusIcon(s: Service): S.MenuItem['icon'] {
 }
 
 /**
- * The services as menu rows — the play button's menu, and the top of the task
- * menu: a line per service, its icon telling its status, a click opening its
- * console — and starting one that is not started.
+ * The services as menu rows — the play button's menu, and the bottom of the
+ * task menu: a line per service, its icon telling its status, a click opening
+ * its console — and starting one that is not started.
  */
 export function serviceItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	// Plain copies: the menu is built once, as it opens, off the state of that moment.

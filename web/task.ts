@@ -553,14 +553,11 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 }
 
 /**
- * The header's menu: the task's services and ports while it has them, what
- * is for the human at the wheel, and its settings.
+ * The header's menu: what is for the human at the wheel, the ports while the
+ * task has them, its settings, and below those its services.
  */
 function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	const items: S.MenuEntry[] = [];
-	if (hasServices($t)) items.push(...serviceItems(pid, tid, $t));
-	if ($t.ports?.length) items.push({ label: 'Forwarded ports…', icon: ethernetPort, click: () => portsDialog($t) });
-	if (items.length) items.push({ separator: true });
 	// Only while the task is yours: rebasing and rebuilding both move the
 	// ground under a running agent, and both are for the human at the wheel.
 	if (waitsForHuman($t)) {
@@ -570,7 +567,9 @@ function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 		}
 		items.push({ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) });
 	}
+	if ($t.ports?.length) items.push({ label: 'Forwarded ports…', icon: ethernetPort, click: () => portsDialog($t) });
 	items.push({ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) });
+	if (hasServices($t)) items.push({ separator: true }, ...serviceItems(pid, tid, $t));
 	return items;
 }
 
