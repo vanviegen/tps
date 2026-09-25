@@ -424,13 +424,13 @@ export function setChatDraft(pid: string, tid: string, text: string): void {
 	if ((drafts[key] ?? '') === text) return;
 	if (text) drafts[key] = text;
 	else delete drafts[key];
-	// Deleted and merged tasks leave their draft behind; sweep those up here,
-	// but only once the task list is known — before that everything looks gone.
-	if (A.peek(() => $state.ready)) {
-		for (const k of Object.keys(drafts)) {
-			const [p, t] = k.split('/');
-			if (!A.peek(() => $state.projects[p]?.tasks?.[t])) delete drafts[k];
-		}
+	// Deleted and merged tasks leave their draft behind; sweep those up here.
+	// A project that is not listed is on a host not connected (yet), whose
+	// tasks are not known to be gone.
+	for (const k of Object.keys(drafts)) {
+		const [p, t] = k.split('/');
+		const $p = A.peek(() => $state.projects[p]);
+		if ($p && !A.peek(() => $p.tasks?.[t])) delete drafts[k];
 	}
 	try {
 		localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));

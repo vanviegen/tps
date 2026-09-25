@@ -248,6 +248,8 @@ func (l *Link) run() {
 		l.serve(conn)
 		if !l.isClosed() {
 			l.setStatus("disconnected", "connection lost")
+			// What the host said is only known while it is connected.
+			l.dropAll()
 		}
 	}
 }
@@ -377,7 +379,7 @@ func (l *Link) drop(pid string) {
 	l.ui.hub.Set([]string{"projects", l.id(pid)}, nil)
 }
 
-// dropAll takes the host's projects off the board, for a host being removed.
+// dropAll takes the host's projects off the board.
 func (l *Link) dropAll() {
 	l.mu.Lock()
 	pids := make([]string, 0, len(l.mirrored))
@@ -414,10 +416,6 @@ func (l *Link) onHello(state map[string]any) {
 	l.agentPrompt, _ = state["agentPrompt"].(string)
 	l.login, _ = state["login"].(string)
 	l.homeDir, _ = state["home"].(string)
-	stale := map[string]bool{}
-	for pid := range l.mirrored {
-		stale[pid] = true
-	}
 	l.mu.Unlock()
 	switch {
 	case l.protocol > hub.Protocol:
@@ -432,11 +430,7 @@ func (l *Link) onHello(state map[string]any) {
 	projects, _ := state["projects"].(map[string]any)
 	for pid, v := range projects {
 		project, _ := v.(map[string]any)
-		delete(stale, pid)
 		l.mirror(pid, project)
-	}
-	for pid := range stale { // gone from the host while we were away
-		l.drop(pid)
 	}
 	l.renewWatches()
 	l.handOverIdentity()
