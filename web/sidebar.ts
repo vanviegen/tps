@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, settings } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
-import { addHostDialog, drawAction, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
+import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
 import { projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
 import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, selection, taskTip, taskTitle } from './util.ts';
@@ -79,6 +79,9 @@ A.insertGlobalCss({
 	// Every character the strip holds is a character of the name, so a title
 	// runs off its edge rather than spending three of them on saying that it does.
 	'.tps-side.tps-collapsed .tps-clip': 'text-overflow:clip',
+	'.tps-side .tps-hostissue': 'ph:$1 pb:$1 font-size:0.85em cursor:pointer',
+	'.tps-side .tps-hostissue:hover': 'background:none text-decoration:underline',
+	'.tps-side.tps-collapsed .tps-hostissue': 'ph:0.3em',
 	'.tps-side .tps-addhost': 'ph:$1 pv:0.3em font-size:0.85em fg:$s-muted r:$s-radius-sm gap:0.3em cursor:pointer',
 });
 
@@ -125,9 +128,9 @@ function drawHeader(collapsed: boolean): void {
 
 /**
  * One host: its label, leading to its page, and under it the block of its
- * projects. The label says in its ink what the host is doing when that is not
- * simply working; a host that wants something now (a password, a host key, a
- * connection to make) says so on a line of its own, with the button for it.
+ * projects. A host that wants something now (a password, a host key, a
+ * connection to make) says so above them, in a word or two of its ink that do
+ * it; the tooltip, and the host's page, spell out what it is.
  */
 function drawHost(hid: string, $h: any): void {
 	A('div.tps-host', () => {
@@ -136,7 +139,6 @@ function drawHost(hid: string, $h: any): void {
 		A('a.tps-row.tps-hosthead', 'href=', hostPath(hid), () => {
 			S.addContextMenu({ link: hostPath(hid), get items(): S.MenuEntry[] { return hostMenuItems(hid, $h); } });
 			A(() => A('.tps-current=', selection().hid === hid));
-			if (!state.ok) A(`fg:${hostInk(state.color)}`);
 			S.addTooltip({ tip: () => A('text=', `${hostName(hid)}: ${state.text}`), placement: 'right' });
 			A('span.tps-clip text=', hostName(hid));
 			if (folded) drawBadge(waiting(hid));
@@ -146,10 +148,12 @@ function drawHost(hid: string, $h: any): void {
 				() => (folded ? chevronRight : chevronDown)({ size: '1.2em' }));
 		});
 		if (folded) return;
-		if (!$ui.collapsed && (state.color === 'warning' || state.color === 'danger')) {
-			A(`div display:flex align-items:center gap:$1 ph:$1 pb:$1 font-size:0.85em fg:${hostInk(state.color)}`, () => {
-				A('span.tps-clip text=', state.text);
-				drawAction(state);
+		if (state.color === 'warning' || state.color === 'danger') {
+			A(`a.tps-row.tps-hostissue fg:${hostInk(state.color)}`, () => {
+				if (state.action) A('click=', state.action.run);
+				else A('href=', hostPath(hid));
+				S.addTooltip({ tip: state.text, placement: 'right' });
+				A('span.tps-clip text=', state.action?.label ?? 'Needs attention');
 			});
 		}
 		A('div.tps-tiles', () => {
