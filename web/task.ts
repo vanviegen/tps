@@ -558,8 +558,9 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
  */
 function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	const items: S.MenuEntry[] = [];
-	if (hasServices($t)) items.push({ label: 'Services', icon: play, items: serviceItems(pid, tid, $t) });
+	if (hasServices($t)) items.push(...serviceItems(pid, tid, $t));
 	if ($t.ports?.length) items.push({ label: 'Forwarded ports…', icon: ethernetPort, click: () => portsDialog($t) });
+	if (items.length) items.push({ separator: true });
 	// Only while the task is yours: rebasing and rebuilding both move the
 	// ground under a running agent, and both are for the human at the wheel.
 	if (waitsForHuman($t)) {

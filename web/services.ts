@@ -40,10 +40,10 @@ export function hasServices($t: any): boolean {
 
 function statusText(s: Service): string {
 	switch (s.status) {
-		case 'running': return 'running' + (s.started ? ` since ${clock(s.started)}` : '');
-		case 'exited': return (s.code ? `exited with code ${s.code}` : 'finished') + (s.ended ? ` at ${clock(s.ended)}` : '');
-		case 'stopped': return 'stopped' + (s.ended ? ` at ${clock(s.ended)}` : '');
-		default: return 'not started';
+		case 'running': return 'Running' + (s.started ? ` since ${clock(s.started)}` : '');
+		case 'exited': return (s.code ? `Exited with code ${s.code}` : 'Finished') + (s.ended ? ` at ${clock(s.ended)}` : '');
+		case 'stopped': return 'Stopped' + (s.ended ? ` at ${clock(s.ended)}` : '');
+		default: return 'Not started';
 	}
 }
 
@@ -63,9 +63,9 @@ function statusIcon(s: Service): S.MenuItem['icon'] {
 }
 
 /**
- * The services as menu rows — the play button's menu, and the task menu's
- * submenu: a row per service, a click opening its console — and starting one
- * that is not started.
+ * The services as menu rows — the play button's menu, and the top of the task
+ * menu: a line per service, its icon telling its status, a click opening its
+ * console — and starting one that is not started.
  */
 export function serviceItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	// Plain copies: the menu is built once, as it opens, off the state of that moment.
@@ -75,11 +75,12 @@ export function serviceItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 		items.push({
 			icon: statusIcon(s),
 			label: () => {
-				A('div display:flex flex-direction:column min-width:0', () => {
-					A('div', () => { A('b text=', s.name); A('span fg:$s-muted text=', ' · ' + statusText(s)); });
+				A('div display:flex align-items:baseline gap:$2 min-width:0', () => {
+					A('b text=', s.name);
 					A('code font-size:0.85em fg:$s-muted max-width:32rem', ELLIPSIS, 'text=', s.cmd);
 				});
 			},
+			tooltip: statusText(s),
 			click: () => serviceDialog(pid, tid, $t, s.name, s.status === 'idle'),
 		});
 	}
@@ -189,7 +190,7 @@ function drawConsole($t: any, name: string, find: () => Service | undefined, $st
 		else if (!s) A('text=', 'Gone: the task has no such service.');
 		else if (s.status === 'running') A('text=', 'Running.' + ($t.ports ? '' : ' Ports named by EXPOSE lines in Containerfile.dev are forwarded; this one has none.'));
 		else if ($starting.value) A('text=', 'Starting…');
-		else A('text=', statusText(s).replace(/^./, c => c.toUpperCase()) + '.');
+		else A('text=', statusText(s) + '.');
 	});
 }
 
