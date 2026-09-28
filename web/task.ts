@@ -95,12 +95,14 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 	if (phase === 'done' || phase === 'closed' || phase === 'merge') {
 		if ($t.phase === 'merge' || isFinished($t)) return false; // in Merging it is already on its way there
 		// Nothing changed since the task branched off: nothing to merge or to
-		// keep, so it simply ends. Only a count the daemon made says so.
+		// keep, so it simply ends, without asking. Only a count the daemon made
+		// says so. It is merged, which commits nothing, unless asked to end
+		// unmerged or it is still in Plan.
 		if ($t.phase !== 'plan' && $t.changes?.length !== 0) {
 			doneDialog(pid, tid, $t);
 			return false;
 		}
-		finishUnmerged(pid, tid);
+		finish(pid, tid, phase === 'closed' || $t.phase === 'plan' ? 'closed' : 'done');
 		return true;
 	}
 	if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
@@ -131,11 +133,11 @@ async function planDialog($t: any): Promise<Phase | undefined> {
 }
 
 /**
- * End the task without merging. Whoever was looking at it lands on the
+ * End the task, merged or not. Whoever was looking at it lands on the
  * project's board.
  */
-function finishUnmerged(pid: string, tid: string): void {
-	void cmd('moveTask', { pid, tid, phase: 'closed' });
+function finish(pid: string, tid: string, phase: 'done' | 'closed'): void {
+	void cmd('moveTask', { pid, tid, phase });
 	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
 }
 
@@ -207,7 +209,7 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 				? `The task ends as it stands: its work is kept, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work back as it was, where it can still be merged.`
 				: `This task has nothing to merge, so this is the only way it ends: it is put away as it stands.`);
 			A('div display:flex gap:$2 justify-content:flex-end', () => {
-				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined', click: () => { close(); finishUnmerged(pid, tid); } });
+				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined', click: () => { close(); finish(pid, tid, 'closed'); } });
 			});
 		};
 		if (mergeable) {
