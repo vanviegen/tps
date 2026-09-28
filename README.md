@@ -1,9 +1,8 @@
 # TPS
 
-TPS is your all-in-one dashboard for working on many tasks across many
+TPS is your all-in-one dashboard for having Claude Code or pi (experimental) work on many tasks across many
 projects at once. For each task you get an agent chat and a VS Code instance
 side-by-side, backed by its own lightweight sandbox container and repository.
-The agent is Claude Code or pi, per task.
 
 <p>
 <a href="doc/tps1.png"><img src="doc/tps1.png" width="49%" alt="A project's board, with the sidebar listing every project"></a>
@@ -12,86 +11,73 @@ The agent is Claude Code or pi, per task.
 
 ## What makes it good
 
-**A sandbox per task.** A hardlinked clone (so it costs next to nothing) in a
-rootless podman container of its own. Agents cannot touch your checkout or
-each other, you run as many as your budget allows, and a task that went wrong
-is deleted rather than cleaned up after.
+**A sandbox per task.** A hardlinked clone of your repository in a rootless
+podman container of its own. Agents cannot touch your checkout or each other,
+and a task that went wrong is deleted rather than cleaned up after.
 
-**Many projects, one place.** The sidebar lists every project, grouped by the
-machine it is on, with the tasks that need you, the ones an agent is on and
-the ones you have VS Code open on. Switch between them with a click or a few
-letters in the ctrl-L palette; each VS Code stays where you left it.
-
-**A Kanban board per project.** See the tasks you're planning, what agents
-are working on, what requires your attention, and what has been completed at
-a glance.
-
-**Any number of machines.** Add a host by whatever you would type after `ssh`,
-and TPS installs its daemon there and shows its projects beside your local
-ones, VS Code and forwarded ports included; more are added from its page. The
-heavy lifting happens on the big desktop while you steer from the laptop.
-
-**Merges that land themselves.** A task becomes one commit on the default
-branch, with a merge message proposed by the agent. If the branch moved on, it is
-merged into the work first, and a conflict is handed to the task's agent
-to resolve. Tasks can also be configured to merge as soon as the agent is done,
-or as soon as a review of its work accepts it.
-
-**A second pair of eyes.** Work the agent reports ready can be read over by a
-reviewing agent first: against what you actually asked for, and above all for
-size — what can be left out, and what the project already does elsewhere. It
-fixes the small and obvious itself, and otherwise lists what to change. A task
-can be left to review and merge itself, or to bring you the review and let you
-decide.
-
-**An environment you define and the agent extends.** A `Containerfile.dev` in
-your repository is the image tasks run in, with nothing TPS-specific in it.
-When the agent lacks a tool, it adds it there, continues in the rebuilt
-container, and the change lands with the rest of its work.
-
-**Containers within.** TPS provides a Docker-compatible socket for working
-with (recursively) nested containers without escaping the sandbox. So for instance
-tests requiring `docker` or `docker compose` mostly just work.
+**A Kanban board per project.** The tasks you're planning, what agents are
+working on, what needs your attention and what is done, at a glance.
 
 **VS Code on every task.** In the browser, running in the task's container on
 the task's files, with a terminal. Read what the agent did, fix a thing
 yourself, run the tests.
+
+**Merges that land themselves.** A task becomes one squashed commit on top of
+the default branch, authored by you, with a message proposed by the agent. If
+the branch moved on, it is merged into the work first, and a conflict is
+handed to the task's agent to resolve. Tasks can also be set to merge as soon
+as the agent is done.
+
+**A second pair of eyes.** Work the agent reports ready can be read over by a
+reviewing agent first: against what you actually asked for and code quality. It
+fixes the small and obvious itself, and otherwise lists what to change. The
+review can either be fed back to the implementing agent automatically, or left
+as review notes for your.
+
+**A project-specific environment.** A `Containerfile.dev` in
+your repository is the image tasks run in, with nothing TPS-specific in it.
+When the agent lacks a tool, it adds it there, continues in the rebuilt
+container, and the change lands with the rest of its work.
+
+**Containers within.** A Docker-compatible socket inside the sandbox, so tests
+that need `docker` or `docker compose` (mostly) just work.
 
 **Services and ports.** The dev server, the test suite, and whatever else the
 agent starts run as named services with their output kept, behind a play
 button. The ports the image exposes are forwarded to your browser, so one click
 opens the app the agent is working on.
 
-**Revert and fork conversations.** The agent's tree is committed at the end of
-each of its turns, and the chat log shows those as points to go back to. Rewind
-the conversation to one, or the code, or both — in this task, or into a second
-one that leaves this one alone.
+**Revert and fork conversations.** Every Kanban state trsansition creates a 
+savepoint. You can reset a task or create a duplicate task at such savepoints,
+specifying if you'd like to reset the conversation, the code, or both.
 
-**Follow-ups remember.** A merged task keeps its conversation: send it a
+**Follow-ups.** A merged task keeps its conversation: send it a
 message later and the agent continues in a new clone, knowing what it did the
 first time.
 
+**Many projects, one place.** The sidebar lists your projects and their active
+tasks at a glance. Switch between them with a click or a few letters in the
+ctrl-L palette; each VS Code stays where you left it.
+
+**Any number of machines.** Add a host by whatever you would type after `ssh`,
+and TPS installs its daemon there and lists its projects in the sidebar under
+it, VS Code and forwarded ports included. The containers and agents run on the
+remote machine.
+
+**It keeps going.** A host's daemon carries on while your laptop sleeps:
+driving agents forward, merging, starting queued tasks once their dependencies
+are done and resuming after a session limit, holding a wake-lock meanwhile.
+The daemons automatically start (on connect) and stop (when there's nothing 
+left to do).
+
 **Finished tasks weigh little.** A task that is done keeps its conversation
-compressed, and one closed without merging — or muted, put away for later —
-keeps its work as a git bundle of its commits rather than a checkout; picking
-it up again puts the work back exactly as it was, save points and all.
+compressed. Inactive tasks that still have unmerged file changes attached
+store them as a compact git bundle. 
 
-**It keeps going.** The remote daemons continue work while your laptop sleeps.
-It will drive agents forward, do auto-merges, initiate tasks queued with
-dependencies, auto-resuming after hitting a 5H session limit, and keep a 
-wake-lock on the system while doing so. A daemon with none of that left to do
-stops a couple of minutes after the last dashboard has gone, taking its
-workspace containers with it, and is back the moment you connect again.
-
-**Clean linear history.** Your repository only ever receives the squashed
-commits, each on top of the branch as it stands, authored by you: the git
-identity of the machine you steer from is handed to every host it connects to.
-
-And of course TPS also handles the usual: an agent chat that allow mid-run steering
-and pasting screenshots and other files, a choice of model per task, cost tracking with a
-budget that parks a task when it is reached, a ring beside the message box showing what fills the agent's
-context window and a click to have the agent summarise it away, opt-in desktop notifications when a task
-needs you, and keyboard shortcuts for the things you do all day.
+And of course TPS offers: mid-run steering, pasting screenshots and other files, a choice
+of model per task, cost tracking with a budget that parks a task when it is
+reached, context-window insight, manual compaction, opt-in desktop notifications, and keyboard shortcuts for the things you
+do all day.
 
 ## Installing
 
