@@ -636,7 +636,7 @@ func (t *Task) applyL(partial map[string]any) {
 		t.info.Title = strings.TrimSpace(title)
 	}
 	if desc, ok := partial["description"].(string); ok && t.info.Phase == PhasePlan { // what the agent was given stays
-		// Until the task is named for real — by claude on its way out of Plan,
+		// Until the task is named for real — by claude once its plan is closed,
 		// or by hand — its title follows the description, so the board says what
 		// it is about from the first words written.
 		if t.info.Title == "" || t.info.Title == draftTitle(t.info.Description) {
@@ -715,14 +715,13 @@ func (t *Task) noteBudgetL() {
 
 // --- phase transitions ---
 
-// ensureTitle names a task on its way out of Plan. It has been calling itself
-// after its description all along (see applyL), which will do; the agent is asked
-// for something better in the background, so nothing waits on the naming. That
-// happens once in a task's life, and the answer is adopted only while the
-// stand-in is still there — a rename meanwhile wins.
-func (t *Task) ensureTitle() error {
-	t.lock()
-	defer t.unlock()
+// ensureTitleL names a task once its plan is closed, or on its way out of Plan.
+// It has been calling itself after its description all along (see applyL),
+// which will do; the agent is asked for something better in the background, so
+// nothing waits on the naming. That happens once in a task's life, and the
+// answer is adopted only while the stand-in is still there — a rename meanwhile
+// wins.
+func (t *Task) ensureTitleL() error {
 	desc := t.info.Description
 	agent, _ := t.agentL()
 	if strings.TrimSpace(desc) == "" {
@@ -762,10 +761,11 @@ func (t *Task) setTitleL(title string) {
 // clone is made once their work is merged and includes it; assigning it by
 // hand meanwhile is the way to start it anyway, without waiting.
 func (t *Task) Assign(to string) error {
-	if err := t.ensureTitle(); err != nil {
+	t.lock()
+	if err := t.ensureTitleL(); err != nil {
+		t.unlock()
 		return err
 	}
-	t.lock()
 	t.touchL()
 	desc := t.info.Description
 	t.unlock()

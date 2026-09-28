@@ -215,6 +215,9 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 			t.touchL()
 			go t.syncCode()
 			if count == 0 {
+				if t.info.Phase == PhasePlan {
+					t.ensureTitleL() // an empty plan stays unnamed until it has a description
+				}
 				p.autoStartL() // closing a plan lets a task that was waiting for it go
 			}
 		}
