@@ -61,6 +61,26 @@ export function canMerge($t: any): boolean {
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
 
+/**
+ * The accents a project may wear (the daemon hands a new project one of them
+ * at random; the list here is the palette to change it from): hues that sit
+ * well on the dark surfaces and apart from one another, so a colour tells
+ * projects apart where a name would not fit.
+ */
+export const PROJECT_COLORS = [
+	'#5b9cf5', '#9b7bf0', '#e07bd6', '#f06b8a', '#d9a441',
+	'#c8d35a', '#7bd36f', '#45c4d6', '#f2d35b', '#b98a6a',
+];
+
+/** The project's accent colour: what its daemon gave it, or one from its name for a daemon that gives none. */
+export function projectColor($p: any): string {
+	const color = $p?.color;
+	if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) return color;
+	let hash = 0;
+	for (const ch of $p?.name ?? '') hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+	return PROJECT_COLORS[hash % PROJECT_COLORS.length];
+}
+
 /** A line about something that wants attention, with what to do about it beside it. */
 export function drawStrip(color: string, text: string, action?: () => void): void {
 	A(`div.s-s.${color}.tonal p:$2 r:$s-radius-sm display:flex flex-wrap:wrap align-items:center gap:$2`, () => {

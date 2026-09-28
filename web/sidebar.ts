@@ -7,7 +7,7 @@ import { $state } from './conn.ts';
 import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
 import { projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
-import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, selection, taskTip, taskTitle } from './util.ts';
+import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -19,7 +19,8 @@ import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, select
  * What belongs together is told by the space between it rather than by lines.
  * A host is a small label over a block with rounded outer corners; its
  * projects are the tiles that block is made of, held apart by a sliver of the
- * sidebar showing through. Nothing is indented: that would cost the width the
+ * sidebar showing through, each on a wash of the project's colour, which its
+ * name is in too. Nothing is indented: that would cost the width the
  * collapsed strip has none of. A host folds away by its chevron, and folded
  * says how many of its tasks wait for you.
  *
@@ -37,20 +38,11 @@ export const $ui = A.proxy({ collapsed: false, folded: {} as Record<string, bool
 export const SIDEBAR_OPEN = '16rem';
 export const SIDEBAR_CLOSED = '4.5rem';
 
-/**
- * The ink of each phase a listed task can be in. Subtle, as the colour is a
- * hint: it tints the icon, and in the collapsed strip, where there is no
- * icon, the title itself.
- */
-const PHASE_INK: Record<string, string> = {
-	human: 'var(--s-warning)', agent: 'var(--s-link)', review: '#a58bf2', merge: 'var(--s-success)',
-};
-
 A.insertGlobalCss({
 	'.tps-side': 'display:flex flex-direction:column h:100% min-width:0 overflow:hidden border-right: 1px solid $s-faint;',
 	'.tps-side .tps-host': 'margin: 0 $1 $3 $1;',
 	'.tps-side .tps-tiles': 'display:flex flex-direction:column gap:2px r:$s-radius-sm overflow:hidden',
-	'.tps-side .tps-tile': 'pb:0.15em background: color-mix(in oklab, $s-text, transparent 95%);',
+	'.tps-side .tps-tile': 'pb:0.15em background: color-mix(in oklab, var(--tps-color), transparent 90%);',
 	'.tps-side .tps-row': 'display:flex align-items:center gap:$2 min-width:0 text-decoration:none fg:$s-text transition: background 0.12s;',
 	'.tps-side .tps-row:hover': 'background: color-mix(in oklab, $s-text, transparent 92%);',
 	// What you are looking at is lit in the accent, dimly: it is where you
@@ -59,8 +51,10 @@ A.insertGlobalCss({
 	'.tps-side .tps-hosthead': 'ph:$1 pt:0.2em pb:0.35em gap:0.3em font-size:0.75em font-weight:600 letter-spacing:0.06em text-transform:uppercase fg:$s-muted r:$s-radius-sm',
 	// A label sits on no tile to light up: its page on screen is said by its ink.
 	'.tps-side .tps-hosthead.tps-current': 'background:none fg:$s-accent',
-	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600',
-	'.tps-side .tps-task': 'ph:$1 pv:0.15em font-size:0.9em fg:$s-muted',
+	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600 fg:var(--tps-color)',
+	// A task is in its project's colour, its icon in full and its title dimmed
+	// towards the muted text; the icon's shape says the phase.
+	'.tps-side .tps-task': 'ph:$1 pv:0.15em font-size:0.9em fg: color-mix(in oklab, var(--tps-color), $s-muted 55%);',
 	// Waiting for you is said by coming out of the dim the other rows are in.
 	'.tps-side .tps-task.tps-yours': 'fg:$s-text',
 	'.tps-side .tps-clip': 'flex:1 min-width:0 white-space:nowrap overflow:hidden text-overflow:ellipsis',
@@ -75,7 +69,6 @@ A.insertGlobalCss({
 	'.tps-side.tps-collapsed .tps-fold': 'display:none',
 	'.tps-side.tps-collapsed .tps-project': 'ph:0.3em pv:0.35em',
 	'.tps-side.tps-collapsed .tps-task': 'ph:0.3em',
-	'.tps-side.tps-collapsed .tps-task .tps-clip': 'fg: color-mix(in oklab, var(--tps-ink, currentColor), $s-text 45%);',
 	// Every character the strip holds is a character of the name, so a title
 	// runs off its edge rather than spending three of them on saying that it does.
 	'.tps-side.tps-collapsed .tps-clip': 'text-overflow:clip',
@@ -180,9 +173,10 @@ function waiting(hid: string): number {
 // starts with a pointerdown, so that is where the flag is cleared.
 let dragged = false;
 
-/** One project, with the tasks open in it under it: a tile of its host's block. */
+/** One project, with the tasks open in it under it: a tile of its host's block, in the project's colour. */
 function drawProject(pid: string, $p: any): void {
 	A('div.tps-tile', () => {
+		A(() => A('--tps-color:' + projectColor($p)));
 		A('a.tps-row.tps-project draggable=true', 'href=', pathTo(pid), () => {
 			S.addContextMenu({ link: pathTo(pid), get items(): S.MenuEntry[] { return projectMenuItems(pid, $p); } });
 			A('pointerdown=', () => { dragged = false; },
@@ -238,7 +232,6 @@ function drawTask(pid: string, tid: string, $t: any): void {
 		}});
 		// Yours to act on: it waits for you, or it is a plan you have yet to start.
 		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan'));
-		A(() => A('--tps-ink:', PHASE_INK[$t.phase] ?? 'currentColor'));
 		A(() => {
 			const { pid: shown, tid: shownTid } = selection();
 			A('.tps-current=', shown === pid && shownTid === tid);
@@ -254,7 +247,7 @@ function drawTask(pid: string, tid: string, $t: any): void {
 				} });
 				return;
 			}
-			drawTaskIcon(pid, $t, { busy: false, color: 'var(--tps-ink)' });
+			drawTaskIcon(pid, $t, { busy: false, color: 'var(--tps-color)' });
 		});
 		A('span.tps-clip', () => A('text=', taskTitle($t)));
 	});
@@ -271,7 +264,7 @@ function drawBase(pid: string): void {
 			// Collapsed the row is its text and nothing else, as a task's is; the
 			// italic is what tells the checkout from a task either way.
 			if ($ui.collapsed) S.addTooltip({ tip: 'Project directory', placement: 'right' });
-			else A('span display:inline-flex flex-shrink:0', () => folder({ size: '1.1em' }));
+			else A('span display:inline-flex flex-shrink:0 fg:var(--tps-color)', () => folder({ size: '1.1em' }));
 			A('span.tps-clip font-style:italic text=', 'Project directory');
 		});
 	});

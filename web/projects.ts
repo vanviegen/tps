@@ -1,18 +1,18 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
+import { arrowDown, arrowUp, check, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { drawAction, hostInk, hostState } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, selection, shortDir } from './util.ts';
+import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
- * by the dashboard, as it spans hosts), each under its host and with its code
+ * by the dashboard, as it spans hosts), each under its host, in its colour and with its code
  * (kept by the project's daemon, like its name).
  */
 
@@ -105,7 +105,8 @@ export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 export function drawProjectPage(pid: string, $p: any): void {
 	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
 		A('div display:flex align-items:center gap:$3 flex-wrap:wrap min-width:0', () => {
-			A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} text=`, A.ref($p, 'name'));
+			// The name in the project's colour, as the sidebar has it.
+			A(() => A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, A.ref($p, 'name')));
 			A(() => drawProjectFacts($p));
 			A('div flex:1');
 			// The keys are on these rather than on the board's ✛ or the menu's
@@ -261,6 +262,7 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 				if (name) save({ name });
 			}),
 		});
+		drawColorField(pid, $p);
 		// A section of its own under a heading, so what it is about is not
 		// mistaken for more of the project's own settings.
 		A('div display:flex flex-direction:column gap:$2', () => {
@@ -275,6 +277,22 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 			});
 		});
 	}});
+}
+
+/** The project's colour, as a field of the settings: the palette, with the one in use ticked. */
+function drawColorField(pid: string, $p: any): void {
+	A('div.s-field', () => {
+		A('label #Colour');
+		A('div display:flex flex-wrap:wrap gap:$2', () => {
+			for (const color of PROJECT_COLORS) {
+				A('button type=button w:2.4rem h:2.4rem r:50% border:0 cursor:pointer display:inline-flex align-items:center justify-content:center fg:#14161a',
+					`bg:${color}`, 'aria-label=', color,
+					'click=', () => void cmd('setProject', { pid, color }),
+					() => { A(() => { if (projectColor($p) === color) check({ size: '1.2em' }); }); });
+			}
+		});
+		A('span.s-help #What the sidebar shows the project in.');
+	});
 }
 
 /**

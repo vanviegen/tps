@@ -4,7 +4,10 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"math"
+	"math/rand/v2"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +32,7 @@ type TaskDefaults struct {
 type ProjectInfo struct {
 	Dir      string               `json:"dir"`
 	Name     string               `json:"name"`
+	Color    string               `json:"color,omitempty"` // the accent the dashboards show it in, as #rrggbb
 	Defaults TaskDefaults         `json:"defaults"`
 	Activity int64                `json:"activity,omitempty"` // unix ms of the last change to a task
 	NextTask int                  `json:"nextTask,omitempty"`
@@ -48,6 +52,37 @@ type Project struct {
 	head          string      // the default branch's tip at the last refreshMeta; a new one dates every workspace
 }
 
+// projectColors are the accents a project may wear: hues that sit well on the
+// dashboard's dark surfaces and apart from one another, so a colour tells
+// projects apart where a name would not fit. A new project gets one of the
+// least used, at random.
+var projectColors = []string{
+	"#5b9cf5", "#9b7bf0", "#e07bd6", "#f06b8a", "#d9a441",
+	"#c8d35a", "#7bd36f", "#45c4d6", "#f2d35b", "#b98a6a",
+}
+
+var colorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// pickColorL chooses a colour for a new project: one of those the fewest
+// projects on this host wear already.
+func (m *Manager) pickColorL() string {
+	used := map[string]int{}
+	for _, p := range m.projects {
+		used[p.info.Color]++
+	}
+	least := math.MaxInt
+	var candidates []string
+	for _, c := range projectColors {
+		if used[c] < least {
+			least, candidates = used[c], nil
+		}
+		if used[c] == least {
+			candidates = append(candidates, c)
+		}
+	}
+	return candidates[rand.IntN(len(candidates))]
+}
+
 func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if info.Tasks == nil {
 		info.Tasks = map[string]*TaskInfo{}
@@ -57,6 +92,9 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	}
 	if info.Defaults.Model == "" {
 		info.Defaults.Model = DefaultModel
+	}
+	if !colorRe.MatchString(info.Color) {
+		info.Color = m.pickColorL()
 	}
 	if info.NextTask == 0 {
 		for tid := range info.Tasks {
@@ -87,6 +125,7 @@ func (p *Project) init() error {
 	p.defaultBranch = branch
 	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "name": p.info.Name, "defaults": map[string]any{}, "activity": p.info.Activity, "tasks": map[string]any{}})
 	p.pubDefaults()
+	p.pub("color", p.info.Color)
 	tids := make([]string, 0, len(p.info.Tasks))
 	for tid := range p.info.Tasks {
 		tids = append(tids, tid)
@@ -266,6 +305,12 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		}
 		p.info.Name = name
 	}
+	if color, ok := partial["color"].(string); ok {
+		if !colorRe.MatchString(color) {
+			return errors.New("A colour is #rrggbb")
+		}
+		p.info.Color = strings.ToLower(color)
+	}
 	// The defaults arrive as the task settings they are, one or more at a time.
 	if defaults, ok := partial["defaults"].(map[string]any); ok {
 		d := &p.info.Defaults
@@ -292,6 +337,7 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	p.m.saveL()
 	p.pub("name", p.info.Name)
 	p.pubDefaults()
+	p.pub("color", p.info.Color)
 	return nil
 }
 
