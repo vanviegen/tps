@@ -165,7 +165,6 @@ function announcement($t: any, from: Phase): string | undefined {
 		case 'agent': return from === 'merge' ? 'the agent is resolving the merge conflicts' : undefined;
 		default: // human, muted: the ones worth having asked for
 			if ($t.review) return 'the automated review asks for changes';
-			if ($t.conflicts) return 'conflicts are left to resolve and need you';
 			if ($t.ready) return 'the agent reports it ready to merge';
 			return from === 'merge' ? 'back with you' : 'the agent is done; it is yours';
 	}

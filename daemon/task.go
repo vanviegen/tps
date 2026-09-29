@@ -119,7 +119,6 @@ type TaskInfo struct {
 	TitleAsked    bool           `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
 	PhaseAt       int64          `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string       `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
-	Conflicts     []string       `json:"conflicts,omitempty"`     // files the last replay onto the branch could not merge cleanly (see plant); until a clean one, or the merge
 	LimitUntil    int64          `json:"limitUntil,omitempty"`    // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
 
 	// Pending is what the agent is told the next time it is sent in: things
@@ -317,11 +316,6 @@ func (t *Task) publishL() {
 		t.pubL("startAfter", t.info.StartAfter)
 	} else {
 		t.pubL("startAfter", nil)
-	}
-	if len(t.info.Conflicts) > 0 {
-		t.pubL("conflicts", t.info.Conflicts)
-	} else {
-		t.pubL("conflicts", nil)
 	}
 	// Whether there is a workspace to open at all: a task in Plan has none yet,
 	// a finished one no longer.
@@ -1181,11 +1175,7 @@ func (t *Task) merge(repo, message string) error {
 	}
 	if len(conflicts) > 0 {
 		t.note(fmt.Sprintf("merging onto the latest %s hit conflicts in %s; sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
-		t.lock()
-		t.dropPendingL("conflicts") // the prompt says it
-		prompt := conflictPrompt(branch, conflicts)
-		t.unlock()
-		t.kick(prompt) // it comes back through onTurnEnd
+		t.kick(conflictPrompt(branch, conflicts)) // it comes back through onTurnEnd
 		return nil
 	}
 	// Whatever a replay left in the files — or an agent that reported 'merge'
@@ -1226,12 +1216,11 @@ func (t *Task) merge(repo, message string) error {
 	t.cloneMu.Unlock()
 	t.lock()
 	t.info.CommitMessage = ""
-	t.info.Conflicts = nil
 	t.info.ReviewLoop = 0
 	t.setReviewL("")
 	// The workspace these were about is gone; a task picked up after the merge
 	// gets a fresh clone, and hears about that instead.
-	for _, key := range []string{"rebase", "conflicts", "reopened", "container", "stopped", "restart"} {
+	for _, key := range []string{"rebase", "reopened", "container", "stopped", "restart"} {
 		t.dropPendingL(key)
 	}
 	t.queueL("merged", mergedPrompt(branch))
@@ -1263,7 +1252,6 @@ func (t *Task) Rebase() error {
 	if len(conflicts) > 0 {
 		t.note(fmt.Sprintf("rebased onto the latest %s; conflicts in %s, sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
 		t.lock()
-		t.dropPendingL("conflicts") // the prompt says it
 		// The agent's already, so that the merge is not made a step of the
 		// user's on the way in (see kick): its resolution is the step.
 		t.setPhaseL(PhaseAgent)
@@ -1330,10 +1318,10 @@ func (t *Task) base(repo, of string) (string, error) {
 // plant merges the latest default branch into the last step, in the working
 // tree — which holds nothing that step does not — and leaves the result there
 // as uncommitted work on the branch's tip: nothing staged, no merge in
-// progress. What did not merge cleanly is remembered in Conflicts and
-// returned: files left with conflict markers, or — deleted on one side and
-// changed on the other — as the side that changed them had them. A merge that
-// never started leaves HEAD where it was.
+// progress. What did not merge cleanly is returned: files left with conflict
+// markers, or — deleted on one side and changed on the other — as the side
+// that changed them had them. A merge that never started leaves HEAD where it
+// was.
 func (t *Task) plant(repo string) ([]string, error) {
 	branch := t.p.defaultBranch
 	if _, err := git(repo, "checkout", "--quiet", "--force", "--detach", stepsBranch); err != nil {
@@ -1356,9 +1344,6 @@ func (t *Task) plant(repo string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.lock()
-	defer t.unlock()
-	t.setConflictsL(conflicts)
 	return conflicts, nil
 }
 
@@ -1383,19 +1368,6 @@ func (t *Task) replant(repo string) ([]string, error) {
 		return nil, nil // the branch has nothing this workspace lacks
 	}
 	return t.plant(repo)
-}
-
-// setConflictsL records what the last replay could not merge, for the
-// dashboard and — as a note for its next turn — the agent.
-func (t *Task) setConflictsL(files []string) {
-	t.info.Conflicts = files
-	if len(files) > 0 {
-		t.queueL("conflicts", conflictsPrompt(files))
-	} else {
-		t.dropPendingL("conflicts")
-	}
-	t.p.m.saveL()
-	t.publishL()
 }
 
 // markedFiles are the files in the workspace that still hold conflict markers
@@ -1739,7 +1711,7 @@ func (t *Task) Discard() error {
 	t.info.CommitMessage = ""
 	t.info.ReviewLoop = 0
 	t.setReviewL("")
-	t.info.Conflicts, t.info.Pending = nil, nil // nothing of the old workspace is left to tell
+	t.info.Pending = nil // nothing of the old workspace is left to tell
 	t.p.m.hub.SetChat(t.key(), nil)
 	t.pubL("changes", nil)
 	t.setPhaseL(PhasePlan)
@@ -2549,9 +2521,6 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 				t.noteBudgetL()
 			}
 			t.note("merge paused: the agent did not report the conflicts resolved")
-			if len(t.info.Conflicts) > 0 { // the prompt said it; the next turn is told again
-				t.queueL("conflicts", conflictsPrompt(t.info.Conflicts))
-			}
 			t.endRunL(changes)
 			return
 		}

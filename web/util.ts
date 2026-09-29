@@ -52,10 +52,10 @@ export function waitsForHuman($t: any): boolean {
 
 /**
  * Whether merging is something to offer right now: the task is the user's,
- * there is a workspace holding work to merge, and nothing is in the way of it.
+ * and there is a workspace holding work to merge.
  */
 export function canMerge($t: any): boolean {
-	return waitsForHuman($t) && hasWorkspace($t) && !$t.conflicts?.length;
+	return waitsForHuman($t) && hasWorkspace($t);
 }
 
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */

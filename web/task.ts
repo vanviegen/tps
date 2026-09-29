@@ -607,14 +607,6 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				restoreDraft(pid, tid, $t.review);
 				A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
 			}
-			if ($t.conflicts?.length) {
-				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-				A('div.s-s.warning.tonal p:$2 display:flex align-items:center gap:$2', () => {
-					A('span flex:1 text=', `⚠ conflicts in ${$t.conflicts.join(', ')}: putting this task's work onto the latest ${branch} did not merge cleanly there. `
-						+ 'Resolve the markers in VS Code, or send in the agent, which is told about them.');
-					S.button({ content: 'Send in the agent', icon: bot, attrs: '.small', click: () => void moveTask(pid, tid, $t, 'agent') });
-				});
-			}
 		});
 		// The merge has no button of its own down here: the agent reporting the
 		// work done is a moment in the log, and the button sits with it (see

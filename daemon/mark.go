@@ -398,7 +398,6 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 	// point holds, and the refresh below reads and publishes it (see
 	// commitMessageFile).
 	t.info.Ready = false
-	t.info.Conflicts = nil
 	t.info.Pending = nil // what was waiting was waiting for a turn that is now undone
 	if use.Chat {
 		// A point from before the agent ever ran leaves no session to resume.

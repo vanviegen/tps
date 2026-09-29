@@ -349,8 +349,8 @@ as build output or dependencies, and tools installed by hand rather than through
 Containerfile.dev. Everything you know about the task itself still holds.`, branch)
 }
 
-// conflictsPrompt names the files a replay onto the branch could not merge
-// cleanly (see plant); it goes ahead of whatever sends the agent in next.
+// conflictsPrompt names the files a rebase could not merge cleanly (see
+// plant), for the agent sent in to resolve them.
 func conflictsPrompt(files []string) string {
 	return fmt.Sprintf(`Putting this task's work onto the latest default branch did not merge cleanly in:
 

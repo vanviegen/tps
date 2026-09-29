@@ -213,7 +213,6 @@ function drawCard(pid: string, tid: string, $t: any): void {
 					A(() => {
 						if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
 						else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ review feedback to weigh');
-						else if (waitsForHuman($t) && $t.conflicts) A('small fg:$s-warning #⚠ conflicts to resolve');
 						else if (waitsForHuman($t) && $t.ready) A('small fg:$s-success #✔ ready to merge');
 						else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
 					});
