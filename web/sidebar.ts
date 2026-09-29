@@ -43,14 +43,13 @@ A.insertGlobalCss({
 	'.tps-side .tps-host': 'margin: 0 $1 $3 $1;',
 	'.tps-side .tps-tiles': 'display:flex flex-direction:column gap:2px r:$s-radius-sm overflow:hidden',
 	'.tps-side .tps-tile': 'pb:0.15em background: color-mix(in oklab, var(--tps-color), transparent 90%);',
-	'.tps-side .tps-row': 'display:flex align-items:center gap:$2 min-width:0 text-decoration:none fg:$s-text transition: background 0.12s;',
+	'.tps-side .tps-row': 'display:flex align-items:center gap:$2 min-width:0 text-decoration:none fg:$s-text border-right: 4px solid transparent; transition: background 0.12s, border-color 0.12s;',
 	'.tps-side .tps-row:hover': 'background: color-mix(in oklab, $s-text, transparent 92%);',
-	// What you are looking at is lit in the accent, dimly: it is where you
-	// are, and brightness is for what wants you.
-	'.tps-side .tps-row.tps-current': 'background: color-mix(in oklab, $s-primary, transparent 86%);',
+	// What you are looking at is marked by a bar of its project's colour at the edge.
+	'.tps-side .tps-row.tps-current': 'border-right-color: var(--tps-color);',
 	'.tps-side .tps-hosthead': 'ph:$1 pt:0.2em pb:0.35em gap:0.3em font-size:0.75em font-weight:600 letter-spacing:0.06em text-transform:uppercase fg:$s-muted r:$s-radius-sm',
-	// A label sits on no tile to light up: its page on screen is said by its ink.
-	'.tps-side .tps-hosthead.tps-current': 'background:none fg:$s-accent',
+	// A label sits on no tile to mark: its page on screen is said by its ink.
+	'.tps-side .tps-hosthead.tps-current': 'border-right-color:transparent fg:$s-accent',
 	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600 fg:var(--tps-color)',
 	// A task is in its project's colour, its icon in full and its title dimmed
 	// towards the muted text; the icon's shape says the phase.
@@ -214,7 +213,7 @@ function drawProject(pid: string, $p: any): void {
 
 /**
  * A task is listed while it waits for a human, while an agent is on it (its
- * own, or the one reviewing its work), and while it is on screen: everything
+ * own, the one reviewing its work, or its merge), and while it is on screen: everything
  * under way, in other words. A muted one is none of those: putting it away is
  * what muting is for, and opening it takes it back out (see useTask).
  */
@@ -222,7 +221,7 @@ function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
 	if ($t.phase === 'muted') return false;
-	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review';
+	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
 }
 
 function drawTask(pid: string, tid: string, $t: any): void {
