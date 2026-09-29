@@ -84,6 +84,13 @@ async function removeProject(pid: string, $p: any): Promise<boolean> {
 	return true;
 }
 
+/** Leave the project directory, stopping the VS Code on it rather than leaving that for the idle sweep. */
+export function closeBase(pid: string): void {
+	const { pid: shown, tid } = A.peek(selection);
+	if (shown === pid && tid === 'base') void route.go(pathTo(pid));
+	void cmd('closeProjectCode', { pid });
+}
+
 /** The project's menu: everything to do with it, from its row in the sidebar. */
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	return [

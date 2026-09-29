@@ -84,22 +84,22 @@ A('div display:flex h:100dvh align-items:stretch', () => {
 
 // The tab's title says where you are.
 A(() => {
-	const { pid, tid, base } = selection();
+	const { pid, tid } = selection();
 	const $p = pid ? $state.projects[pid] : undefined;
 	const $t = tid ? $p?.tasks?.[tid] : undefined;
-	const what = !$p ? '' : $t ? taskTitle($t) : base ? 'Project directory' : '';
+	const what = !$p ? '' : $t ? taskTitle($t) : tid === 'base' ? 'Project directory' : '';
 	document.title = [what, $p?.name, 'TPS'].filter(Boolean).join(' · ');
 });
 
 function drawMain(): void {
 	A(() => {
 		if (!$state.ready) { A('progress w:100% m:$3'); return; }
-		const { hid, pid, tid, base } = selection();
+		const { hid, pid, tid } = selection();
 		if (hid) return drawWide(() => drawHostPage(hid));
 		if (!pid) return drawHome();
 		const $p = $state.projects[pid];
 		if (!$p) return drawWide(() => S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' }));
-		if (base) return drawProjectCode(pid, $p, WIDE_CODE_LEFT);
+		if (tid === 'base') return drawProjectCode(pid, $p, WIDE_CODE_LEFT);
 		if (!tid) return drawWide(() => drawProjectPage(pid, $p));
 		const $t = $p.tasks?.[tid];
 		if (!$t) return drawWide(() => S.box({ header: 'Unknown task', content: 'This task is not in the project (anymore).' }));

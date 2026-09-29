@@ -1,11 +1,11 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, settings } from 'staffa/icons.js';
+import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, settings, x } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
-import { projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
+import { closeBase, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
 import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
@@ -96,8 +96,8 @@ export function drawSidebar(): void {
 
 /**
  * The way to fold the sidebar, in the corner it keeps either way, and the logo
- * beside it while there is room for it. On a task, the other corner leads back
- * to its project's board.
+ * beside it while there is room for it. On a task or the project directory, the
+ * other corner leads back to its project's board.
  */
 function drawHeader(collapsed: boolean): void {
 	A('div display:flex align-items:center gap:$2 ph:$1 pv:$2', () => {
@@ -189,8 +189,8 @@ function drawProject(pid: string, $p: any): void {
 				},
 				'click=', (e: MouseEvent) => { if (dragged) e.preventDefault(); });
 			A(() => {
-				const { pid: shown, tid, base } = selection();
-				A('.tps-current=', shown === pid && !tid && !base);
+				const { pid: shown, tid } = selection();
+				A('.tps-current=', shown === pid && !tid);
 			});
 			A(() => {
 				if ($ui.collapsed) S.addTooltip({ tip: () => A('text=', $p.name), placement: 'right' });
@@ -205,8 +205,8 @@ function drawProject(pid: string, $p: any): void {
 			drawTask(pid, tid, $t);
 		}, phaseOrder);
 		A(() => {
-			const { pid: shown, base } = selection();
-			if ($p.codePort || (shown === pid && base)) drawBase(pid);
+			const { pid: shown, tid } = selection();
+			if ($p.codePort || (shown === pid && tid === 'base')) drawBase(pid);
 		});
 	});
 }
@@ -255,9 +255,10 @@ function drawTask(pid: string, tid: string, $t: any): void {
 /** The project's own checkout, listed like a task while VS Code runs on it. */
 function drawBase(pid: string): void {
 	A('a.tps-row.tps-task', 'href=', pathTo(pid, 'base'), () => {
+		S.addContextMenu({ link: pathTo(pid, 'base'), items: [{ label: 'Close project directory', icon: x, click: () => closeBase(pid) }] });
 		A(() => {
-			const { pid: shown, base } = selection();
-			A('.tps-current=', shown === pid && !!base);
+			const { pid: shown, tid } = selection();
+			A('.tps-current=', shown === pid && tid === 'base');
 		});
 		A(() => {
 			// Collapsed the row is its text and nothing else, as a task's is; the

@@ -1,7 +1,7 @@
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { claimKeyInCode } from './code.ts';
-import { sortedProjects } from './projects.ts';
+import { closeBase, sortedProjects } from './projects.ts';
 import { addTask } from './task.ts';
 import { isFinished, pathTo, phaseOrder, PHASE_LABELS, selection, taskTitle, type Phase } from './util.ts';
 
@@ -40,11 +40,13 @@ function isPaletteKey(e: KeyboardEvent): boolean {
 interface Destination { value: string; label: string }
 
 /**
- * The one entry that is not a place to go: creating a task in a project,
- * which is CREATE and the project id. Every other value is a path, and a path
- * begins with a slash, so it cannot be taken for one.
+ * The entries that are not a place to go: creating a task in a project, which
+ * is CREATE and the project id, and closing its directory, CLOSE and the id.
+ * Every other value is a path, and a path begins with a slash, so neither can
+ * be taken for one.
  */
 const CREATE = 'create:';
+const CLOSE = 'close:';
 
 /**
  * Everywhere the palette can take you, in the order the board would show it:
@@ -64,17 +66,19 @@ const CREATE = 'create:';
  * place you want next is nearly always beside the one you are at, so a couple
  * of letters of a task name lands there without a like-named task elsewhere
  * standing in front of it. Its board heads the list, so ctrl-L Enter is the
- * way out of VS Code, which otherwise owns the keyboard.
+ * way out of VS Code, which otherwise owns the keyboard. While its directory
+ * is on screen, closing that takes the place of opening it.
  */
 function destinations(): Destination[] {
-	const here = selection().pid;
+	const { pid: here, tid: open } = selection();
 	const blocks: Destination[][] = [];
 	for (const [pid, $p] of sortedProjects()) {
 		const out: Destination[] = [];
 		if (pid === here) blocks.unshift(out);
 		else blocks.push(out);
 		out.push({ value: pathTo(pid), label: $p.name });
-		out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › Open project directory` });
+		if (pid === here && open === 'base') out.push({ value: CLOSE + pid, label: `${$p.name} › Close project directory` });
+		else out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › Open project directory` });
 		out.push({ value: CREATE + pid, label: `${$p.name} › Create task` });
 		const tasks = (Object.entries($p.tasks ?? {}) as [string, any][]).filter(([, $t]) => !isFinished($t));
 		tasks.sort((a, b) => {
@@ -102,6 +106,7 @@ function showPalette(): void {
 				set value(value: string) {
 					close();
 					if (value.startsWith(CREATE)) void addTask(value.slice(CREATE.length));
+					else if (value.startsWith(CLOSE)) closeBase(value.slice(CLOSE.length));
 					else void route.go(value);
 				},
 			};

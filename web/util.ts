@@ -117,14 +117,14 @@ export function taskBusy($t: any): boolean {
 
 /**
  * What the URL selects: a host, or a project and within it a task, its base
- * worktree, or neither. Everything on screen follows from this, so navigating
- * is a link.
+ * worktree (`tid` being `'base'`, as for pathTo), or neither. Everything on
+ * screen follows from this, so navigating is a link.
  */
-export function selection(): { hid?: string; pid?: string; tid?: string; base?: boolean } {
+export function selection(): { hid?: string; pid?: string; tid?: string } {
 	const p = route.current.p;
 	if (p[0] === 'h' && p[1]) return { hid: p[1] };
 	if (p[0] !== 'p' || !p[1]) return {};
-	return { pid: p[1], tid: p[2] === 't' ? p[3] : undefined, base: p[2] === 'base' };
+	return { pid: p[1], tid: p[2] === 't' ? p[3] : p[2] === 'base' ? 'base' : undefined };
 }
 
 /**

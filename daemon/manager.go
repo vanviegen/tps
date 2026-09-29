@@ -776,6 +776,10 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			p.bgOpenCode()
 			return nil, nil
 		}),
+		"closeProjectCode": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
+			p.closeCode()
+			return nil, nil
+		}),
 		"createTask": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
 			tid, err := p.CreateTask(partial)
 			return map[string]any{"tid": tid}, err
