@@ -48,8 +48,8 @@ A.insertGlobalCss({
 	// What you are looking at is marked by a bar of its project's colour at the edge.
 	'.tps-side .tps-row.tps-current': 'border-right-color: var(--tps-color);',
 	'.tps-side .tps-hosthead': 'ph:$1 pt:0.2em pb:0.35em gap:0.3em font-size:0.75em font-weight:600 letter-spacing:0.06em text-transform:uppercase fg:$s-muted r:$s-radius-sm',
-	// A label sits on no tile to mark: its page on screen is said by its ink.
-	'.tps-side .tps-hosthead.tps-current': 'border-right-color:transparent fg:$s-accent',
+	// A label has no project colour: its bar is in its own ink.
+	'.tps-side .tps-hosthead.tps-current': 'border-right-color:currentColor',
 	'.tps-side .tps-project': 'ph:$1 pv:0.3em font-weight:600 fg:var(--tps-color)',
 	// A task is in its project's colour, its icon in full and its title dimmed
 	// towards the muted text; the icon's shape says the phase.
