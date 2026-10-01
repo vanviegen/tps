@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, ellipsisVertical, ethernetPort, gitMerge, play, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, ellipsisVertical, ethernetPort, gitMerge, play, plus, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
@@ -9,7 +9,7 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, drawPortsButton, hasServices, portsDialog, serviceItems } from './services.ts';
-import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -65,14 +65,16 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 }
 
 /**
- * The task's whole menu: where it can go, and how it ends — plus the one thing
- * that is not a phase but belongs with them, throwing it away. `extra` slots
- * in behind that, for the callers that have more to offer.
+ * The task's whole menu: where it can go, and how it ends — plus what is not
+ * a phase but belongs with them: starting a task that follows this one, and
+ * throwing it away. `extra` slots in between, for the callers that have more
+ * to offer.
  */
 export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
 	return [
 		...phaseItems(pid, tid, $t),
 		{ separator: true },
+		{ label: 'Create dependent task', icon: plus, disabled: isFinished($t), click: () => void addTask(pid, { startAfter: [tid] }) },
 		...extra,
 		{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) },
 	];
@@ -225,13 +227,14 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
  * Start a task: no dialog, and no half-existing state either — the task is
  * created right away, in Plan and without a description, so the board and the
  * sidebar have it from the first moment. It goes by "New" until its
- * description's first line names it (see taskTitle).
+ * description's first line names it (see taskTitle). `partial` sets what
+ * differs from the project's defaults, such as the tasks it starts after.
  */
-export async function addTask(pid: string): Promise<void> {
-	// The server fills in the project's defaults; nothing to send along. All
-	// but one, that is: ready notifications are this browser's, so its own
-	// default is applied here (see notify.ts).
-	const created = await cmd('createTask', { pid });
+export async function addTask(pid: string, partial: object = {}): Promise<void> {
+	// The server fills in the project's defaults. All but one, that is: ready
+	// notifications are this browser's, so its own default is applied here
+	// (see notify.ts).
+	const created = await cmd('createTask', { pid, ...partial });
 	if (!created) return;
 	applyNotifyDefault(pid, created.tid as string);
 	route.go(pathTo(pid, created.tid as string));
@@ -312,15 +315,16 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 			placeholder: 'Tasks to wait for…',
 			help: 'The task starts once these are all done or deleted and its plan is closed; its workspace is made then, holding their merged work.',
 			// The tasks it already follows stay listed even when done, so their
-			// chips read as names rather than as numbers.
+			// chips read as names rather than as numbers. By phase, as the board
+			// has them, then by name.
 			options: () => {
 				const after: string[] = $t.startAfter ?? [];
 				const self = tid;
 				const $tasks = $state.projects[pid]?.tasks ?? {};
 				return Object.keys($tasks)
 					.filter(o => o !== self && (after.includes(o) || !isFinished($tasks[o])))
-					.sort((a, b) => tidOrder(a) < tidOrder(b) ? -1 : 1)
-					.map(o => ({ value: o, label: taskName(pid, o) }));
+					.map(o => ({ value: o, label: taskName(pid, o), phase: PHASES.indexOf($tasks[o].phase) }))
+					.sort((a, b) => a.phase - b.phase || a.label.localeCompare(b.label));
 			},
 			bind: {
 				get value() { return $t.startAfter ?? []; },
