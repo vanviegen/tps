@@ -8,7 +8,7 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { drawAction, hostInk, hostState } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, PROJECT_COLORS, projectColor, selection, shortDir } from './util.ts';
+import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, PROJECT_COLORS, projectColor, projectName, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
@@ -17,11 +17,11 @@ import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathT
  */
 
 /**
- * Where a project sits in the list, as a sort key: a host's scratch project
- * first, then the user's order, the unplaced ones after that by name.
+ * Where a project sits in the list, as a sort key: the user's order, the
+ * unplaced ones after that by name, and the hosts' scratch tasks last of all.
  */
 export function projectOrder(pid: string, $p: any): (number | string)[] {
-	if ($p.scratch) return [-1, ''];
+	if ($p.scratch) return [Infinity, hostName($p.host)];
 	const order: string[] = $state.projectOrder ?? [];
 	const i = order.indexOf(pid);
 	return [i < 0 ? order.length : i, ($p.name ?? '').toLowerCase()];
@@ -96,11 +96,16 @@ export function closeBase(pid: string): void {
 }
 
 /**
- * The project's menu: everything to do with it, from its row in the sidebar.
- * A scratch project is no project of the user's to set up, move or remove.
+ * The pid of the host's scratch tasks: a project to the daemon, in which
+ * every task starts in an empty repository of its own (see ensureScratch),
+ * and no project to the user, who finds them under the host itself.
  */
+export function scratchOf(hid: string): string | undefined {
+	return Object.keys($state.projects ?? {}).find(pid => $state.projects[pid].host === hid && $state.projects[pid].scratch);
+}
+
+/** The project's menu: everything to do with it, from its row in the sidebar. */
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
-	if ($p.scratch) return [{ label: 'Create scratch task', icon: plus, click: () => addTask(pid) }];
 	return [
 		{ label: 'Create task', icon: plus, click: () => addTask(pid) },
 		{ label: 'Open project directory', icon: folder, click: () => void route.go(pathTo(pid, 'base')) },
@@ -121,7 +126,7 @@ export function drawProjectPage(pid: string, $p: any): void {
 	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
 		A('div display:flex align-items:center gap:$3 flex-wrap:wrap min-width:0', () => {
 			// The name in the project's colour, as the sidebar has it.
-			A(() => A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, A.ref($p, 'name')));
+			A(() => A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, projectName($p)));
 			if ($p.scratch) A('span font-size:0.9em fg:$s-muted #Tasks that belong to no project, each in an empty repository of its own');
 			else A(() => drawProjectFacts($p));
 			A('div flex:1');

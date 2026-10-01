@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { $state } from './conn.ts';
-import { canMerge, pathTo, taskTitle, type Phase } from './util.ts';
+import { canMerge, pathTo, projectName, taskTitle, type Phase } from './util.ts';
 
 /**
  * Notifications about a task being back with you: the desktop's own, so a
@@ -195,7 +195,7 @@ export function watchPhases(): void {
 				live.add(k);
 				const ask = !!$t.openrouterAsk;
 				if (ask && !asking.has(k) && seen.has(k) && A.peek(() => $on[k])) {
-					show(A.peek(() => taskTitle($t)), `${A.peek(() => $p.name) ?? 'TPS'}: the agent asks for OpenRouter budget`, pathTo(pid, tid));
+					show(A.peek(() => taskTitle($t)), `${A.peek(() => projectName($p))}: the agent asks for OpenRouter budget`, pathTo(pid, tid));
 				}
 				if (ask) asking.add(k);
 				else asking.delete(k);
@@ -208,7 +208,7 @@ export function watchPhases(): void {
 				// subscription: this scope is about phases, and a commit message
 				// arriving should not run it again.
 				const note = A.peek(() => announcement(pid, $t, was));
-				if (note) show(A.peek(() => taskTitle($t)), `${A.peek(() => $p.name) ?? 'TPS'}: ${note}`, pathTo(pid, tid));
+				if (note) show(A.peek(() => taskTitle($t)), `${A.peek(() => projectName($p))}: ${note}`, pathTo(pid, tid));
 			}
 		}
 		for (const k of seen.keys()) if (!live.has(k)) seen.delete(k), asking.delete(k);

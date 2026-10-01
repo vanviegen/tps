@@ -1,10 +1,11 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { check, download, folderGit2, keyRound, plug, plus, power, refreshCw, serverCrash, serverOff, trash2, triangleAlert } from 'staffa/icons.js';
+import { check, download, folderGit2, keyRound, plug, plus, power, refreshCw, serverCrash, serverOff, squareKanban, trash2, triangleAlert } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
 import { $state } from './conn.ts';
-import { addProjectDialog, projectsOn } from './projects.ts';
+import { addProjectDialog, projectsOn, scratchOf } from './projects.ts';
+import { addTask } from './task.ts';
 import { cmd, destName, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, shortDir } from './util.ts';
 
 /**
@@ -97,6 +98,9 @@ export function drawHostPage(hid: string): void {
 						A(`span fg:${hostInk(state.color)} text=`, state.ok ? 'connected' : state.color === 'neutral' ? state.text : 'needs attention');
 					});
 				});
+				const scratch = scratchOf(hid);
+				S.button({ content: 'View scratch board', icon: squareKanban, attrs: '.neutral', disabled: !scratch, click: () => void route.go(pathTo(scratch!)) });
+				S.button({ content: 'Create scratch task', icon: plus, attrs: '.neutral', disabled: !scratch, click: () => addTask(scratch!) });
 				S.button({ content: 'Add project', icon: plus, disabled: $h.status !== 'connected', click: () => addProjectDialog(hid) });
 			});
 			if (!state.ok) drawStrip(state.color, state.text, () => drawAction(state));
@@ -219,7 +223,12 @@ function drawHostActions(hid: string, status: string | undefined): void {
 /** What there is to do with a host, as the menu of its row in the sidebar. */
 export function hostMenuItems(hid: string, $h: any): S.MenuEntry[] {
 	const items: S.MenuEntry[] = [];
+	const scratch = scratchOf(hid);
 	if ($h.status === 'connected') {
+		if (scratch) items.push(
+			{ label: 'View scratch board', icon: squareKanban, click: () => void route.go(pathTo(scratch)) },
+			{ label: 'Create scratch task', icon: plus, click: () => addTask(scratch) },
+		);
 		items.push(
 			{ label: 'Add project…', icon: plus, click: () => addProjectDialog(hid) },
 			{ label: 'Sign in to claude', icon: keyRound, click: () => void signIn(hid) },

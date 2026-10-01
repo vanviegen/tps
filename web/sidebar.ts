@@ -12,9 +12,10 @@ import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projec
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
  *
- * Under the logo, every host, and on each the projects it holds in the order
- * the user put them in; under each project, the tasks that are *open*: those
- * waiting for a human, those an agent is working on, and the one on screen.
+ * Under the logo, every host, and on each its scratch tasks and then the
+ * projects it holds in the order the user put them in; under each project,
+ * the tasks that are *open*: those waiting for a human, those an agent is
+ * working on, and the one on screen.
  *
  * What belongs together is told by the space between it rather than by lines.
  * A host is a small label over a block with rounded outer corners; its
@@ -156,9 +157,12 @@ function drawHost(hid: string, $h: any): void {
 				A('span.tps-clip text=', state.action?.label ?? (state.color === 'neutral' ? state.text : 'Needs attention'));
 			});
 		}
+		A.onEach($state.projects, ($p: any, pid: string) => {
+			if ($p.host === hid && $p.scratch) drawScratch(pid, $p);
+		});
 		A('div.tps-tiles', () => {
 			A.onEach($state.projects, ($p: any, pid: string) => {
-				if ($p.host === hid) drawProject(pid, $p);
+				if ($p.host === hid && !$p.scratch) drawProject(pid, $p);
 			}, projectSortKey);
 		});
 	});
@@ -183,8 +187,7 @@ let dragged = false;
 function drawProject(pid: string, $p: any): void {
 	A('div.tps-tile', () => {
 		A(() => A('--tps-color:' + projectColor($p)));
-		// The scratch project leads its host's block, wherever the others are put.
-		A('a.tps-row.tps-project', 'draggable=', !$p.scratch, 'href=', pathTo(pid), () => {
+		A('a.tps-row.tps-project draggable=true', 'href=', pathTo(pid), () => {
 			S.addContextMenu({ link: pathTo(pid), get items(): S.MenuEntry[] { return projectMenuItems(pid, $p); } });
 			A('pointerdown=', () => { dragged = false; },
 				'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps-project', pid); },
@@ -216,6 +219,19 @@ function drawProject(pid: string, $p: any): void {
 			const { pid: shown, tid } = selection();
 			if ($p.codePort || (shown === pid && tid === 'base')) drawBase(pid);
 		});
+	});
+}
+
+/**
+ * The host's scratch tasks that are open, straight under its label: they
+ * belong to no project to be listed under.
+ */
+function drawScratch(pid: string, $p: any): void {
+	A('div', () => {
+		A(() => A('--tps-color:' + projectColor($p)));
+		A.onEach($p.tasks, ($t: any, tid: string) => {
+			if (isOpen(pid, tid, $t)) drawTask(pid, tid, $t);
+		}, phaseOrder);
 	});
 }
 

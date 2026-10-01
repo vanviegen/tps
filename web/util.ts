@@ -59,6 +59,11 @@ export function canMerge(pid: string, $t: any): boolean {
 	return waitsForHuman($t) && hasWorkspace($t) && !!$t.commitMessage && !$state.projects[pid]?.scratch;
 }
 
+/** What to call a project: its name, or for a host's scratch tasks, the host they are on. */
+export function projectName($p: any): string {
+	return $p.scratch ? `scratch at ${hostName($p.host)}` : $p.name ?? '';
+}
+
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */
 export const ELLIPSIS = 'white-space:nowrap overflow:hidden text-overflow:ellipsis';
 

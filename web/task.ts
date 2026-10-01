@@ -10,7 +10,7 @@ import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { sortedProjects } from './projects.ts';
 import { anyRunning, drawPortsButton, hasServices, portsDialog, serviceItems } from './services.ts';
-import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, projectName, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -490,7 +490,7 @@ export function drawPlanSettings(pid: string, tid: string, $t: any): void {
 	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
 	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
 		A(() => S.select({
-			label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: $p.name })),
+			label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: projectName($p) })),
 			bind: {
 				get value() { return pid; },
 				set value(to: string) { void changeProject(pid, tid, $t, to); },
@@ -578,7 +578,7 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
 	A('div display:flex align-items:center gap:0.4rem min-width:0', () => {
-		A(`b flex-shrink:0 max-width:40% ${ELLIPSIS} text=`, $state.projects[pid]?.name ?? '');
+		A(`b flex-shrink:0 max-width:40% ${ELLIPSIS} text=`, projectName($state.projects[pid] ?? {}));
 		A(`span flex:1 min-width:0 ${ELLIPSIS} fg:$s-muted`, () => {
 			A(() => A('text=', taskTitle($t)));
 			S.addTooltip({ tip: () => A('div white-space:pre-wrap max-width:32rem max-height:60vh overflow:hidden text=',

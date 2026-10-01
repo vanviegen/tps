@@ -9,7 +9,7 @@ import { drawDashboard, drawProjectCode, drawProjectPage } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
-import { hasWorkspace, isFinished, selection, taskTitle } from './util.ts';
+import { hasWorkspace, isFinished, projectName, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -88,7 +88,7 @@ A(() => {
 	const $p = pid ? $state.projects[pid] : undefined;
 	const $t = tid ? $p?.tasks?.[tid] : undefined;
 	const what = !$p ? '' : $t ? taskTitle($t) : tid === 'base' ? 'Project directory' : '';
-	document.title = [what, $p?.name, 'TPS'].filter(Boolean).join(' · ');
+	document.title = [what, $p && projectName($p), 'TPS'].filter(Boolean).join(' · ');
 });
 
 function drawMain(): void {

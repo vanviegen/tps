@@ -3,7 +3,7 @@ import * as S from 'staffa';
 import { claimKeyInCode } from './code.ts';
 import { closeBase, sortedProjects } from './projects.ts';
 import { addTask } from './task.ts';
-import { isFinished, pathTo, phaseOrder, PHASE_LABELS, selection, taskTitle, type Phase } from './util.ts';
+import { isFinished, pathTo, phaseOrder, PHASE_LABELS, projectName, selection, taskTitle, type Phase } from './util.ts';
 
 /**
  * Go anywhere without the mouse: a key opens a field, you type a few letters of
@@ -76,10 +76,12 @@ function destinations(): Destination[] {
 		const out: Destination[] = [];
 		if (pid === here) blocks.unshift(out);
 		else blocks.push(out);
-		out.push({ value: pathTo(pid), label: $p.name });
-		if (pid === here && open === 'base') out.push({ value: CLOSE + pid, label: `${$p.name} › Close project directory` });
-		else out.push({ value: pathTo(pid, 'base'), label: `${$p.name} › Open project directory` });
-		out.push({ value: CREATE + pid, label: `${$p.name} › Create task` });
+		const name = projectName($p);
+		out.push({ value: pathTo(pid), label: name });
+		// Scratch tasks have no directory of the user's to open.
+		if (pid === here && open === 'base') out.push({ value: CLOSE + pid, label: `${name} › Close project directory` });
+		else if (!$p.scratch) out.push({ value: pathTo(pid, 'base'), label: `${name} › Open project directory` });
+		out.push({ value: CREATE + pid, label: `${name} › Create task` });
 		const tasks = (Object.entries($p.tasks ?? {}) as [string, any][]).filter(([, $t]) => !isFinished($t));
 		tasks.sort((a, b) => {
 			const [ka, kb] = [phaseOrder(a[1], a[0]), phaseOrder(b[1], b[0])];
@@ -87,7 +89,7 @@ function destinations(): Destination[] {
 		});
 		for (const [tid, $t] of tasks) {
 			const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
-			out.push({ value: pathTo(pid, tid), label: `${$p.name} › ${taskTitle($t)} · ${phase}` });
+			out.push({ value: pathTo(pid, tid), label: `${name} › ${taskTitle($t)} · ${phase}` });
 		}
 	}
 	return blocks.flat();

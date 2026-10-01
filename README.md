@@ -57,8 +57,8 @@ message later and the agent continues in a new clone, knowing what it did the
 first time.
 
 **Scratch tasks.** For a question, some research or an experiment that belongs
-to no project: each host has a Scratch board whose tasks start in an empty
-repository of their own. One that grows into something can be turned into a
+to no project: scratch tasks are listed under their host, and start in an
+empty repository of their own. One that grows into something can be turned into a
 project, its work and conversation coming along.
 
 **Many projects, one place.** The sidebar lists your projects and their active
