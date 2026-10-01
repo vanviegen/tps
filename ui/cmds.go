@@ -165,6 +165,19 @@ func (u *UI) updateDaemon(raw json.RawMessage) (any, error) {
 	return u.hostCmd(raw, func(l *Link) error { return l.upgrade() })
 }
 
+// setOpenRouterKey hands the host's daemon the management key it makes agents'
+// OpenRouter keys with (see daemon/openrouter.go).
+func (u *UI) setOpenRouterKey(raw json.RawMessage) (any, error) {
+	var args struct {
+		Key string `json:"key"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	return u.hostCmd(raw, func(l *Link) error {
+		_, err := l.cmd("setOpenRouterKey", map[string]any{"text": args.Key})
+		return err
+	})
+}
+
 func (u *UI) stopDaemon(raw json.RawMessage) (any, error) {
 	return u.hostCmd(raw, func(l *Link) error {
 		l.mu.Lock()

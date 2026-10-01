@@ -138,19 +138,26 @@ function drawProjectRow(pid: string, $p: any): void {
 A.insertGlobalCss({ '.tps-hover:hover': 'background: color-mix(in oklab, $s-text, transparent 92%);' });
 
 /**
- * What the host is set by: the name it is shown by, and the ssh destination it
- * is reached at, with a Save of their own — nothing typed here reaches the host
- * until that is pressed. Saving another destination drops the connection and
- * makes it anew, as if the host were added again: the projects found there take
- * the place of the ones it had. This machine has no destination to point
- * elsewhere, so it only takes a name.
+ * What the host is set by: the name it is shown by, the ssh destination it is
+ * reached at, and the OpenRouter key its agents' keys are made with, with a Save
+ * of their own — nothing typed here reaches the host until that is pressed.
+ * Saving another destination drops the connection and makes it anew, as if the
+ * host were added again: the projects found there take the place of the ones it
+ * had. This machine has no destination to point elsewhere. The OpenRouter key
+ * is never shown again: the field only ever replaces it.
  */
 function drawHostSettings(hid: string): void {
-	const initial = () => A.peek(() => ({ name: $state.hostNames?.[hid] ?? '', dest: $state.hosts?.[hid]?.dest ?? '' }));
+	const initial = () => A.peek(() => ({ name: $state.hostNames?.[hid] ?? '', dest: $state.hosts?.[hid]?.dest ?? '', key: '' }));
 	const $form = A.proxy(initial());
 	S.box({ header: 'Settings', attrs: 'mt:0', content: () => {
 		S.form({
 			submit: async () => {
+				if ($form.key.trim()) {
+					if (!(await cmd('setOpenRouterKey', { hid, key: $form.key.trim() }))) return;
+					$form.key = '';
+				}
+				const was = initial();
+				if ($form.name === was.name && $form.dest === was.dest) return;
 				const result = await cmd('setHost', { hid, name: $form.name, dest: $form.dest.trim() });
 				if (!result) return;
 				// Another destination is another host, with a page of its own.
@@ -163,10 +170,15 @@ function drawHostSettings(hid: string): void {
 					label: 'SSH destination', placeholder: 'user@host', required: true, bind: A.ref($form, 'dest'),
 					help: 'Whatever you would type after `ssh` (options like `-p 2222` go in front). Changing it reconnects, to whatever is there.',
 				});
+				S.textline({
+					label: 'OpenRouter management key', type: 'password', placeholder: 'Paste one to set or replace it', bind: A.ref($form, 'key'),
+					help: 'From openrouter.ai/settings/management-keys. Agents on this host may then ask for OpenRouter API keys of their own, made with this one and limited to what they ask for, within the task’s OpenRouter budget.',
+				});
 			},
 			actions: () => A(() => {
 				const was = initial();
-				const changed = $form.name !== was.name || $form.dest !== was.dest;
+				const changed = $form.name !== was.name || $form.dest !== was.dest || !!$form.key.trim();
+				if ($state.hosts?.[hid]?.openrouter) S.button({ content: 'Remove OpenRouter key', attrs: '.small .neutral', click: () => void cmd('setOpenRouterKey', { hid, key: '' }) });
 				S.button({ content: 'Save', icon: check, attrs: '.small', type: 'submit', disabled: !changed });
 			}),
 		});

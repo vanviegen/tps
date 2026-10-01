@@ -395,8 +395,14 @@ const doneMarker = "TPS-DONE:"
 
 // Done is an agent's verdict on its turn.
 type Done struct {
-	Next    string `json:"next"`              // user | merge | reload
-	Changes string `json:"changes,omitempty"` // what this turn changed, for the save point's commit (see mark)
+	Next    string   `json:"next"`              // user | merge | reload; none with a request
+	Changes string   `json:"changes,omitempty"` // what this turn changed, for the save point's commit (see mark)
+	Request *Request `json:"request,omitempty"` // something the agent asks TPS for, to carry on with (see openrouter.go)
+}
+
+// Request is what an agent may ask for in its TPS-DONE line.
+type Request struct {
+	OpenRouter float64 `json:"openrouter"` // USD of OpenRouter spending, as a key of its own
 }
 
 // TurnEnd is what a finished agent turn amounts to for the task.
@@ -446,10 +452,16 @@ func parseDone(text string) (rest string, done *Done, bad string) {
 	if json.Unmarshal([]byte(raw), &d) != nil {
 		return rest, nil, "the JSON after it could not be read"
 	}
+	if d.Request != nil && d.Request.OpenRouter <= 0 {
+		return rest, nil, "its request names no amount of USD for 'openrouter'"
+	}
 	switch d.Next {
 	case "user", "merge", "reload":
 		return rest, &d, ""
 	case "":
+		if d.Request != nil {
+			return rest, &d, ""
+		}
 		return rest, nil, "it has no 'next'"
 	}
 	return rest, nil, "'" + oneLine(d.Next, 30) + "' is not one of user, merge, reload"

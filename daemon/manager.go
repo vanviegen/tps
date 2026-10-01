@@ -37,6 +37,7 @@ type Manager struct {
 	quitting   atomic.Bool // a stop is under way; both quit tickers can ask for one
 	loginGone  atomic.Bool // claude's login here stopped being accepted (see loginExpired)
 	identity   Identity    // who the commits made here are by (see setIdentity)
+	orKey      string      // the OpenRouter management key agents' keys are made with (see openrouter.go)
 
 	savedMu sync.Mutex // serialises writing the registry file with reading it back (see quitIfConfigReplaced)
 	saved   []byte     // what the file held when this daemon last wrote or read it
@@ -232,7 +233,7 @@ func (m *Manager) Start() error {
 	if err != nil {
 		return err
 	}
-	m.identity = saved.Identity
+	m.identity, m.orKey = saved.Identity, saved.OpenRouterKey
 	m.usedAt = time.Now()
 	refreshGuestTool() // before any container this daemon adopts is used
 	for _, info := range saved.Projects {
@@ -242,6 +243,7 @@ func (m *Manager) Start() error {
 	}
 	m.hub.Set([]string{"ready"}, true)
 	m.publishLogin()
+	m.hub.Set([]string{"openrouter"}, m.orKey != "")
 	go m.parkAll()
 	go m.refreshModels()
 	go m.ticker(60*time.Second, m.refreshModels) // until the CLIs answer
@@ -267,7 +269,7 @@ func (m *Manager) saveL() {
 	for _, p := range m.sortedProjectsL() {
 		projects = append(projects, p.info)
 	}
-	data, err := json.MarshalIndent(registry{Projects: projects, Identity: m.identity}, "", "\t")
+	data, err := json.MarshalIndent(registry{Projects: projects, Identity: m.identity, OpenRouterKey: m.orKey}, "", "\t")
 	if err != nil {
 		return
 	}
@@ -296,8 +298,9 @@ func (m *Manager) saver() {
 
 // registry is the shape of the file: what this host remembers between runs.
 type registry struct {
-	Projects []*ProjectInfo `json:"projects"`
-	Identity Identity       `json:"identity"`
+	Projects      []*ProjectInfo `json:"projects"`
+	Identity      Identity       `json:"identity"`
+	OpenRouterKey string         `json:"openrouterKey,omitempty"`
 }
 
 // backupFile holds the registry as it stood one save ago.
@@ -784,20 +787,24 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			tid, err := p.CreateTask(partial)
 			return map[string]any{"tid": tid}, err
 		}),
-		"updateTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Update(partial) }),
-		"openTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
-		"chat":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
-		"attach":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
-		"preview":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
-		"stopAgent":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
-		"mergeTask":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
-		"rebaseTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
-		"moveTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
-		"deleteTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
-		"runService":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
-		"stopService":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
-		"restartService": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
-		"reloadTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
+		"updateTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Update(partial) }),
+		"grantOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			return nil, t.GrantOpenRouter(partial["budget"])
+		}),
+		"rejectOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RejectOpenRouter() }),
+		"openTask":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
+		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
+		"attach":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
+		"preview":          withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
+		"stopAgent":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
+		"mergeTask":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
+		"rebaseTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
+		"moveTask":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
+		"deleteTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
+		"runService":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
+		"stopService":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
+		"restartService":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
+		"reloadTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
 		// Reverting and forking are one command: both put a save point's state
 		// somewhere, and only differ in where (see UsePoint). The reply names
 		// the task it landed in, so the dashboard can go there, and the message
@@ -825,6 +832,14 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 				return nil, errors.New("bad arguments")
 			}
 			return nil, m.setIdentity(id)
+		},
+		"setOpenRouterKey": func(raw json.RawMessage) (any, error) {
+			r, _, err := decode(raw)
+			if err != nil {
+				return nil, err
+			}
+			m.setOpenRouterKey(r.Text)
+			return nil, nil
 		},
 		// A login the dashboard signed in for, as the credentials claude wrote (see login.go).
 		"setLogin": func(raw json.RawMessage) (any, error) {

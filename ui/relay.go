@@ -58,6 +58,7 @@ type Link struct {
 	modelsError     string         // why they are the built-in fallback instead
 	agentPrompt     string         // the rules its daemon puts above every agent conversation
 	login           string         // what its claude login needs, if anything (see daemon/login.go)
+	openrouter      bool           // it has an OpenRouter management key to make agents' keys with
 	signin          string         // how a sign-in for it here is going, or failed (see login.go)
 	signinURL       string         // the page it is made on, while it can be
 	signinCode      io.WriteCloser // where the code that page shows goes, while a sign-in is under way
@@ -171,6 +172,9 @@ func (l *Link) publishHost() {
 	}
 	if l.login != "" {
 		host["login"] = l.login
+	}
+	if l.openrouter {
+		host["openrouter"] = true
 	}
 	if l.signin != "" {
 		host["signin"] = l.signin
@@ -415,6 +419,7 @@ func (l *Link) onHello(state map[string]any) {
 	l.modelsError, _ = state["modelsError"].(string)
 	l.agentPrompt, _ = state["agentPrompt"].(string)
 	l.login, _ = state["login"].(string)
+	l.openrouter, _ = state["openrouter"].(bool)
 	l.homeDir, _ = state["home"].(string)
 	l.mu.Unlock()
 	switch {
@@ -521,6 +526,8 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 			l.modelsError, _ = value.(string)
 		case "login":
 			l.login, _ = value.(string)
+		case "openrouter":
+			l.openrouter, _ = value.(bool)
 		case "restarting":
 			l.restarting, _ = value.(bool)
 		default:

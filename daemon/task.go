@@ -109,17 +109,20 @@ type TaskInfo struct {
 	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is the task's own model
 	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
 	Phase         Phase          `json:"phase"`
-	Started       bool           `json:"started,omitempty"`       // the agent has a session in the task's state dir to pick back up
-	CommitMessage string         `json:"commitMessage,omitempty"` // what .tps-commit-message says, for the dashboard to show (see commitMessageFile)
-	Ready         bool           `json:"ready,omitempty"`         // that report still stands: nothing has been asked of the task since (see noteReadyL)
-	Spent         float64        `json:"spent,omitempty"`         // USD spent on agent runs so far
-	Budget        *float64       `json:"budget,omitempty"`        // USD limit; the task is parked when spending reaches it
-	Context       int64          `json:"context,omitempty"`       // tokens the conversation came to at the agent's last turn
-	Window        *ContextWindow `json:"window,omitempty"`        // and what claude's window holds besides it (see context.go)
-	TitleAsked    bool           `json:"titleAsked,omitempty"`    // claude has been asked to name this task (once is enough)
-	PhaseAt       int64          `json:"phaseAt,omitempty"`       // ms epoch of the last phase change; boards show the freshest first
-	StartAfter    []string       `json:"startAfter,omitempty"`    // tids this task follows: it leaves Plan by itself once they are all done
-	LimitUntil    int64          `json:"limitUntil,omitempty"`    // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
+	Started       bool           `json:"started,omitempty"`           // the agent has a session in the task's state dir to pick back up
+	CommitMessage string         `json:"commitMessage,omitempty"`     // what .tps-commit-message says, for the dashboard to show (see commitMessageFile)
+	Ready         bool           `json:"ready,omitempty"`             // that report still stands: nothing has been asked of the task since (see noteReadyL)
+	Spent         float64        `json:"spent,omitempty"`             // USD spent on agent runs so far
+	Budget        *float64       `json:"budget,omitempty"`            // USD limit; the task is parked when spending reaches it
+	ORBudget      *float64       `json:"openrouterBudget,omitempty"`  // USD of OpenRouter keys the agent may be handed without asking the user (see openrouter.go)
+	ORGranted     float64        `json:"openrouterGranted,omitempty"` // the limits of the keys it was handed so far
+	ORAsk         float64        `json:"openrouterAsk,omitempty"`     // a request of the agent's that did not fit, waiting for the user
+	Context       int64          `json:"context,omitempty"`           // tokens the conversation came to at the agent's last turn
+	Window        *ContextWindow `json:"window,omitempty"`            // and what claude's window holds besides it (see context.go)
+	TitleAsked    bool           `json:"titleAsked,omitempty"`        // claude has been asked to name this task (once is enough)
+	PhaseAt       int64          `json:"phaseAt,omitempty"`           // ms epoch of the last phase change; boards show the freshest first
+	StartAfter    []string       `json:"startAfter,omitempty"`        // tids this task follows: it leaves Plan by itself once they are all done
+	LimitUntil    int64          `json:"limitUntil,omitempty"`        // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
 
 	// Pending is what the agent is told the next time it is sent in: things
 	// that happened to its workspace while it wasn't running.
@@ -305,12 +308,11 @@ func (t *Task) publishL() {
 	} else {
 		t.pubL("ready", nil)
 	}
-	if t.info.Spent > 0 {
-		t.pubL("spent", t.info.Spent)
-	} else {
-		t.pubL("spent", nil)
-	}
+	t.pubL("spent", nonZero(t.info.Spent))
 	t.pubL("budget", optional(t.info.Budget))
+	t.pubL("openrouterBudget", optional(t.info.ORBudget))
+	t.pubL("openrouterGranted", nonZero(t.info.ORGranted))
+	t.pubL("openrouterAsk", nonZero(t.info.ORAsk))
 	t.pubL("context", t.contextL())
 	if len(t.info.StartAfter) > 0 {
 		t.pubL("startAfter", t.info.StartAfter)
@@ -350,6 +352,13 @@ func (t *Task) publishL() {
 		t.pubL("codeStart", nil)
 	}
 	t.pubL("codeError", nonEmpty(t.codeError))
+}
+
+func nonZero(v float64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
 }
 
 // parseBudget reads a spending limit as it arrives from a dashboard: a number
@@ -422,8 +431,9 @@ func (t *Task) setPhaseL(phase Phase) {
 	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent (the review included) waits for nothing
 		t.clearLimitL()
 	}
-	if phase != PhaseHuman && phase != PhaseMuted { // sent anywhere at all, the task is no longer one reported done
+	if phase != PhaseHuman && phase != PhaseMuted { // sent anywhere at all, the task is no longer one reported done, nor asking for anything
 		t.info.Ready = false
+		t.info.ORAsk = 0
 	}
 	t.info.Phase = phase
 	t.info.PhaseAt = time.Now().UnixMilli()
@@ -655,6 +665,9 @@ func (t *Task) applyL(partial map[string]any) {
 	}
 	if raw, ok := partial["budget"]; ok {
 		t.info.Budget = parseBudget(raw)
+	}
+	if raw, ok := partial["openrouterBudget"]; ok {
+		t.info.ORBudget = parseBudget(raw)
 	}
 	if raw, ok := partial["startAfter"].([]any); ok {
 		var after []string
@@ -2464,6 +2477,11 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	next, changes := "", ""
 	if end.Done != nil {
 		next, changes = end.Done.Next, end.Done.Changes
+	}
+	if end.Done != nil && end.Done.Request != nil {
+		t.unlock()
+		t.requestOpenRouter(end.Done.Request.OpenRouter, changes)
+		return
 	}
 	if next == "reload" && !t.overBudgetL() {
 		t.note("the agent asked for a container rebuild; recreating the workspace")

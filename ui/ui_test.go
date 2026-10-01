@@ -12,11 +12,12 @@ import (
 // the ones that are about a host rather than a project on it, and so have a
 // handler of their own (see registerCmds).
 var uiHandled = map[string]bool{
-	"addProject":  true, // needs the host picked before there is a pid to translate
-	"restart":     true, // the daemon's own lifecycle: stopDaemon and updateDaemon drive it
-	"stop":        true,
-	"setLogin":    true, // the login is made in the browser and handed over (see ui/login.go)
-	"setIdentity": true, // this machine's git identity, handed over on connecting (see handOverIdentity)
+	"addProject":       true, // needs the host picked before there is a pid to translate
+	"restart":          true, // the daemon's own lifecycle: stopDaemon and updateDaemon drive it
+	"stop":             true,
+	"setLogin":         true, // the login is made in the browser and handed over (see ui/login.go)
+	"setIdentity":      true, // this machine's git identity, handed over on connecting (see handOverIdentity)
+	"setOpenRouterKey": true, // set on the host's page (see setOpenRouterKey)
 }
 
 // The identity handed to a host is who git here would commit as, which is more

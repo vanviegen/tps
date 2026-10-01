@@ -451,7 +451,7 @@ func (p *Project) newForkL(src *TaskInfo, title string) *Task {
 	info := &TaskInfo{
 		Title: title, Description: src.Description, Model: src.Model,
 		ReviewModel: src.ReviewModel, OnReady: src.OnReady, OnAccept: src.OnAccept,
-		ReviewLoops: copyPtr(src.ReviewLoops), Budget: copyPtr(src.Budget),
+		ReviewLoops: copyPtr(src.ReviewLoops), Budget: copyPtr(src.Budget), ORBudget: copyPtr(src.ORBudget),
 		Phase: PhaseHuman, PhaseAt: time.Now().UnixMilli(),
 		TitleAsked: true,
 	}

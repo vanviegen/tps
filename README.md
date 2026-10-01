@@ -70,14 +70,13 @@ are done and resuming after a session limit, holding a wake-lock meanwhile.
 The daemons automatically start (on connect) and stop (when there's nothing 
 left to do).
 
-**Finished tasks weigh little.** A task that is done keeps its conversation
-compressed. Inactive tasks that still have unmerged file changes attached
-store them as a compact git bundle. 
+**OpenRouter budgets.** Agents can request OpenRouter budget for doing
+audio/video work or for testing apps that require model API access.
 
 And of course TPS offers: mid-run steering, pasting screenshots and other files, a choice
 of model per task, cost tracking with a budget that parks a task when it is
-reached, context-window insight, manual compaction, opt-in desktop notifications, and keyboard shortcuts for the things you
-do all day.
+reached, context-window insight, manual compaction, compressed an minimal storage of
+completed tasks, opt-in desktop notifications, and keyboard shortcuts for the things you do all day.
 
 ## Installing
 

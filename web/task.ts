@@ -9,7 +9,7 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { anyRunning, drawPortsButton, hasServices, portsDialog, serviceItems } from './services.ts';
-import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, taskActivity, taskBusy, taskName, taskTitle, tidOrder, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -324,6 +324,20 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
 		input: debounce(600, (e: Event) => save({ budget: (e.target as HTMLInputElement).value })),
 	});
+	// Only where the host can make OpenRouter keys at all. The flag is derived
+	// on its own, so the host's state changing does not redraw the field typed in.
+	const $or = A.proxy({ on: false });
+	A(() => { $or.on = !!$state.hosts[$state.projects[pid]?.host]?.openrouter; });
+	A(() => {
+		if (!$or.on) return;
+		const granted = A.peek($t, 'openrouterGranted');
+		S.textline({
+			label: 'OpenRouter budget (USD)', type: 'number', placeholder: 'None',
+			help: 'What the agent may be handed in OpenRouter API keys without asking you.' + (granted ? ` $${granted.toFixed(2)} handed out so far.` : ''),
+			value: A.peek($t, 'openrouterBudget') != null ? String(A.peek($t, 'openrouterBudget')) : '',
+			input: debounce(600, (e: Event) => save({ openrouterBudget: (e.target as HTMLInputElement).value })),
+		});
+	});
 	drawReadyFields($t, save);
 	// The odd one out: this setting is not the task's but this browser's, so it
 	// goes nowhere near `save` (see notify.ts). Switching it on can be refused —
@@ -607,7 +621,12 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				restoreDraft(pid, tid, $t.review);
 				A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
 			}
+			if ($t.openrouterAsk) {
+				drawStrip('warning', `⚠ the agent asks for $${$t.openrouterAsk} of OpenRouter spending, beyond the task’s OpenRouter budget`,
+					() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
+			}
 		});
+		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
 		// The merge has no button of its own down here: the agent reporting the
 		// work done is a moment in the log, and the button sits with it (see
 		// drawReady). The key it had reaches it from wherever the log is scrolled.
@@ -620,6 +639,38 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		drawInputBar(pid, tid, $t);
 	}) as HTMLElement;
 	acceptFiles(zone, area, files => addFiles(pid, tid, files));
+}
+
+// The tasks that have the dialog below on screen, so it is not stacked twice.
+const asking = new Set<string>();
+
+/**
+ * An agent's request for OpenRouter spending that its task's OpenRouter budget
+ * has no room for: raise the budget to make room, prefilled with what that
+ * takes, or turn the request down. Either way the agent is sent back in.
+ */
+function openRouterDialog(pid: string, tid: string, $t: any): void {
+	const key = `${pid}/${tid}`;
+	if (asking.has(key)) return;
+	asking.add(key);
+	const { openrouterAsk: ask, openrouterGranted: granted = 0, openrouterBudget: budget = 0 } = A.peek(() => ({ ...$t }));
+	const $form = A.proxy({ budget: String(Math.round((granted + ask) * 100) / 100) });
+	void S.dialog({ header: 'OpenRouter request', attrs: 'w:32rem', content: close => {
+		// Answered, here or elsewhere: nothing is left to decide.
+		A(() => { if (!$t.openrouterAsk) close(); });
+		S.form({
+			submit: async () => { if (await cmd('grantOpenRouter', { pid, tid, budget: $form.budget })) close(); },
+			content: () => {
+				A('p m:0 text=', `The agent asks for an OpenRouter API key with a limit of $${ask}. This task’s OpenRouter budget is `
+					+ `$${budget}, of which $${granted.toFixed(2)} has been handed out already, so the budget would need to be raised to grant it.`);
+				S.textline({ label: 'OpenRouter budget (USD)', type: 'number', bind: A.ref($form, 'budget') });
+			},
+			actions: () => {
+				S.button({ content: 'Reject request', attrs: '.neutral', click: () => { void cmd('rejectOpenRouter', { pid, tid }); close(); } });
+				S.button({ content: 'Change budget', icon: check, type: 'submit' });
+			},
+		});
+	}}).then(() => asking.delete(key));
 }
 
 function drawInputBar(pid: string, tid: string, $t: any): void {
