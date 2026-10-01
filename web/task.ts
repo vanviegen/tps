@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, ellipsisVertical, ethernetPort, folderGit2, gitMerge, play, plus, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, folderGit2, gitMerge, menu, plus, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
@@ -9,8 +9,8 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { sortedProjects } from './projects.ts';
-import { anyRunning, drawPortsButton, hasServices, portsDialog, serviceItems } from './services.ts';
-import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, projectName, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
+import { autoStarts, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, projectName, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -563,10 +563,9 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 
 /**
  * What sits above the log, on one line: the project, the task's title — in
- * full, with what it was asked, in its tooltip — the play button while a
- * service runs and the ports one while something listens, the merge button
- * while the work is ready to merge, the phase with its menu, and a menu of the
- * rest there is to do with the task.
+ * full, with what it was asked, in its tooltip — a button per service running
+ * or recently ended and per port something listens on, the merge button while
+ * the work is ready to merge, and the menu of everything else.
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
 	A('div display:flex align-items:center gap:0.4rem min-width:0', () => {
@@ -576,55 +575,39 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 			S.addTooltip({ tip: () => A('div white-space:pre-wrap max-width:32rem max-height:60vh overflow:hidden text=',
 				[taskTitle($t), ($t.description ?? '').trim()].filter(Boolean).join('\n\n')) });
 		});
-		A(() => { // its own scope: a service starting must not redraw the row
-			if (!anyRunning($t)) return;
-			// Services go on behind a closed console, and this is what brings it back.
-			S.iconButton({ icon: play, ariaLabel: 'Services: something is running', tooltip: 'What runs in the container',
-				click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: serviceItems(pid, tid, $t) }); } });
-		});
-		drawPortsButton($t);
+		drawServiceButtons(pid, tid, $t);
+		drawPortButtons($t);
 		A(() => {
 			if (!canMerge(pid, $t)) return;
 			S.iconButton({ icon: gitMerge, ariaLabel: 'Merge…', attrs: 'fg:$s-success', key: 'mod+shift+g',
 				tooltip: 'The agent reports the work ready to merge', click: () => doneDialog(pid, tid, $t) });
 		});
-		// The phase, worn as the icon it has on the board and in the sidebar, is
-		// the button for everything that is about the phase. It breathes while
-		// something is going on, exactly as the board's does.
-		A(() => {
-			const phase = $t.phase as Phase;
-			const icon = PHASE_ICONS[phase] ?? bot;
-			S.iconButton({
-				icon: () => icon({ attrs: taskBusy($t) ? busyAttrs(icon) : undefined }),
-				ariaLabel: `Phase: ${PHASE_LABELS[phase] ?? phase}`,
-				tooltip: `${PHASE_LABELS[phase] ?? phase} — move it to another phase, finish it, delete it`,
-				click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); },
-			});
-		});
-		S.iconButton({ icon: ellipsisVertical, ariaLabel: 'Task actions', tooltip: 'Everything to do with this task',
+		S.iconButton({ icon: menu, ariaLabel: 'Task menu', tooltip: 'Everything to do with this task',
 			click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: headerItems(pid, tid, $t) }); } });
 	});
 }
 
 /**
- * The header's menu: what is for the human at the wheel, the ports while the
- * task has them, its settings, and below those its services.
+ * The header's menu: the task's own (where it can go, and how it ends), with
+ * what is for the human at the wheel and its settings slotted in, and below
+ * those its services and its forwarded ports.
  */
 function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
-	const items: S.MenuEntry[] = [];
+	const extra: S.MenuEntry[] = [];
 	// Only while the task is yours: rebasing and rebuilding both move the
 	// ground under a running agent, and both are for the human at the wheel.
 	if (waitsForHuman($t)) {
 		if ($t.behind) {
 			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-			items.push({ label: `Rebase onto the latest ${branch} (${$t.behind} behind)`, icon: arrowDownToLine, click: () => rebaseTask(pid, tid, $t) });
+			extra.push({ label: `Rebase onto the latest ${branch} (${$t.behind} behind)`, icon: arrowDownToLine, click: () => rebaseTask(pid, tid, $t) });
 		}
-		items.push({ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) });
+		extra.push({ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) });
 	}
-	if ($t.ports?.length) items.push({ label: 'Forwarded ports…', icon: ethernetPort, click: () => portsDialog($t) });
-	if ($state.projects[pid]?.scratch) items.push({ label: 'Turn into project…', icon: folderGit2, click: () => turnIntoProjectDialog(pid, tid) });
-	items.push({ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) });
+	if ($state.projects[pid]?.scratch) extra.push({ label: 'Turn into project…', icon: folderGit2, click: () => turnIntoProjectDialog(pid, tid) });
+	extra.push({ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) });
+	const items = taskMenuItems(pid, tid, $t, extra);
 	if (hasServices($t)) items.push({ separator: true }, ...serviceItems(pid, tid, $t));
+	if ($t.ports?.length) items.push({ separator: true }, ...portItems($t));
 	return items;
 }
 
@@ -737,6 +720,16 @@ function openRouterDialog(pid: string, tid: string, $t: any): void {
 	}}).then(() => asking.delete(key));
 }
 
+// While something goes on in the task (see taskBusy), colour flows around the
+// composer's border: this is where the eye waits for the agent.
+const working = A.insertCss({
+	'& .s-input, & .s-input:focus-visible': 'border-color: transparent; animation: tps-flow 3s linear infinite; '
+		+ 'background: linear-gradient(color-mix(in oklab, $s-bg, $s-text 4%), color-mix(in oklab, $s-bg, $s-text 4%)) padding-box, '
+		+ 'linear-gradient(90deg, $s-primary, $s-link, $s-warning, $s-primary) 0 0 / 200% 100% border-box;',
+	'& .s-input:not(:focus-visible)': 'box-shadow: 0 0 8px -2px color-mix(in oklab, $s-link, transparent 40%);',
+});
+A.insertGlobalCss({ '@keyframes tps-flow': { to: 'background-position: 0 0, 200% 0;' } });
+
 function drawInputBar(pid: string, tid: string, $t: any): void {
 	// Whatever was typed here and never sent, from before this task was left.
 	const draft = chatDraft(pid, tid);
@@ -755,6 +748,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		void cmd('chat', { pid, tid, text, files });
 	};
 	const bar = A('div display:flex flex-direction:column gap:$2', () => {
+		A(() => A(working + '=', taskBusy($t)));
 		drawAttachments(pid, tid, name => {
 			dropAttachment(pid, tid, name);
 			removeRef(area(), uploadPath(name));

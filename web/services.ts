@@ -8,11 +8,12 @@ import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
  * A task's services: the named, long-running commands in its container —
  * the project's dev server (the Containerfile's CMD, as 'app'), a test suite,
  * a review app — declared by Containerfile.dev or started ad hoc, by the
- * agent (tps-guest-tool) or from here. The task's menu lists them, and so
- * does the play button while one runs; a service opens a console with its
- * output and the buttons to start, stop and restart it. The ports the
- * container forwards have a button of their own beside it while something
- * listens on one (see drawPortsButton). A service belongs to the task,
+ * agent (tps-guest-tool) or from here. The task's menu lists them, and the
+ * header has a play button for each one running or recently ended (see
+ * drawServiceButtons); a service opens a console with its output and the
+ * buttons to start, stop and restart it. The ports the container forwards
+ * are in the task's menu too, and in the header while something listens on
+ * one (see drawPortButtons). A service belongs to the task,
  * not to its container: a replaced container ends what ran, and leaves every
  * service idle with the command it runs, ready to start again.
  */
@@ -28,12 +29,7 @@ export interface Service {
 
 interface Port { port: number; host: number; live?: boolean; open?: boolean; }
 
-/** Whether any service of the task runs: the play button shows then. */
-export function anyRunning($t: any): boolean {
-	return ($t.services ?? []).some((s: Service) => s.status === 'running');
-}
-
-/** Whether the task has services: what the play button opens the menu of. */
+/** Whether the task has services: the task menu lists them then. */
 export function hasServices($t: any): boolean {
 	return !!$t.services?.length;
 }
@@ -63,9 +59,9 @@ function statusIcon(s: Service): S.MenuItem['icon'] {
 }
 
 /**
- * The services as menu rows — the play button's menu, and the bottom of the
- * task menu: a line per service, its icon telling its status, a click opening
- * its console — and starting one that is not started.
+ * The services as menu rows, at the bottom of the task menu: a line per
+ * service, its icon telling its status, a click opening its console — and
+ * starting one that is not started.
  */
 export function serviceItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	// Plain copies: the menu is built once, as it opens, off the state of that moment.
@@ -87,45 +83,72 @@ export function serviceItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	return items;
 }
 
+/** How long an ended service keeps its button in the header. */
+const RECENT = 15 * 60_000;
+
+// The time, a minute at a time: what ended recently is read against it.
+const $clock = A.proxy({ now: Date.now() });
+setInterval(() => { $clock.now = Date.now(); }, 60_000);
+
 /**
- * The ports button, beside the play one while something listens on a port the
- * container forwards: a globe that opens the page right away when that is a
- * single port answering HTTP.
+ * A button per service that runs or ended within the last quarter hour: a
+ * play with the service's name set small and low beside it, orange while
+ * running, then green, or red when it exited with an error. A click opens its
+ * console.
  */
-export function drawPortsButton($t: any): void {
+export function drawServiceButtons(pid: string, tid: string, $t: any): void {
 	A(() => {
-		const open = (($t.ports ?? []) as Port[]).filter(p => p.open);
-		if (!open.length) return;
-		const only = open.length === 1 && open[0].live ? open[0] : undefined;
-		if (only) {
-			S.iconButton({ icon: globe, ariaLabel: `Open port ${only.port}`, tooltip: `Open port ${only.port} in a new tab`,
-				click: () => window.open(portUrl(only), '_blank') });
-		} else {
-			S.iconButton({ icon: ethernetPort, ariaLabel: 'Forwarded ports', tooltip: 'The ports the container forwards',
-				click: () => portsDialog($t) });
+		for (const s of ($t.services ?? []) as Service[]) {
+			if (s.status !== 'running' && !(s.ended && $clock.now - s.ended < RECENT)) continue;
+			const color = s.status === 'running' ? '$s-warning' : s.code ? '$s-danger' : '$s-success';
+			S.iconButton({
+				icon: () => {
+					play({ attrs: `fg:${color} ${s.status === 'running' ? busyAttrs(play) : ''}` });
+					A('span font-size:0.6em align-self:flex-end margin-left:-0.15em text=', s.name);
+				},
+				attrs: 'width:auto px:$1', ariaLabel: `Service ${s.name}`, tooltip: `${s.name}: ${statusText(s)}`,
+				click: () => serviceDialog(pid, tid, $t, s.name),
+			});
 		}
 	});
 }
 
-export function portsDialog($t: any): void {
-	void S.dialog({ header: 'Forwarded ports', attrs: 'w:34rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => {
-		A('p m:0 text=', 'Every port an EXPOSE line in Containerfile.dev names is forwarded from the task\'s container to a port on this machine, to reach what listens there from your browser.');
-		A('table border-collapse:collapse', () => {
-			A('tr', () => { for (const h of ['Container', 'Here', 'Status']) A('th text-align:left p:$1 text=', h); });
-			A(() => {
-				for (const p of ($t.ports ?? []) as Port[]) A('tr', () => {
-					A('td p:$1 text=', p.port);
-					A('td p:$1', () => {
-						if (p.live) A('a fg:$s-link', 'href=', portUrl(p), 'target=_blank', 'text=', portUrl(p));
-						else A('text=', p.host);
-					});
-					A('td p:$1 fg:$s-muted text=', p.live ? 'Serving HTTP' : portTip(p));
-				});
+/**
+ * A button per forwarded port something listens on, reading `:8080`: green
+ * where it answers HTTP, opening it in a new tab; otherwise grey, saying where
+ * on this machine the port is reached.
+ */
+export function drawPortButtons($t: any): void {
+	A(() => {
+		for (const p of ($t.ports ?? []) as Port[]) {
+			if (!p.open) continue;
+			S.iconButton({
+				icon: () => A('span font-size:0.85em font-family:monospace text=', `:${p.port}`),
+				attrs: `width:auto px:$1 ${p.live ? 'fg:$s-success' : ''}`, ariaLabel: `Port ${p.port}`, tooltip: portTip(p),
+				click: () => p.live ? window.open(portUrl(p), '_blank') : S.alert(portWhere(p)),
 			});
-		});
-	}});
+		}
+	});
 }
 
+/**
+ * The forwarded ports as menu rows, each with its status: the ones answering
+ * HTTP open in a new tab, the rest are there to be read.
+ */
+export function portItems($t: any): S.MenuEntry[] {
+	return A.peek(() => (($t.ports ?? []) as Port[]).map(p => ({ ...p }))).map(p => ({
+		icon: p.live ? globe : ethernetPort,
+		label: () => {
+			A('span text=', portLabel(p));
+			A('span fg:$s-muted font-size:0.85em margin-left:$2 text=', p.live ? 'HTTP' : p.open ? 'listening' : 'closed');
+		},
+		tooltip: portTip(p),
+		disabled: !p.live,
+		click: () => window.open(portUrl(p), '_blank'),
+	}));
+}
+
+const portWhere = (p: Port) => `Port ${p.port} of the container is forwarded to ${location.hostname}:${p.host}.`;
 const portLabel = (p: Port) => `${p.port} → ${p.host}`;
 const portTip = (p: Port) => p.live ? 'Open in a new tab' : p.open ? 'Something listens here, but does not answer HTTP' : 'Nothing listens here yet';
 
@@ -160,7 +183,7 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string, s
 				if (s?.status === 'running') {
 					S.button({ content: 'Stop', attrs: '.danger', click: () => void cmd('stopService', { pid, tid, name }) });
 					S.button({ content: 'Restart', attrs: '.neutral', click: () => void cmd('restartService', { pid, tid, name }) });
-					S.button({ content: 'Background', attrs: '.neutral', tooltip: 'Leave it running; the play button brings this back', click: () => close() });
+					S.button({ content: 'Background', attrs: '.neutral', tooltip: 'Leave it running; its play button above the chat brings this back', click: () => close() });
 				} else {
 					if (s) S.button({ content: s.status === 'idle' ? 'Start' : 'Run again', click: () => void run() });
 					S.button({ content: 'Close', attrs: '.neutral', click: () => close() });
@@ -194,7 +217,7 @@ function drawConsole($t: any, name: string, find: () => Service | undefined, $st
 	});
 }
 
-/** One button per forwarded port, live once something answers HTTP there: the dialog covers the ports button in the header. */
+/** One button per forwarded port, live once something answers HTTP there. */
 function drawPorts($t: any): void {
 	A(() => {
 		for (const p of ($t.ports ?? []) as Port[]) {
