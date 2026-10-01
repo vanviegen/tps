@@ -96,8 +96,9 @@ export function drawSidebar(): void {
 
 /**
  * The way to fold the sidebar, in the corner it keeps either way, and the logo
- * beside it while there is room for it. On a task or the project directory, the
- * other corner leads back to its project's board.
+ * beside it while there is room for it, leading to the front page. Anywhere
+ * else, the other corner leads back a level: from a task or the project
+ * directory to its project's board, and from there to the front page.
  */
 function drawHeader(collapsed: boolean): void {
 	A('div display:flex align-items:center gap:$2 ph:$1 pv:$2', () => {
@@ -108,12 +109,18 @@ function drawHeader(collapsed: boolean): void {
 			click: () => { $ui.collapsed = !collapsed; },
 		});
 		if (!collapsed) {
-			bot({ size: '1.4em', color: 'var(--s-accent)' });
-			A('b flex:1 #TPS');
+			A('a href=/ display:flex align-items:center gap:$2 flex:1 text-decoration:none fg:$s-text', () => {
+				bot({ size: '1.4em', color: 'var(--s-accent)' });
+				A('b #TPS');
+			});
 		}
 		A(() => {
 			const { pid, tid } = selection();
-			if (pid && tid) S.iconButton({ icon: chevronLeft, ariaLabel: 'Back to the board', attrs: '.small margin-left:auto', click: () => void route.back(pathTo(pid)) });
+			if (route.current.path === '/') return;
+			S.iconButton({
+				icon: chevronLeft, ariaLabel: pid && tid ? 'Back to the board' : 'Back to all projects', attrs: '.small margin-left:auto',
+				click: () => void route.back(pid && tid ? pathTo(pid) : '/'),
+			});
 		});
 	});
 }

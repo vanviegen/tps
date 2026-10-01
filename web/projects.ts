@@ -126,7 +126,27 @@ export function drawProjectPage(pid: string, $p: any): void {
 			});
 		});
 		drawNotices(pid, $p);
-		A('div flex:1 min-height:0', () => drawBoard(pid, $p));
+		A('div flex:1 min-height:0', () => drawBoard(pid, () => addTask(pid)));
+	});
+}
+
+/**
+ * The front page: one board with the tasks of every project. A task started
+ * here goes to the first project in the list, and its Plan settings are where
+ * another one is picked.
+ */
+export function drawDashboard(): void {
+	const create = () => {
+		const first = sortedProjects()[0];
+		if (first) void addTask(first[0]);
+		else void route.go(hostPath('local')); // where a project is added
+	};
+	A('div display:flex flex-direction:column gap:$3 h:100% min-width:0', () => {
+		A('div display:flex align-items:center gap:$3', () => {
+			A('h2 m:0 font-size:1.15em flex:1 #All projects');
+			S.button({ content: 'Create task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: create });
+		});
+		A('div flex:1 min-height:0', () => drawBoard(undefined, create));
 	});
 }
 

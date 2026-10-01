@@ -5,11 +5,11 @@ import { $state } from './conn.ts';
 import { watchPhases } from './notify.ts';
 import { bindPalette } from './palette.ts';
 import { drawHostPage } from './hosts.ts';
-import { drawProjectCode, drawProjectPage, sortedProjects } from './projects.ts';
+import { drawDashboard, drawProjectCode, drawProjectPage } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
-import { hasWorkspace, hostPath, isFinished, pathTo, selection, taskTitle } from './util.ts';
+import { hasWorkspace, isFinished, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -22,8 +22,8 @@ watchPhases(); // the tasks that asked to announce themselves (see notify.ts)
  * one. Each is a `key` on the button it presses, so the button's tooltip says
  * it, `?` lists it, and it works exactly while that button is on screen:
  *
- * - `ctrl-shift-S` start a task, `ctrl-shift-F` the project's own files in VS
- *   Code — both on the project page, beside the board.
+ * - `ctrl-shift-S` start a task, on the front page and the project page, and
+ *   `ctrl-shift-F` the project's own files in VS Code — beside the board.
  * - `ctrl-shift-G` merge the task on screen, while it offers to be merged.
  * - `ctrl-B` fold the sidebar away, and back out: Code's own key for its own
  *   sidebar, so the gesture is the same one wherever the focus is — and it is
@@ -96,7 +96,7 @@ function drawMain(): void {
 		if (!$state.ready) { A('progress w:100% m:$3'); return; }
 		const { hid, pid, tid } = selection();
 		if (hid) return drawWide(() => drawHostPage(hid));
-		if (!pid) return drawHome();
+		if (!pid) return drawWide(drawDashboard);
 		const $p = $state.projects[pid];
 		if (!$p) return drawWide(() => S.box({ header: 'Unknown project', content: 'This project is not in the list (anymore).' }));
 		if (tid === 'base') return drawProjectCode(pid, $p, WIDE_CODE_LEFT);
@@ -135,17 +135,6 @@ function drawTaskView(pid: string, tid: string, $t: any): void {
 			drawTaskCode(pid, tid, $t, TASK_CODE_LEFT);
 		});
 	});
-}
-
-/**
- * There is no front page: the address bar's "/" lands on the first project
- * in the sidebar — or, while there are none, on this machine's page, which is
- * where one is added.
- */
-function drawHome(): void {
-	const first = sortedProjects()[0];
-	const to = first ? pathTo(first[0]) : hostPath('local');
-	setTimeout(() => { if (route.current.path === '/') void route.go(to, 'replace'); });
 }
 
 // --- the rest of the app ---

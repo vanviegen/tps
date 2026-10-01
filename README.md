@@ -15,8 +15,9 @@ side-by-side, backed by its own lightweight sandbox container and repository.
 podman container of its own. Agents cannot touch your checkout or each other,
 and a task that went wrong is deleted rather than cleaned up after.
 
-**A Kanban board per project.** The tasks you're planning, what agents are
-working on, what needs your attention and what is done, at a glance.
+**A Kanban board per project, and one for all of them.** The tasks you're
+planning, what agents are working on, what needs your attention and what is
+done, at a glance.
 
 **VS Code on every task.** In the browser, running in the task's container on
 the task's files, with a terminal. Read what the agent did, fix a thing

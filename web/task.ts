@@ -8,6 +8,7 @@ import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
+import { sortedProjects } from './projects.ts';
 import { anyRunning, drawPortsButton, hasServices, portsDialog, serviceItems } from './services.ts';
 import { autoStarts, busyAttrs, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
@@ -240,6 +241,20 @@ export async function addTask(pid: string, partial: object = {}): Promise<void> 
 	route.go(pathTo(pid, created.tid as string));
 }
 
+/**
+ * Move a task in Plan to another project: its description is written down
+ * there as a new task, and this one deleted. The rest it gets from the new
+ * project's defaults — the tasks it followed are not that project's to follow.
+ */
+async function changeProject(pid: string, tid: string, $t: any, to: string): Promise<void> {
+	if (to === pid) return;
+	const created = await cmd('createTask', { pid: to, description: A.peek($t, 'description') ?? '' });
+	if (!created) return;
+	applyNotifyDefault(to, created.tid as string);
+	await cmd('deleteTask', { pid, tid });
+	route.go(pathTo(to, created.tid as string));
+}
+
 /** What the review model reads as when the task has none of its own. */
 const SAME_MODEL = 'Same as agent model';
 
@@ -470,6 +485,13 @@ export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 export function drawPlanSettings(pid: string, tid: string, $t: any): void {
 	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
 	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
+		A(() => S.select({
+			label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: $p.name })),
+			bind: {
+				get value() { return pid; },
+				set value(to: string) { void changeProject(pid, tid, $t, to); },
+			},
+		}));
 		drawTaskFields(pid, tid, $t, save);
 		A(() => {
 			const note = autoStartNote(pid, $t);

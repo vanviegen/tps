@@ -3,13 +3,14 @@ import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { funnel, plus, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
-import { addTask, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
+import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
- * The project's board: a box per column, a card dropped anywhere in a box's
- * body. Its notices and settings live in the left column. The width the
- * columns share is defined once, so they can't drift apart.
+ * A board: a box per column, a card dropped anywhere in a box's body. It holds
+ * the tasks of one project, or of all of them (the front page), each card
+ * edged in its project's colour. The width the columns share is defined once,
+ * so they can't drift apart.
  *
  * The column says what phase its cards are in — its header wears the phase's
  * icon — so a card repeats none of that: it carries a glyph only where it has
@@ -30,15 +31,16 @@ const boardWidths = A.insertCss({
 });
 
 /**
- * What each column is filtered by, keyed by project and phase. Module state,
- * as a filter outlives the popup it was typed in — and outlives leaving the
- * board, which its lit funnel is there to say on the way back.
+ * What each column is filtered by, keyed by project (none for all of them)
+ * and phase. Module state, as a filter outlives the popup it was typed in —
+ * and outlives leaving the board, which its lit funnel is there to say on the
+ * way back.
  */
 const $filters = A.proxy<Record<string, string>>({});
 
 /** The filter a column goes by, as its key into `$filters`. */
-function filterKey(pid: string, phase: Phase): string {
-	return `${pid}:${phase}`;
+function filterKey(pid: string | undefined, phase: Phase): string {
+	return `${pid ?? ''}:${phase}`;
 }
 
 // A funnel on every column would be noise at full strength, so a resting one
@@ -51,7 +53,19 @@ const funnelLook = A.insertCss({
 	'&.lit': 'opacity:1 fg:$s-accent',
 });
 
-export function drawBoard(pid: string, $p: any): void {
+/** A task on the board. */
+type Card = { pid: string; tid: string };
+
+/**
+ * The board of project `pid`, or of every project without one. `create` is
+ * what the Plan column's ✛ does.
+ */
+export function drawBoard(pid: string | undefined, create: () => void): void {
+	// Every task on the board in one list, so a column can sort the cards of
+	// all projects among each other.
+	const $cards = A.multiMap($state.projects, ($p: any, p: string) => p === pid || !pid
+		? Object.fromEntries(Object.keys($p.tasks ?? {}).map(tid => [`${p}/${tid}`, { pid: p, tid }]))
+		: undefined);
 	A('div display:flex gap:$3 align-items:stretch overflow-x:auto h:100%', boardWidths, () => {
 		for (const phase of COLUMNS) {
 			S.box({
@@ -63,11 +77,11 @@ export function drawBoard(pid: string, $p: any): void {
 					A('span display:inline-flex flex:none fg:$s-muted', () => PHASE_ICONS[phase]({ size: '1.1em' }));
 					A('text=', PHASE_LABELS[phase]);
 					A('div display:flex align-items:center gap:$1 ml:auto', () => {
-						if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Create task', attrs: '.small', click: () => void addTask(pid) });
+						if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Create task', attrs: '.small', click: create });
 						drawFilterButton(pid, phase);
 					});
 				},
-				content: () => drawColumn(pid, $p, phase),
+				content: () => drawColumn(pid, $cards, phase),
 			});
 		}
 	});
@@ -79,7 +93,7 @@ export function drawBoard(pid: string, $p: any): void {
  * standing — emptying the field is what ends one — so the funnel lights up for
  * as long as there is something typed, and says what in its tooltip.
  */
-function drawFilterButton(pid: string, phase: Phase): void {
+function drawFilterButton(pid: string | undefined, phase: Phase): void {
 	const key = filterKey(pid, phase);
 	S.iconButton({
 		ariaLabel: `Filter ${PHASE_LABELS[phase]}`,
@@ -131,7 +145,7 @@ function passesFilter($t: any, key: string): boolean {
  * taking a card dropped on it, which moves that card's task to the phase the
  * column is named after.
  */
-function drawColumn(pid: string, $p: any, phase: Phase): void {
+function drawColumn(pid: string | undefined, $cards: Record<string, Card>, phase: Phase): void {
 	const key = filterKey(pid, phase);
 	// The gap is the one the box's body would have given the cards, now that
 	// they hang in here rather than directly in it.
@@ -139,17 +153,18 @@ function drawColumn(pid: string, $p: any, phase: Phase): void {
 		'dragover=', (e: DragEvent) => e.preventDefault(),
 		'drop=', (e: DragEvent) => {
 			e.preventDefault();
-			const tid = e.dataTransfer?.getData('text/tps');
+			const [p, tid] = e.dataTransfer?.getData('text/tps').split('/') ?? [];
+			const $t = $state.projects[p]?.tasks?.[tid];
 			// A started card let go in Plan is already where it sits.
-			if (!tid || !$p.tasks[tid] || (phase === 'plan' && $p.tasks[tid].phase === 'muted')) return;
-			void moveTask(pid, tid, $p.tasks[tid], phase);
+			if (!$t || (phase === 'plan' && $t.phase === 'muted')) return;
+			void moveTask(p, tid, $t, phase);
 		},
 		() => {
 			// The ones on their way to Done go above the ones that got there, and
 			// the started ones above the ones never begun.
-			if (phase === 'done') drawCards(pid, $p, ['merge'], key);
-			if (phase === 'plan') drawCards(pid, $p, ['muted'], key);
-			drawCards(pid, $p, phase === 'done' ? ['done', 'closed'] : [phase], key);
+			if (phase === 'done') drawCards($cards, ['merge'], key);
+			if (phase === 'plan') drawCards($cards, ['muted'], key);
+			drawCards($cards, phase === 'done' ? ['done', 'closed'] : [phase], key);
 		});
 }
 
@@ -157,12 +172,13 @@ function drawColumn(pid: string, $p: any, phase: Phase): void {
  * The cards of some phases, oldest change at the bottom, and only the ones the
  * column's filter lets through.
  */
-function drawCards(pid: string, $p: any, phases: Phase[], key: string): void {
-	A.onEach($p.tasks, ($t: any, tid: string) => {
-		if (!phases.includes($t.phase)) return; // each card lives in its phase's column
+function drawCards($cards: Record<string, Card>, phases: Phase[], key: string): void {
+	A.onEach($cards, ({ pid, tid }) => {
+		const $t = $state.projects[pid]?.tasks?.[tid];
+		if (!$t || !phases.includes($t.phase)) return; // each card lives in its phase's column
 		if (!passesFilter($t, key)) return;
 		drawCard(pid, tid, $t);
-	}, phaseOrder);
+	}, ({ pid, tid }) => phaseOrder($state.projects[pid]?.tasks?.[tid] ?? {}, tid));
 }
 
 /**
@@ -185,13 +201,13 @@ let dragged = false;
 function drawCard(pid: string, tid: string, $t: any): void {
 	A('div draggable=true',
 		'pointerdown=', () => { dragged = false; },
-		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', tid); },
+		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', `${pid}/${tid}`); },
 		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
 		() => {
 			S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
 				return taskMenuItems(pid, tid, $t, [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }]);
 			}});
-			S.box({ attrs: 'cursor:pointer', contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
+			S.box({ attrs: `cursor:pointer border-left: 3px solid ${projectColor($state.projects[pid])};`, contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
 				A('div display:flex align-items:center gap:$2 font-weight:600', () => {
 					A(() => { if (saysMore(pid, $t)) drawTaskIcon(pid, $t, { color: keepsWork($t) ? '$s-warning' : undefined }); });
 					A('span flex:1 text=', taskTitle($t));
