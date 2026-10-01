@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -409,8 +410,11 @@ func (m *Manager) load(info *ProjectInfo) (*Project, error) {
 
 // Add registers a git repository (a path relative to the home directory, or
 // absolute) under the name given, or returns it as it is when it is already
-// registered: the list is the host's, and dashboards share it.
-func (m *Manager) Add(dir, name string) (*Project, error) {
+// registered: the list is the host's, and dashboards share it. A directory
+// that is missing, or holds no repository, is made one only when init says
+// so; otherwise Add says which of the two it would have to do, as missing
+// "dir" or "git", and registers nothing.
+func (m *Manager) Add(dir, name string, init bool) (*Project, string, error) {
 	if dir == "~" {
 		dir = ""
 	}
@@ -418,33 +422,62 @@ func (m *Manager) Add(dir, name string) (*Project, error) {
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(home(), dir)
 	}
+	created := false
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		if !init {
+			return nil, "dir", nil
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, "", err
+		}
+		created = true
+	}
 	real, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return nil, fmt.Errorf("No such directory: %s", dir)
+		return nil, "", fmt.Errorf("No such directory: %s", dir)
 	}
 	dir = real
 	m.mu.Lock()
 	for _, p := range m.projects {
 		if p.dir() == dir {
 			m.mu.Unlock()
-			return p, nil
+			return p, "", nil
 		}
 	}
 	m.mu.Unlock()
-	if !gitOK(dir, "rev-parse", "--git-dir") {
-		return nil, fmt.Errorf("%s is not a git repository", dir)
+	// A directory just made is a repository of its own, whatever it is in.
+	if created || !gitOK(dir, "rev-parse", "--git-dir") {
+		if !init {
+			return nil, "git", nil
+		}
+		if _, err := git(dir, "init", "--quiet"); err != nil {
+			return nil, "", err
+		}
 	}
+	// Workspaces clone a branch, so one without commits gets its first: an
+	// empty one, leaving the checkout's files as they are, new to git.
 	if !gitOK(dir, "rev-parse", "--verify", "-q", "HEAD") {
-		return nil, fmt.Errorf("%s has no commits yet", dir)
+		tree, err := git(dir, "mktree")
+		if err != nil {
+			return nil, "", err
+		}
+		id := m.gitIdentity()
+		sha, err := git(dir, "-c", "user.name="+id.Name, "-c", "user.email="+id.Email, "commit-tree", tree, "-m", "Initial commit")
+		if err != nil {
+			return nil, "", err
+		}
+		if _, err := git(dir, "update-ref", "HEAD", sha); err != nil {
+			return nil, "", err
+		}
 	}
 	p, err := m.load(&ProjectInfo{Dir: dir, Name: strings.TrimSpace(name)})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	m.mu.Lock()
 	m.saveL()
 	m.mu.Unlock()
-	return p, nil
+	return p, "", nil
 }
 
 // Remove unregisters a project, with the tasks and workspaces it holds. The
@@ -694,6 +727,7 @@ type ref struct {
 	Tid     string `json:"tid"`
 	Dir     string `json:"dir"`
 	Name    string `json:"name"`
+	Init    bool   `json:"init"` // addProject may make the directory and the repository
 	Text    string `json:"text"`
 	Phase   Phase  `json:"phase"`
 	Message string `json:"message"`
@@ -759,9 +793,12 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			if err != nil {
 				return nil, err
 			}
-			p, err := m.Add(r.Dir, r.Name)
+			p, missing, err := m.Add(r.Dir, r.Name, r.Init)
 			if err != nil {
 				return nil, err
+			}
+			if missing != "" {
+				return map[string]any{"missing": missing}, nil
 			}
 			return map[string]any{"pid": p.pid, "project": m.hub.Snapshot("projects", p.pid)}, nil
 		},

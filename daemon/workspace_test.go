@@ -538,3 +538,33 @@ func TestRebaseMergesTheBranchIntoTheSteps(t *testing.T) {
 		t.Errorf("the conflicted merge became a step: %q", got)
 	}
 }
+
+// A directory that is not a repository yet is only made one when asked, and
+// a repository without commits gets an empty first one, leaving the
+// checkout's files alone.
+func TestAddNewProject(t *testing.T) {
+	m := testManager()
+	m.dataDir = t.TempDir()
+	dir := filepath.Join(t.TempDir(), "new")
+	if _, missing, err := m.Add(dir, "", false); missing != "dir" || err != nil || exists(dir) {
+		t.Fatalf("missing %q, err %v: asked first?", missing, err)
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, missing, _ := m.Add(dir, "", false); missing != "git" {
+		t.Fatalf("missing %q, want git", missing)
+	}
+	if _, missing, err := m.Add(dir, "", true); err != nil || missing != "" {
+		t.Fatal(missing, err)
+	}
+	if got := gitRun(t, dir, "log", "--format=%s"); got != "Initial commit" {
+		t.Errorf("history: %q", got)
+	}
+	if got := gitRun(t, dir, "status", "--porcelain"); got != "?? a.txt" {
+		t.Errorf("checkout after the first commit: %q", got)
+	}
+}

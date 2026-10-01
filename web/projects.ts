@@ -155,14 +155,22 @@ export function addProjectDialog(hid: string): void {
 			submit: async () => {
 				if (!$form.dir.trim() || $busy.adding) return;
 				$busy.adding = true;
-				const result = await cmd('addProject', { hid, dir: $form.dir.trim(), name: $form.name.trim() });
+				const args = { hid, dir: $form.dir.trim(), name: $form.name.trim() };
+				let result = await cmd('addProject', args);
+				// A directory that is not there yet, or holds no repository, is made one once confirmed.
+				if (result?.missing) {
+					const question = result.missing === 'dir'
+						? `${args.dir} does not exist. Create it, as a new git repository?`
+						: `${args.dir} is not a git repository. Make it one (git init)?`;
+					result = await S.confirm(question) && await cmd('addProject', { ...args, init: true });
+				}
 				$busy.adding = false;
 				if (!result) return;
 				close();
 				route.go(pathTo(result.pid));
 			},
 			content: () => {
-				A('p rich=', 'A directory holding a git repository on this host. Work there goes on while this dashboard is closed.');
+				A('p rich=', 'A git repository on this host, or a directory to become one. Work there goes on while this dashboard is closed.');
 				S.textline({
 					label: 'Directory', placeholder: '~/projects/app', required: true, bind: A.ref($form, 'dir'),
 					input: (e: Event) => {
