@@ -1,15 +1,15 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { check, circleX, ethernetPort, globe, play, square } from 'staffa/icons.js';
+import { circleDashed, ethernetPort, flag, globe, play } from 'staffa/icons.js';
 import { ansiToHtml } from './ansi.ts';
-import { busyAttrs, cmd, ELLIPSIS, portUrl } from './util.ts';
+import { cmd, ELLIPSIS, portUrl } from './util.ts';
 
 /**
  * A task's services: the named, long-running commands in its container —
  * the project's dev server (the Containerfile's CMD, as 'app'), a test suite,
  * a review app — declared by Containerfile.dev or started ad hoc, by the
  * agent (tps-guest-tool) or from here. The task's menu lists them, and the
- * header has a play button for each one running or recently ended (see
+ * header has a button for each one running or recently ended (see
  * drawServiceButtons); a service opens a console with its output and the
  * buttons to start, stop and restart it. The ports the container forwards
  * are in the task's menu too, and in the header while something listens on
@@ -47,14 +47,12 @@ function clock(ms: number): string {
 	return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function statusIcon(s: Service): S.MenuItem['icon'] {
+/** A service's icon, with the colour it wears: a play while it runs, a flag once it ended — orange on an error. */
+function statusIcon(s: Service): [typeof play, string] {
 	switch (s.status) {
-		// Running is the play the row would have started, breathing: the same
-		// sign of something going on that a task's icon gives (see busyAttrs).
-		case 'running': return () => play({ attrs: `fg:$s-danger ${busyAttrs(play)}` });
-		case 'exited': return s.code ? () => circleX({ attrs: 'fg:$s-danger' }) : check;
-		case 'stopped': return square;
-		default: return play;
+		case 'running': return [play, ''];
+		case 'idle': return [circleDashed, ''];
+		default: return [flag, s.code ? 'fg:$s-warning' : ''];
 	}
 }
 
@@ -68,8 +66,9 @@ export function serviceItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	const services: Service[] = A.peek(() => ($t.services ?? []).map((s: Service) => ({ ...s })));
 	const items: S.MenuEntry[] = [];
 	for (const s of services) {
+		const [icon, color] = statusIcon(s);
 		items.push({
-			icon: statusIcon(s),
+			icon: color ? () => icon({ attrs: color }) : icon,
 			label: () => {
 				A('div display:flex align-items:baseline gap:$2 min-width:0', () => {
 					A('b text=', s.name);
@@ -90,44 +89,48 @@ const RECENT = 15 * 60_000;
 const $clock = A.proxy({ now: Date.now() });
 setInterval(() => { $clock.now = Date.now(); }, 60_000);
 
+// The end, by pid/tid/name, of each service whose console was closed after it
+// ended: having been seen, it leaves the header, until it ends once more.
+const $dismissed: Record<string, number | undefined> = A.proxy({});
+
 /**
- * A button per service that runs or ended within the last quarter hour: a
- * play with the service's name set small and low beside it, orange while
- * running, then green, or red when it exited with an error. A click opens its
- * console.
+ * A button per service that runs, or ended within the last quarter hour and
+ * was not looked at since: its icon (see statusIcon) with its name set small
+ * below it, cut short past five characters. A click opens its console.
  */
 export function drawServiceButtons(pid: string, tid: string, $t: any): void {
 	A(() => {
 		for (const s of ($t.services ?? []) as Service[]) {
-			if (s.status !== 'running' && !(s.ended && $clock.now - s.ended < RECENT)) continue;
-			const color = s.status === 'running' ? '$s-warning' : s.code ? '$s-danger' : '$s-success';
-			S.iconButton({
-				icon: () => {
-					play({ attrs: `fg:${color} ${s.status === 'running' ? busyAttrs(play) : ''}` });
-					A('span font-size:0.6em align-self:flex-end margin-left:-0.15em text=', s.name);
-				},
-				attrs: 'width:auto px:$1', ariaLabel: `Service ${s.name}`, tooltip: `${s.name}: ${statusText(s)}`,
-				click: () => serviceDialog(pid, tid, $t, s.name),
-			});
+			if (s.status !== 'running' && !(s.ended && $clock.now - s.ended < RECENT && $dismissed[`${pid}/${tid}/${s.name}`] !== s.ended)) continue;
+			const caption = s.name.length > 5 ? s.name.slice(0, 4) + '…' : s.name;
+			headerButton(...statusIcon(s), caption, `Service ${s.name}`, `${s.name}: ${statusText(s)}`, () => serviceDialog(pid, tid, $t, s.name));
 		}
 	});
 }
 
 /**
- * A button per forwarded port something listens on, reading `:8080`: green
- * where it answers HTTP, opening it in a new tab; otherwise grey, saying where
- * on this machine the port is reached.
+ * A button per forwarded port something listens on, its number set small
+ * below a globe where it answers HTTP — green, opening it in a new tab — or
+ * else below a port, saying where on this machine the port is reached.
  */
 export function drawPortButtons($t: any): void {
 	A(() => {
 		for (const p of ($t.ports ?? []) as Port[]) {
 			if (!p.open) continue;
-			S.iconButton({
-				icon: () => A('span font-size:0.85em font-family:monospace text=', `:${p.port}`),
-				attrs: `width:auto px:$1 ${p.live ? 'fg:$s-success' : ''}`, ariaLabel: `Port ${p.port}`, tooltip: portTip(p),
-				click: () => p.live ? window.open(portUrl(p), '_blank') : S.alert(portWhere(p)),
-			});
+			headerButton(p.live ? globe : ethernetPort, p.live ? 'fg:$s-success' : '', String(p.port), `Port ${p.port}`, portTip(p),
+				() => p.live ? window.open(portUrl(p), '_blank') : S.alert(portWhere(p)));
 		}
+	});
+}
+
+/** A header button of an icon with a caption below it, both in one colour. */
+function headerButton(icon: typeof play, attrs: string, caption: string, ariaLabel: string, tooltip: string, click: () => void): void {
+	S.iconButton({
+		icon: () => {
+			icon({ attrs: 'width:1.1em height:1.1em' });
+			A('span font-size:0.55rem line-height:1 text=', caption);
+		},
+		attrs: `width:auto min-width:1.75rem px:2px flex-direction:column gap:2px ${attrs}`, ariaLabel, tooltip, click,
 	});
 }
 
@@ -171,7 +174,7 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string, s
 	};
 	if (start) void run();
 	let close: () => void;
-	void S.dialog({
+	S.dialog({
 		header: () => { A('span text=', name + ': '); A(() => A('code text=', find()?.cmd ?? '')); },
 		// A height of its own, so the console scrolls inside it and the dialog never does.
 		attrs: 'w:110rem max-width:96vw h:min(88vh,800px)',
@@ -190,6 +193,9 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string, s
 				}
 			});
 		},
+	}).then(() => {
+		const s = A.peek(find);
+		if (s && s.status !== 'running') $dismissed[`${pid}/${tid}/${name}`] = s.ended;
 	});
 }
 

@@ -66,7 +66,8 @@ Rules:
   the one answer that is not the service's: it is still running, and 'await test
   [seconds]' waits some more. 'stop', 'restart', 'destroy' (which also takes it off
   the list), 'logs' and 'ps' do what they say; no arguments shows the usage. The user
-  sees every service in the dashboard as you do (the play button of the task), can read
+  sees every service in the dashboard as you do (an icon above the chat, captioned with
+  its name: keep names very short, five characters at most, as 'app', 'test'), can read
   its output, and can stop, restart or start it themselves, so when you hand the task
   over with a service to look at, say so and leave it running. Containerfile.dev
   declares the services a project comes with: its CMD line is the service 'app', and a
