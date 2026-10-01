@@ -332,8 +332,8 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		if (!$or.on) return;
 		const granted = A.peek($t, 'openrouterGranted');
 		S.textline({
-			label: 'OpenRouter budget (USD)', type: 'number', placeholder: 'None',
-			help: 'What the agent may be handed in OpenRouter API keys without asking you.' + (granted ? ` $${granted.toFixed(2)} handed out so far.` : ''),
+			label: 'OpenRouter budget limit (USD)', type: 'number', placeholder: 'None',
+			help: 'Separate from the task budget: what the agent may be handed in OpenRouter API keys without asking you.' + (granted ? ` $${granted.toFixed(2)} handed out so far.` : ''),
 			value: A.peek($t, 'openrouterBudget') != null ? String(A.peek($t, 'openrouterBudget')) : '',
 			input: debounce(600, (e: Event) => save({ openrouterBudget: (e.target as HTMLInputElement).value })),
 		});
@@ -621,10 +621,12 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				restoreDraft(pid, tid, $t.review);
 				A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
 			}
-			if ($t.openrouterAsk) {
-				drawStrip('warning', `⚠ the agent asks for $${$t.openrouterAsk} of OpenRouter spending, beyond the task’s OpenRouter budget`,
-					() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
-			}
+		});
+		// Asked mid-turn: the agent waits on the answer, whatever the phase says.
+		A(() => {
+			if (!$t.openrouterAsk) return;
+			drawStrip('warning', `⚠ the agent asks for $${$t.openrouterAsk} of OpenRouter spending, beyond the task’s OpenRouter budget`,
+				() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
 		// The merge has no button of its own down here: the agent reporting the
@@ -647,7 +649,7 @@ const asking = new Set<string>();
 /**
  * An agent's request for OpenRouter spending that its task's OpenRouter budget
  * has no room for: raise the budget to make room, prefilled with what that
- * takes, or turn the request down. Either way the agent is sent back in.
+ * takes, or turn the request down. The agent waits for the answer.
  */
 function openRouterDialog(pid: string, tid: string, $t: any): void {
 	const key = `${pid}/${tid}`;
@@ -662,12 +664,12 @@ function openRouterDialog(pid: string, tid: string, $t: any): void {
 			submit: async () => { if (await cmd('grantOpenRouter', { pid, tid, budget: $form.budget })) close(); },
 			content: () => {
 				A('p m:0 text=', `The agent asks for an OpenRouter API key with a limit of $${ask}. This task’s OpenRouter budget is `
-					+ `$${budget}, of which $${granted.toFixed(2)} has been handed out already, so the budget would need to be raised to grant it.`);
-				S.textline({ label: 'OpenRouter budget (USD)', type: 'number', bind: A.ref($form, 'budget') });
+					+ `$${budget}, of which $${granted.toFixed(2)} has been handed out already, so the OpenRouter budget would need to be raised to grant it.`);
+				S.textline({ label: 'OpenRouter budget limit (USD)', type: 'number', bind: A.ref($form, 'budget') });
 			},
 			actions: () => {
 				S.button({ content: 'Reject request', attrs: '.neutral', click: () => { void cmd('rejectOpenRouter', { pid, tid }); close(); } });
-				S.button({ content: 'Change budget', icon: check, type: 'submit' });
+				S.button({ content: 'Change OpenRouter budget', icon: check, type: 'submit' });
 			},
 		});
 	}}).then(() => asking.delete(key));

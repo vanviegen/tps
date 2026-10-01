@@ -172,12 +172,15 @@ function announcement($t: any, from: Phase): string | undefined {
 
 /** The phase each task was last seen in: what a change is told from. */
 const seen = new Map<string, Phase>();
+/** The tasks last seen with an OpenRouter request waiting for the user. */
+const asking = new Set<string>();
 
 /**
  * Watch every task's phase for the two transitions worth announcing: out of
  * Agent (the agent is done with it) and out of Merge (the merge landed, or
- * didn't). Tasks are seen before they are watched — the board knows them all —
- * so this works for any task, not only the one on screen.
+ * didn't) — and for an agent asking for OpenRouter budget, which waits on the
+ * user without leaving its phase. Tasks are seen before they are watched — the
+ * board knows them all — so this works for any task, not only the one on screen.
  *
  * A task is only announced once it has been seen in some phase before: the
  * ones that arrive with the connection are the state of things, not news.
@@ -190,6 +193,12 @@ export function watchPhases(): void {
 			for (const [tid, $t] of Object.entries($p.tasks ?? {}) as [string, any][]) {
 				const k = key(pid, tid);
 				live.add(k);
+				const ask = !!$t.openrouterAsk;
+				if (ask && !asking.has(k) && seen.has(k) && A.peek(() => $on[k])) {
+					show(A.peek(() => taskTitle($t)), `${A.peek(() => $p.name) ?? 'TPS'}: the agent asks for OpenRouter budget`, pathTo(pid, tid));
+				}
+				if (ask) asking.add(k);
+				else asking.delete(k);
 				const phase = $t.phase as Phase;
 				const was = seen.get(k);
 				seen.set(k, phase);
@@ -202,7 +211,7 @@ export function watchPhases(): void {
 				if (note) show(A.peek(() => taskTitle($t)), `${A.peek(() => $p.name) ?? 'TPS'}: ${note}`, pathTo(pid, tid));
 			}
 		}
-		for (const k of seen.keys()) if (!live.has(k)) seen.delete(k);
+		for (const k of seen.keys()) if (!live.has(k)) seen.delete(k), asking.delete(k);
 		// A deleted task takes its setting with it. A task of a project that is
 		// not here *yet* — its host still connecting — is not gone, only quiet,
 		// and keeps its setting until the host has spoken (as a hold does).

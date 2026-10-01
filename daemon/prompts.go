@@ -87,12 +87,10 @@ Rules:
   ranges and image removal are refused. These containers go away when yours is
   recreated (named volumes stay), so keep what starts them in a script or a compose file.
 - OpenRouter: where the task needs an LLM API of its own — models your own tools lack,
-  such as audio and video ones, or a system under test that calls one — you can ask for
-  an OpenRouter API key, with a spending limit in USD, by ending your turn with
-  TPS-DONE: {"request": {"openrouter": 3}} (and 'changes' as usual). The key comes as the
-  next message, unless the request is beyond the task's OpenRouter budget: then the user
-  decides first. Keep the key out of the files you leave in /work. When its limit runs
-  out, ask again the same way.
+  such as audio and video ones, or a system under test that calls one — 'tps-guest-tool
+  openrouter 3' asks for an OpenRouter API key limited to $3 of spending, and prints it.
+  A request beyond the task's OpenRouter budget waits for the user to decide. Keep the
+  key out of the files you leave in /work, and ask again when its limit runs out.
 
 End every turn with a TPS-DONE line: the last line of your last message, saying where
 the task goes next and nothing after it.
@@ -334,29 +332,6 @@ func budgetPrompt(budget, spent float64) string {
 	return fmt.Sprintf(`This task reached its budget limit of $%g (spent $%.2f) and was parked, which is why
 your work on it stopped where it did. The user has let it go on. Take stock of where
 the task stands before continuing, and keep the remaining room in mind.`, budget, spent)
-}
-
-// openRouterKeyPrompt hands the agent the key it asked for (see openrouter.go).
-func openRouterKeyPrompt(key string, limit float64) string {
-	return fmt.Sprintf(`Here is the OpenRouter API key you asked for, limited to $%g of spending:
-
-%s
-
-It works with OpenRouter's API at https://openrouter.ai/api/v1. Should the limit run out
-before you are done, ask again the same way.`, limit, key)
-}
-
-const openRouterMissingPrompt = `You asked for an OpenRouter key, but the host this task runs on has no OpenRouter
-management key set up, so TPS cannot make one. Carry on without it, or hand the task to
-the user if it cannot be done without.`
-
-const openRouterRejectedPrompt = `The user turned down your request for an OpenRouter key. Carry on without it, or
-hand the task back to the user if it cannot be done without.`
-
-func openRouterFailedPrompt(err error) string {
-	return fmt.Sprintf(`TPS could not make the OpenRouter key you asked for: %v
-
-Carry on without it, or hand the task to the user if it cannot be done without.`, err)
 }
 
 // replantedPrompt tells the agent that its workspace was brought onto the

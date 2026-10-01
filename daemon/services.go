@@ -512,13 +512,15 @@ func (t *Task) RestartService(name string) error {
 }
 
 // syncServices is the manager's tick: every running task's services are
-// re-read, and the output of those someone is looking at.
+// re-read, and the output of those someone is looking at, and a request for
+// an OpenRouter key is taken up.
 func (m *Manager) syncServices() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.allTasksL() {
 		if t.status == StatusUp && t.container != nil {
 			t.syncServicesL(t.viewers > 0)
+			t.checkORRequestL()
 		}
 	}
 }

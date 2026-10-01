@@ -116,7 +116,7 @@ type TaskInfo struct {
 	Budget        *float64       `json:"budget,omitempty"`            // USD limit; the task is parked when spending reaches it
 	ORBudget      *float64       `json:"openrouterBudget,omitempty"`  // USD of OpenRouter keys the agent may be handed without asking the user (see openrouter.go)
 	ORGranted     float64        `json:"openrouterGranted,omitempty"` // the limits of the keys it was handed so far
-	ORAsk         float64        `json:"openrouterAsk,omitempty"`     // a request of the agent's that did not fit, waiting for the user
+	ORAsk         float64        `json:"openrouterAsk,omitempty"`     // a request of the agent's beyond that budget, waiting for the user
 	Context       int64          `json:"context,omitempty"`           // tokens the conversation came to at the agent's last turn
 	Window        *ContextWindow `json:"window,omitempty"`            // and what claude's window holds besides it (see context.go)
 	TitleAsked    bool           `json:"titleAsked,omitempty"`        // claude has been asked to name this task (once is enough)
@@ -191,6 +191,7 @@ type Task struct {
 	declared      []declaredService // the services Containerfile.dev names, known along with the container
 	services      []serviceState    // their state and that of the ad hoc ones, as last read (see services.go)
 	logsPublished map[string]bool   // the services whose output tail the dashboard has
+	orBusy        bool              // an OpenRouter key is being made for the agent (see openrouter.go)
 }
 
 func newTask(p *Project, tid string, info *TaskInfo) *Task {
@@ -431,9 +432,8 @@ func (t *Task) setPhaseL(phase Phase) {
 	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent (the review included) waits for nothing
 		t.clearLimitL()
 	}
-	if phase != PhaseHuman && phase != PhaseMuted { // sent anywhere at all, the task is no longer one reported done, nor asking for anything
+	if phase != PhaseHuman && phase != PhaseMuted { // sent anywhere at all, the task is no longer one reported done
 		t.info.Ready = false
-		t.info.ORAsk = 0
 	}
 	t.info.Phase = phase
 	t.info.PhaseAt = time.Now().UnixMilli()
@@ -2477,11 +2477,6 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	next, changes := "", ""
 	if end.Done != nil {
 		next, changes = end.Done.Next, end.Done.Changes
-	}
-	if end.Done != nil && end.Done.Request != nil {
-		t.unlock()
-		t.requestOpenRouter(end.Done.Request.OpenRouter, changes)
-		return
 	}
 	if next == "reload" && !t.overBudgetL() {
 		t.note("the agent asked for a container rebuild; recreating the workspace")

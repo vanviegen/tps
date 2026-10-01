@@ -94,8 +94,6 @@ func TestDoneLine(t *testing.T) {
 		{in: "x\nTPS-DONE: {\"next\": \"done\"}", rest: "x", bad: "'done' is not one of user, merge, reload"},
 		{in: "x\nTPS-DONE: {}", rest: "x", bad: "it has no 'next'"},
 		{in: "x\nTPS-DONE: merge please", rest: "x", bad: "the JSON after it could not be read"},
-		{in: "x\nTPS-DONE: {\"request\": {\"openrouter\": 3}}", rest: "x"}, // a request needs no 'next'
-		{in: "x\nTPS-DONE: {\"request\": {}}", rest: "x", bad: "its request names no amount of USD for 'openrouter'"},
 	}
 	for _, c := range cases {
 		rest, done, bad := parseDone(c.in)

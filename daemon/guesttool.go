@@ -15,7 +15,8 @@ import (
 )
 
 // tps-guest-tool: what a task's agent reaches for from inside its container.
-// So far that is the task's services: starting, stopping and watching them.
+// That is the task's services — starting, stopping and watching them — and
+// OpenRouter keys (see openrouter.go).
 // It is the tps binary itself, copied into the toolbox under that name (see
 // ensureToolbox) and dispatched on it (see GuestToolInvoked). Both the agent
 // and the daemon (on the dashboard's behalf) go through it, so the two never
@@ -71,6 +72,15 @@ for anything that serves or takes a while: dev servers, test suites, builds.
                            list, unstarted.
   logs <name> [lines]      The last lines of its output (default 100).
   ps                       Every service, with its state.
+
+  openrouter <usd>         Not a service: ask TPS for an OpenRouter API key of
+                           your own, limited to that many USD of spending, for
+                           models you lack (audio, video) or a system under
+                           test that calls an LLM API. Prints the key. A
+                           request beyond the task's OpenRouter budget waits
+                           for the user; one they have not answered within 100
+                           seconds exits 124: run it again to keep waiting.
+                           Ask again when a key's limit runs out.
 `
 
 // GuestToolInvoked tells whether this process is the guest tool: the binary
@@ -119,6 +129,8 @@ func guestToolMain(args []string) int {
 		err = st.destroy(rest)
 	case "logs":
 		err = st.logs(rest)
+	case "openrouter":
+		return st.openRouter(rest)
 	case "ps", "list":
 		err = st.ps()
 	case "help", "-h", "--help":
