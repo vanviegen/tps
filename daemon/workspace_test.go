@@ -405,6 +405,9 @@ func TestCloseKeepsABundle(t *testing.T) {
 	if !exists(task.archiveFile()) || exists(task.chatFile()) || exists(task.agentDir(claudeCLI{})) {
 		t.Error("the data was not compressed")
 	}
+	if task.p.m.hub.Get("projects", "project", "tasks", task.tid, "worktree") != nil {
+		t.Error("the dashboard is still told of a workspace")
+	}
 	changes, err := task.changes()
 	if err != nil || len(changes) != 2 {
 		t.Errorf("changes of the bundle: %v, %v", changes, err)

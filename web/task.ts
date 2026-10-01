@@ -100,12 +100,15 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 		// Nothing changed since the task branched off: nothing to merge or to
 		// keep, so it simply ends, without asking. Only a count the daemon made
 		// says so. It is merged, which commits nothing, unless asked to end
-		// unmerged or it is still in Plan.
-		if ($t.phase !== 'plan' && $t.changes?.length !== 0) {
+		// unmerged or it is still in Plan. A task that cannot be merged — no
+		// workspace yet, or a scratch task — has no choice to ask about: it is
+		// closed.
+		const mergeable = hasWorkspace($t) && !$state.projects[pid]?.scratch;
+		if (mergeable && $t.phase !== 'plan' && $t.changes?.length !== 0) {
 			doneDialog(pid, tid, $t);
 			return false;
 		}
-		finish(pid, tid, phase === 'closed' || $t.phase === 'plan' ? 'closed' : 'done');
+		finish(pid, tid, !mergeable || phase === 'closed' || $t.phase === 'plan' ? 'closed' : 'done');
 		return true;
 	}
 	if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
@@ -176,18 +179,13 @@ async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
 }
 
 /**
- * How a task ends, as one dialog with a tab per answer: merged onto the branch
- * — the usual one, and the one it opens on — or put away without merging, its
- * work kept off the branch. Everything that ends a task lands
- * here, since which of the two is meant is worth being sure of.
- *
- * A task with nothing to merge yet (its workspace still in the making) has
- * only the one answer, and gets that tab's content without the strip above it.
+ * How a mergeable task ends, as one dialog with a tab per answer: merged onto
+ * the branch — the usual one, and the one it opens on — or put away without
+ * merging, its work kept off the branch. Which of the two is meant is worth
+ * being sure of.
  */
 export function doneDialog(pid: string, tid: string, $t: any): void {
 	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
-	const scratch = A.peek(() => !!$state.projects[pid]?.scratch);
-	const mergeable = hasWorkspace($t) && !scratch;
 	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string });
 	void S.dialog({ header: 'Finish this task', attrs: 'w:44rem', content: close => {
 		const drawMerge = (): void => {
@@ -209,21 +207,15 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 			});
 		};
 		const drawDontMerge = (): void => {
-			A('p mt:0 rich=', mergeable
-				? `The task ends as it stands: its work is kept, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work back as it was, where it can still be merged.`
-				: scratch
-					? 'A scratch task has no project to merge into, so this is how it ends: it is put away as it stands, its work kept for as long as the task is.'
-					: `This task has nothing to merge, so this is the only way it ends: it is put away as it stands.`);
+			A('p mt:0 rich=', `The task ends as it stands: its work is kept, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work back as it was, where it can still be merged.`);
 			A('div display:flex gap:$2 justify-content:flex-end', () => {
 				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined', click: () => { close(); finish(pid, tid, 'closed'); } });
 			});
 		};
-		if (mergeable) {
-			S.tabs({ contentAttrs: 'pt:$3', tabs: [
-				{ id: 'merge', label: `Merge into ${branch}`, icon: gitMerge, content: drawMerge },
-				{ id: 'closed', label: 'Don’t merge', icon: circleSlash, content: drawDontMerge },
-			]});
-		} else drawDontMerge();
+		S.tabs({ contentAttrs: 'pt:$3', tabs: [
+			{ id: 'merge', label: `Merge into ${branch}`, icon: gitMerge, content: drawMerge },
+			{ id: 'closed', label: 'Don’t merge', icon: circleSlash, content: drawDontMerge },
+		]});
 	}});
 }
 
@@ -672,6 +664,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		drawChat(pid, tid, $t);
 		A(() => {
 			if ($t.phase === 'closed') {
+				if ($state.projects[pid]?.scratch) return; // there was nothing to merge it into
 				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 				A('div.s-s.warning.tonal p:$2 text=', $t.changes?.length
 					? `⚠ closed without merging: nothing of this task is on ${branch}; its work is kept.`
@@ -850,10 +843,15 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 export function drawDonePanel(pid: string, tid: string, $t: any): void {
 	const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 	const closed = $t.phase === 'closed';
-	S.box({ header: closed ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
-		A('p m:0 text=', closed
-			? `This task was closed without merging. ${$t.changes?.length
-				? `Its work is kept, ${$t.changes.length} file${$t.changes.length === 1 ? '' : 's'} off ${branch}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
+	const scratch = !!$state.projects[pid]?.scratch;
+	const files = `${$t.changes?.length} file${$t.changes?.length === 1 ? '' : 's'}`;
+	S.box({ header: scratch ? 'Closed' : closed ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+		A('p m:0 text=', scratch
+			? `This task was closed. ${$t.changes?.length
+				? `Its work is kept, ${files}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
+				: 'It had no work to keep; its conversation is kept. Pick it back up to carry on in an empty workspace.'}`
+		: closed ? `This task was closed without merging. ${$t.changes?.length
+				? `Its work is kept, ${files} off ${branch}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
 				: `It had no work to keep; its conversation is kept. Pick it back up to give it a fresh clone of ${branch} and carry on.`}`
 			: `This task's work is on ${branch}, and its workspace is gone. The conversation is kept: message the agent `
 				+ `to pick the task back up in a fresh clone of ${branch}, or take it on yourself.`);

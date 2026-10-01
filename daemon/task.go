@@ -1533,10 +1533,17 @@ func (t *Task) park() {
 				t.noteErr("keeping the work as a bundle failed", err) // the workspace stays: it is all there is of the work
 				return
 			}
-			if phase == PhaseClosed && exists(t.bundleFile()) {
-				t.note(fmt.Sprintf("closed without merging: the work is kept, off %s, and comes back as it was when the task is picked up", t.p.defaultBranch))
-			} else if phase == PhaseClosed {
-				t.note("closed without merging; there was no work to keep")
+			if phase == PhaseClosed {
+				// A scratch task has no branch to be off of, and closing is the only way it ends.
+				closed, off := "closed without merging", ", off "+t.p.defaultBranch+","
+				if t.p.info.Scratch {
+					closed, off = "closed", ""
+				}
+				if exists(t.bundleFile()) {
+					t.note(closed + ": the work is kept" + off + " and comes back as it was when the task is picked up")
+				} else {
+					t.note(closed + "; there was no work to keep")
+				}
 			}
 		}
 		if err := t.dropWorkspace(); err != nil {
@@ -1646,6 +1653,7 @@ func (t *Task) dropWorkspace() error {
 	t.lock()
 	defer t.unlock()
 	t.pubL("changes", nil)
+	t.publishL() // the workspace is gone
 	return nil
 }
 
