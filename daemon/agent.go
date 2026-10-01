@@ -43,9 +43,8 @@ type ChatEntry struct {
 	Detail    string     `json:"detail,omitempty"`    // full text (thinking/note)
 	ResDetail string     `json:"resDetail,omitempty"` // full result text
 	Error     bool       `json:"error,omitempty"`
-	Rev       bool       `json:"rev,omitempty"`   // said by the reviewer rather than by the task's own agent (see review.go)
-	Ready     bool       `json:"ready,omitempty"` // note: the work was reported ready to merge here (see noteReadyL)
-	Mark      *Mark      `json:"mark,omitempty"`  // mark: the save point this entry is (see mark.go)
+	Rev       bool       `json:"rev,omitempty"`  // said by the reviewer rather than by the task's own agent (see review.go)
+	Mark      *Mark      `json:"mark,omitempty"` // mark: the save point this entry is (see mark.go)
 	T         int64      `json:"t"`
 }
 
@@ -85,7 +84,7 @@ type SessionOpts struct {
 	// starts as a turn of its own the moment the compaction ends — which is
 	// what this hears of, the send having been long ago.
 	OnTurnStart func()
-	OnTurnEnd   func(end TurnEnd) // a turn ended: cost, and the verdict the agent ended on
+	OnTurnEnd   func(end TurnEnd) // a turn ended: cost, and the message the agent ended on
 	OnExit      func(code int, errTail string)
 }
 
@@ -387,17 +386,7 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
-// --- the TPS-DONE line ---
-
-// doneMarker opens the line an agent ends every turn with: where the task
-// goes next, as JSON. See systemPrompt.
-const doneMarker = "TPS-DONE:"
-
-// Done is an agent's verdict on its turn.
-type Done struct {
-	Next    string `json:"next"`              // user | merge | reload
-	Changes string `json:"changes,omitempty"` // what this turn changed, for the save point's commit (see mark)
-}
+// --- the end of a turn ---
 
 // TurnEnd is what a finished agent turn amounts to for the task.
 type TurnEnd struct {
@@ -406,56 +395,23 @@ type TurnEnd struct {
 	Summary int64     // tokens the turn summarised the conversation down to, when it compacted it
 	Idle    bool      // the model was never called: a /compact's turn, in which nothing was asked of the agent
 	Failed  bool      // the agent reported the turn itself as failed
-	Text    string    // the last message of the turn: the reviewer's answer (see review.go)
-	Done    *Done     // the verdict, if the last message carried a usable one
-	Bad     string    // why a TPS-DONE line that was there could not be used
+	Text    string    // the last message of the turn: the reviewer's answer (see review.go), or the agent's summary (see summaryOf)
 	Limited bool      // the last message was the agent reporting a usage limit
 	LimitAt time.Time // when that limit resets; zero when it named no time we could read
 	NoLogin bool      // the turn ran into the agent not being able to authenticate (see authGone)
 }
 
-// parseDone splits a TPS-DONE line off the end of an agent message: the text
-// without it, the verdict, and (if a line was there but unusable) what is
-// wrong with it. The last marker in the message wins, and the JSON runs from
-// it to the end of the message, so a verdict spread over several lines still
-// reads while an example line quoted mid-message does not count as one.
-func parseDone(text string) (rest string, done *Done, bad string) {
-	lines := strings.Split(text, "\n")
-	at := -1
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), doneMarker) {
-			at = i
-		}
-	}
-	if at < 0 {
-		return text, nil, ""
-	}
-	before := strings.Join(lines[:at], "\n")
-	tail := lines[at:]
-	// A fence the agent wrapped the line in is none of the JSON.
-	for len(tail) > 0 && isFence(tail[len(tail)-1]) {
-		tail = tail[:len(tail)-1]
-	}
-	if b := strings.Split(before, "\n"); len(b) > 0 && isFence(b[len(b)-1]) {
-		before = strings.Join(b[:len(b)-1], "\n")
-	}
-	rest = strings.TrimSpace(before)
-	raw := strings.TrimSpace(strings.Join(tail, "\n"))
-	raw = strings.TrimSpace(strings.TrimPrefix(raw, doneMarker))
-	var d Done
-	if json.Unmarshal([]byte(raw), &d) != nil {
-		return rest, nil, "the JSON after it could not be read"
-	}
-	switch d.Next {
-	case "user", "merge", "reload":
-		return rest, &d, ""
-	case "":
-		return rest, nil, "it has no 'next'"
-	}
-	return rest, nil, "'" + oneLine(d.Next, 30) + "' is not one of user, merge, reload"
-}
+// summaryMarker opens the last paragraph of the message an agent ends every
+// turn with: one sentence on what the turn did. See systemPrompt.
+const summaryMarker = "Summary:"
 
-func isFence(line string) bool {
-	line = strings.TrimSpace(line)
-	return line == "" || strings.HasPrefix(line, "```")
+// summaryOf reads that sentence out of the turn's last message, "" when its
+// last paragraph is not one.
+func summaryOf(text string) string {
+	paras := strings.Split(strings.TrimSpace(text), "\n\n")
+	last := strings.Trim(strings.TrimSpace(paras[len(paras)-1]), "*_")
+	if !strings.HasPrefix(last, summaryMarker) {
+		return ""
+	}
+	return strings.TrimSpace(strings.Trim(strings.TrimPrefix(last, summaryMarker), " *_"))
 }

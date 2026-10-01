@@ -183,7 +183,8 @@ let dragged = false;
 function drawProject(pid: string, $p: any): void {
 	A('div.tps-tile', () => {
 		A(() => A('--tps-color:' + projectColor($p)));
-		A('a.tps-row.tps-project draggable=true', 'href=', pathTo(pid), () => {
+		// The scratch project leads its host's block, wherever the others are put.
+		A('a.tps-row.tps-project', 'draggable=', !$p.scratch, 'href=', pathTo(pid), () => {
 			S.addContextMenu({ link: pathTo(pid), get items(): S.MenuEntry[] { return projectMenuItems(pid, $p); } });
 			A('pointerdown=', () => { dragged = false; },
 				'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps-project', pid); },

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -242,6 +243,9 @@ func (m *Manager) Start() error {
 			logf("Failed to load project %s: %v", info.Dir, err)
 		}
 	}
+	if err := m.ensureScratch(); err != nil {
+		logf("Failed to make the scratch project: %v", err)
+	}
 	m.hub.Set([]string{"ready"}, true)
 	m.publishLogin()
 	m.hub.Set([]string{"openrouter"}, m.orKey != "")
@@ -415,13 +419,7 @@ func (m *Manager) load(info *ProjectInfo) (*Project, error) {
 // so; otherwise Add says which of the two it would have to do, as missing
 // "dir" or "git", and registers nothing.
 func (m *Manager) Add(dir, name string, init bool) (*Project, string, error) {
-	if dir == "~" {
-		dir = ""
-	}
-	dir = strings.TrimPrefix(dir, "~/")
-	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(home(), dir)
-	}
+	dir = homePath(dir)
 	created := false
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 		if !init {
@@ -478,6 +476,109 @@ func (m *Manager) Add(dir, name string, init bool) (*Project, string, error) {
 	m.saveL()
 	m.mu.Unlock()
 	return p, "", nil
+}
+
+// homePath reads a directory as the dashboard names one: relative to the home
+// directory, or absolute.
+func homePath(dir string) string {
+	if dir == "~" {
+		dir = ""
+	}
+	dir = strings.TrimPrefix(dir, "~/")
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(home(), dir)
+	}
+	return dir
+}
+
+// ensureScratch registers the host's scratch project, unless it has one: the
+// home of tasks that belong to no project. Its repository holds nothing but a
+// root commit and never gets more, there being nothing to merge into it, so
+// every task cloning it starts in an empty repository of its own.
+func (m *Manager) ensureScratch() error {
+	m.mu.Lock()
+	for _, p := range m.projects {
+		if p.info.Scratch {
+			m.mu.Unlock()
+			return nil
+		}
+	}
+	m.mu.Unlock()
+	p, _, err := m.Add(filepath.Join(m.dataDir, "scratch"), "Scratch", true)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p.info.Scratch = true
+	p.info.Defaults.OnReady = AnswerHuman // reviewing a question's answer is seldom worth a turn
+	p.pubScratch()
+	p.pubDefaults()
+	m.saveL()
+	return nil
+}
+
+// TurnIntoProject makes a scratch task the first task of a project of its own:
+// a repository made at dir as a copy of the scratch one — the same root
+// commit, so the work sits on the new branch exactly as it sat on the scratch
+// one — and the task moved into it, workspace, conversation and all, its
+// work unmerged.
+func (m *Manager) TurnIntoProject(t *Task, dir, name string) (*Project, *Task, error) {
+	defer m.work()()
+	if !t.p.info.Scratch {
+		return nil, nil, errors.New("Only a scratch task can be turned into a project")
+	}
+	dir = homePath(dir)
+	if _, err := runCmd([]string{"git", "clone", "--quiet", t.p.dir(), dir}, RunOpts{}); err != nil {
+		return nil, nil, err
+	}
+	if _, err := git(dir, "remote", "remove", "origin"); err != nil {
+		return nil, nil, err
+	}
+	p, _, err := m.Add(dir, name, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The container is named after the project it ran in (see containerName).
+	t.stopAgent()
+	t.down()
+	nestDown(t.containerName(), nestDir(t.dir()))
+	_ = rmContainer(t.containerName())
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
+	m.mu.Lock()
+	tid := strconv.Itoa(p.info.NextTask)
+	p.info.NextTask++
+	moved := newTask(p, tid, t.info)
+	m.mu.Unlock()
+	if err := os.MkdirAll(p.tasksDir(), 0o755); err != nil {
+		return nil, nil, err
+	}
+	if err := os.Rename(t.dir(), moved.dir()); err != nil {
+		return nil, nil, err
+	}
+	if moved.hasWorkspace() {
+		if _, err := git(moved.repoDir(), "remote", "set-url", "origin", p.dir()); err != nil {
+			return nil, nil, err
+		}
+	}
+	m.mu.Lock()
+	delete(t.p.info.Tasks, t.tid)
+	delete(t.p.tasks, t.tid)
+	m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid}, nil)
+	m.hub.SetChat(t.key(), nil)
+	t.info.StartAfter = nil // the scratch tasks it followed are not this project's
+	p.info.Tasks[tid] = t.info
+	p.tasks[tid] = moved
+	moved.queueL("project", projectPrompt(p.info.Name, p.dir()))
+	moved.publishL()
+	t.p.touchL()
+	p.touchL()
+	m.saveL()
+	m.mu.Unlock()
+	moved.loadChat()
+	go moved.refreshChanges()
+	return p, moved, nil
 }
 
 // Remove unregisters a project, with the tasks and workspaces it holds. The
@@ -802,6 +903,13 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			}
 			return map[string]any{"pid": p.pid, "project": m.hub.Snapshot("projects", p.pid)}, nil
 		},
+		"turnIntoProject": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			p, moved, err := m.TurnIntoProject(t, r.Dir, r.Name)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"pid": p.pid, "tid": moved.tid, "project": m.hub.Snapshot("projects", p.pid)}, nil
+		}),
 		"removeProject": func(raw json.RawMessage) (any, error) {
 			r, _, err := decode(raw)
 			if err != nil {

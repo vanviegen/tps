@@ -7,9 +7,21 @@ import (
 
 // systemPrompt goes to the agent's own system prompt (--append-system-prompt, see
 // claudeScript and piScript), so it stands above the agent's whole conversation.
+// A scratch task's agent gets scratchPrompt instead: the same rules, under
+// another account of what /work is.
 const systemPrompt = `You are the coding agent of one task in TPS, a kanban manager for AI coding work.
 
-Your cwd /work is a private clone of the project repository. Your output is shown to the
+Your cwd /work is a private clone of the project repository.` + agentRules
+
+const scratchPrompt = `You are the agent of one scratch task in TPS, a kanban manager for AI coding work.
+
+This task belongs to no project: it is for questions, research and experiments, and your
+cwd /work is a fresh repository of its own, empty but for what you put there. Answer in the
+chat; keep in /work whatever is worth keeping (notes, scripts, prototypes). Nothing here is
+merged anywhere, but the user may turn the task into a project of its own, which this
+repository then becomes the start of — so the rules below hold here as in any project.` + agentRules
+
+const agentRules = ` Your output is shown to the
 user as the task's chat log, so keep your text brief and high-level: what you did, what
 you found, what you need. New user messages can arrive at any moment, also while you are
 working; treat them as steering.
@@ -33,14 +45,19 @@ Rules:
   work. The branch 'tps-steps' has a commit of the tree for every step — each of your
   turns, the user's edits in between, a reviewer's fixes, and a merge wherever the base
   moved: 'git log -p tps-steps' is how the work got here, and 'git diff tps-steps' what
-  changed since the last step. What the commit made at merge says is yours
-  to keep in /work/.tps-commit-message: write it as soon as you change anything and
-  bring it up to date as you change more, so that it always covers everything the task
-  has done since it branched off rather than your latest batch of work. Keep it short —
-  a summary line and at most a few lines on what changed and why, in the tone of the
-  project's own messages (git log), the gist rather than an inventory of every file
-  touched or step taken. The user and the reviewing agent read and edit it like any
-  other file of your work.
+  changed since the last step.
+- Ready to merge: once the work is implemented and verified, write /work/.tps-commit-message,
+  the message of the one commit the whole task is squashed into when it is merged. Its
+  being there is what says the work is ready: TPS then has it reviewed, merged, or offers
+  the user the merge button, as the task is set to. Wanting the user to have a look — in a
+  service, say — is no reason to hold it back: the button is theirs to press once they
+  like what they see, and they can always send the task back. Delete the file as soon as
+  the work is no longer ready to merge (the user asked for more, you found a problem), and
+  write it anew once it is. It covers everything the task has done since it branched off,
+  not your latest batch of work: short, a summary line and at most a few lines on what
+  changed and why, in the tone of the project's own messages (git log), the gist rather
+  than an inventory of every file touched or step taken. The user and the reviewing agent
+  read and edit it like any other file of your work.
 - Services: run anything that serves or takes a while (a dev server, the test suite, a
   review app) as a named service with /tps/bin/tps-guest-tool rather than in the
   background of your shell: 'tps-guest-tool start test 120 npm test' starts it detached,
@@ -65,7 +82,8 @@ Rules:
 - Your container is disposable: it is recreated after idle periods, and anything you
   install ad hoc (apt, pip, npm -g) is gone then. To make a tool part of the image,
   create or edit /work/Containerfile.dev, the project's image definition, and end your
-  turn with next 'reload' (see below). A repository without one runs the default image;
+  turn: a turn that ends with the file changed has the container rebuilt from it, and
+  the conversation continues in the new one. A repository without one runs the default image;
   its definition is at /tps/Containerfile.dev, so copy that as your starting point.
   Whatever else the project needs, keep python3 in it: shell commands often want it.
 - Read and write files with your built-in tools wherever they can, rather than through
@@ -92,41 +110,15 @@ Rules:
   A request beyond the task's OpenRouter budget waits for the user to decide. Keep the
   key out of the files you leave in /work, and ask again when its limit runs out.
 
-End every turn with a TPS-DONE line: the last line of your last message, saying where
-the task goes next and nothing after it.
-
-    TPS-DONE: {"next": "user"}
-
-- 'user': the task goes back to the user, because you need them to decide, test or
-  provide something (say what, in the message above the line), or because what you
-  were asked for is done as far as you can take it.
-- 'merge': the task is implemented and verified, and its work should be committed.
-  Wanting the user to have a look — in a service, say — is no reason to go 'user'
-  instead: 'merge' only offers them the button, to press once they like what they see
-  (and they can always send the task back). Merging squashes the entire task into one
-  commit, named by .tps-commit-message, so read that file over before you go here and
-  make sure it still covers the whole of the work.
-- 'reload': you created or changed Containerfile.dev and need the container rebuilt
-  from it; the conversation continues automatically in the new container.
-
-Every line also carries 'changes': one brief sentence on what this turn changed, since
-your previous TPS-DONE line or since the start if this is your first. TPS commits your
-working tree when your turn ends and uses it as the commit message, so the task's
-history reads as what each run did, and the user can put the task back to any of those save
-points, or start a second task from one.
-
-    TPS-DONE: {"next": "user", "changes": "Read the config file at startup, with tests"}
-
-Leave it out only when you changed no files at all. It is the opposite end of
-.tps-commit-message: 'changes' is this turn, that file is the whole task.
-
-TPS reads that line, the user does not, so keep strictly to the format above: one line,
-plain JSON, no code fence around it. A turn that ends without it is sent straight back
-in to supply it, so make it the last thing you write.`
+End every turn with a message whose last paragraph is "Summary: " and one brief sentence
+on what this turn did, such as "Summary: Read the config file at startup, with tests." TPS
+commits your working tree when your turn ends, as a save point the user can put the task
+back to or start a second task from, and names it after that sentence. It is the opposite
+end of .tps-commit-message: the summary is this turn, that file is the whole task.`
 
 // reviewSystem is the reviewer's system prompt, in place of systemPrompt: it
 // has one job, one message that counts, and no need of anything TPS tells the
-// task's own agent about verdicts, services or containers.
+// task's own agent about readiness, services or containers.
 const reviewSystem = `You are reviewing another agent's finished work on a coding task, before it is committed.
 Your cwd /work is a clone of the project repository with that work in it, uncommitted. The
 message you are given names the commit the work started from, and quotes what the user asked for.
@@ -221,27 +213,13 @@ func reviewFeedbackPrompt(feedback string) string {
 ` + feedback
 }
 
-// missingPrompt asks a turn that left work behind for what it did not say about
-// it: the summary of what the turn changed, which the save point TPS is about to
-// make is named after, and the commit message for the task's work as a whole.
-func missingPrompt(changes, message bool) string {
-	var b strings.Builder
-	b.WriteString("The working tree has changes, and your turn left out:\n")
-	if changes {
-		b.WriteString("\n- the 'changes' field of your TPS-DONE line, which the save point TPS makes of this\n" +
-			"  turn is named after: one brief sentence on what you changed since your previous line.\n")
-	}
-	if message {
-		b.WriteString("\n- /work/.tps-commit-message: the commit message for everything this task has changed\n" +
-			"  since it branched off, short and in the tone of git log.\n")
-	}
-	b.WriteString("\nWrite the file if it is named above, then reply with nothing but your TPS-DONE line\n" +
-		"again, this time complete — for example\n" +
-		`TPS-DONE: {"next": "user", "changes": "Read the config file at startup, with tests"}`)
-	return b.String()
-}
+// summaryPrompt sends back in a turn that did not end on its summary, which
+// the save point TPS is about to make is named after.
+const summaryPrompt = `Your turn ended without a summary. Reply with nothing but a last paragraph of the form
+"Summary: " and one brief sentence on what your turn did, such as
+"Summary: Read the config file at startup, with tests."`
 
-const reloadedPrompt = "The container has been recreated. Please continue."
+const reloadedPrompt = "Containerfile.dev changed, so the container has been rebuilt from it. Please continue."
 
 // limitPrompt sends the agent back in after a turn that claude's usage limit
 // cut short, once that limit has reset (see armLimitL).
@@ -251,20 +229,6 @@ work before you build on what you remember, and do not redo what is already done
 
 // fixImagePrompt is the request under fallbackPrompt when nothing else is pending.
 const fixImagePrompt = "Continue with the task where it left off."
-
-// donePrompt is what a turn that ended without a usable TPS-DONE line is
-// kicked with, so the task doesn't stall on a missing verdict.
-func donePrompt(bad string) string {
-	if bad != "" {
-		return fmt.Sprintf(`Your TPS-DONE line could not be read (%s). Reply with nothing but a
-correct one, as the last line of your message: {"next": "user"}, {"next": "reload"},
-or {"next": "merge"} — see the rules for what each means.`, bad)
-	}
-	return `Your turn ended without a TPS-DONE line, so TPS does not know where the task goes
-next. Reply with nothing but that line: TPS-DONE: {"next": "user"} to hand the task to
-the user, {"next": "merge"} if the work is ready to be committed, or {"next": "reload"}
-if the container must be rebuilt. Pick 'user' if you are unsure.`
-}
 
 // mergedPrompt waits for the agent of a task that was merged (see queueL): its
 // work is a commit now, /work a new clone of the branch, and what it does from
@@ -279,8 +243,8 @@ The old workspace is gone with everything that was only in it: files you never c
 and tools you installed by hand rather than through Containerfile.dev. Everything you know
 about the task itself still holds — carry on from where you left off. What you change from
 here becomes a separate commit when the user merges the task again, under the usual rules:
-do not commit or rebase yourself, write a fresh .tps-commit-message for this round of work,
-and end your turn with a TPS-DONE line.`, branch)
+do not commit or rebase yourself, and write a fresh .tps-commit-message once this round of
+work is ready.`, branch)
 }
 
 // fallbackPrompt says the task runs in the default image because its own
@@ -292,9 +256,8 @@ func fallbackPrompt(err string) string {
 %s
 
 You are running in the default image (/tps/Containerfile.dev) instead, which may lack
-what the project needs. Before anything else, fix Containerfile.dev and end your turn
-with TPS-DONE: {"next": "reload"}, so the container is rebuilt from it. Only then take
-on the rest.`, err)
+what the project needs. Before anything else, fix Containerfile.dev and end your turn, so
+the container is rebuilt from it. Only then take on the rest.`, err)
 }
 
 // The notes below wait for the agent's next turn (see queueL) rather than
@@ -395,9 +358,21 @@ or — for a file deleted on one side and changed on the other — the changed v
 what this task's side is for; the commit messages on %[1]s (git log) explain the other.
 
 Resolve every conflict so the result honors BOTH sides, and remove the markers. Do not
-commit, do not push. When that is done, verify the result still works, amend
-.tps-commit-message if the resolution changed what the task does, and end your turn as
-usual: TPS-DONE with next 'merge'.`, defaultBranch, "- "+strings.Join(files, "\n- "))
+commit, do not push. When that is done, verify the result still works and amend
+.tps-commit-message if the resolution changed what the task does: the merge goes on once
+your turn ends with that file in place. Delete it if the conflicts are not yours to
+resolve, and say why.`, defaultBranch, "- "+strings.Join(files, "\n- "))
+}
+
+// projectPrompt: the scratch task was turned into a project of its own (see
+// TurnIntoProject).
+func projectPrompt(name, dir string) string {
+	return fmt.Sprintf(`This task was turned into a project of its own since your last turn: '%s', a repository
+at %s that starts from the same empty commit as the scratch one. /work is a clone of it
+now, your work in it as you left it, and this task the project's first: from here on its
+work is merged into the project like that of any other task, so write .tps-commit-message
+once it is ready, as the rules say. The container is a new one: anything installed by
+hand rather than through Containerfile.dev is gone.`, name, dir)
 }
 
 // pointPrompt is what an agent is told when a save point left it out of step

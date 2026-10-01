@@ -13,6 +13,7 @@ import (
 // handler of their own (see registerCmds).
 var uiHandled = map[string]bool{
 	"addProject":       true, // needs the host picked before there is a pid to translate
+	"turnIntoProject":  true, // answers with a pid to translate
 	"restart":          true, // the daemon's own lifecycle: stopDaemon and updateDaemon drive it
 	"stop":             true,
 	"setLogin":         true, // the login is made in the browser and handed over (see ui/login.go)

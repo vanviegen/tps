@@ -130,9 +130,7 @@ type claudeSession struct {
 	pending      map[string]*ChatEntry // tool calls awaiting their result
 	context      int64                 // tokens the last request sent, which is what claude currently remembers
 	summary      int64                 // tokens the turn under way summarised the conversation down to (see TurnEnd)
-	lastText     string                // the latest message of the turn under way, which is the reviewer's answer (see review.go)
-	done         *Done                 // the verdict of the turn under way, from its latest message
-	badDone      string                // why that message's TPS-DONE line was unusable
+	lastText     string                // the latest message of the turn under way (see TurnEnd)
 	limited      bool                  // that message was claude reporting a usage limit
 	limitAt      time.Time             // and when it says that limit resets
 	noLogin      bool                  // the turn ran into claude being unable to authenticate at all
@@ -223,13 +221,10 @@ func (s *claudeSession) onEvent(ev *event) {
 		for _, b := range ev.Message.Content {
 			switch b.Type {
 			case "text":
-				// The verdict lives in the agent's last message, so a later one
-				// (without a line of its own) drops what an earlier one said.
-				text, done, bad := parseDone(strings.TrimSpace(b.Text))
-				s.done, s.badDone = done, bad
+				text := strings.TrimSpace(b.Text)
 				s.limited, s.limitAt = limitOf(b.Text)
 				s.noLogin = s.noLogin || authGone(b.Text)
-				if text = strings.TrimSpace(text); text != "" {
+				if text != "" {
 					s.lastText = text
 					e := s.entry("text")
 					e.Text = text
@@ -335,8 +330,8 @@ func (s *claudeSession) onEvent(ev *event) {
 		e.Text += " · " + turnLine(ev.DurationMS/1000, delta, s.context)
 		s.opts.OnEntry(e)
 		end := TurnEnd{Cost: delta, Context: s.context, Summary: s.summary, Idle: ev.NumTurns == 0, Failed: ev.IsError,
-			Text: s.lastText, Done: s.done, Bad: s.badDone, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
-		s.summary, s.lastText, s.done, s.badDone, s.limited, s.limitAt, s.noLogin = 0, "", nil, "", false, time.Time{}, false
+			Text: s.lastText, Limited: s.limited, LimitAt: s.limitAt, NoLogin: s.noLogin}
+		s.summary, s.lastText, s.limited, s.limitAt, s.noLogin = 0, "", false, time.Time{}, false
 		s.opts.OnTurnEnd(end)
 	}
 }

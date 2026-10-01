@@ -52,10 +52,11 @@ export function waitsForHuman($t: any): boolean {
 
 /**
  * Whether merging is something to offer right now: the task is the user's,
- * and there is a workspace holding work to merge.
+ * its workspace holds work the agent calls ready by having written its commit
+ * message, and there is a project to merge it into — which a scratch task has not.
  */
-export function canMerge($t: any): boolean {
-	return waitsForHuman($t) && hasWorkspace($t);
+export function canMerge(pid: string, $t: any): boolean {
+	return waitsForHuman($t) && hasWorkspace($t) && !!$t.commitMessage && !$state.projects[pid]?.scratch;
 }
 
 /** Attrs for text that must stay on one line, cut off with an ellipsis. */

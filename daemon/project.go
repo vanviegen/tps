@@ -33,7 +33,8 @@ type TaskDefaults struct {
 type ProjectInfo struct {
 	Dir      string               `json:"dir"`
 	Name     string               `json:"name"`
-	Color    string               `json:"color,omitempty"` // the accent the dashboards show it in, as #rrggbb
+	Color    string               `json:"color,omitempty"`   // the accent the dashboards show it in, as #rrggbb
+	Scratch  bool                 `json:"scratch,omitempty"` // the host's home of tasks that belong to no project (see ensureScratch)
 	Defaults TaskDefaults         `json:"defaults"`
 	Activity int64                `json:"activity,omitempty"` // unix ms of the last change to a task
 	NextTask int                  `json:"nextTask,omitempty"`
@@ -127,6 +128,7 @@ func (p *Project) init() error {
 	p.m.hub.Set([]string{"projects", p.pid}, map[string]any{"dir": p.dir(), "name": p.info.Name, "defaults": map[string]any{}, "activity": p.info.Activity, "tasks": map[string]any{}})
 	p.pubDefaults()
 	p.pub("color", p.info.Color)
+	p.pubScratch()
 	tids := make([]string, 0, len(p.info.Tasks))
 	for tid := range p.info.Tasks {
 		tids = append(tids, tid)
@@ -166,6 +168,15 @@ func (p *Project) init() error {
 	}
 	p.refreshMeta()
 	return nil
+}
+
+// pubScratch tells the dashboards a scratch project apart, and the rules its
+// agents work under from those the host's others do (see systemPromptL).
+func (p *Project) pubScratch() {
+	if p.info.Scratch {
+		p.pub("scratch", true)
+		p.pub("agentPrompt", scratchPrompt)
+	}
 }
 
 // touchL records activity, for dashboards that order projects by it.

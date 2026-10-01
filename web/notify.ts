@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { $state } from './conn.ts';
-import { pathTo, taskTitle, type Phase } from './util.ts';
+import { canMerge, pathTo, taskTitle, type Phase } from './util.ts';
 
 /**
  * Notifications about a task being back with you: the desktop's own, so a
@@ -155,7 +155,7 @@ function show(title: string, body: string, url: string): void {
  * all when it has nothing: the agent handing a task to the merge is on its
  * way out rather than out, and the merge it is on its way to speaks for both.
  */
-function announcement($t: any, from: Phase): string | undefined {
+function announcement(pid: string, $t: any, from: Phase): string | undefined {
 	const phase = $t.phase as Phase;
 	switch (phase) {
 		case 'merge': case 'review': return;
@@ -165,7 +165,7 @@ function announcement($t: any, from: Phase): string | undefined {
 		case 'agent': return from === 'merge' ? 'the agent is resolving the merge conflicts' : undefined;
 		default: // human, muted: the ones worth having asked for
 			if ($t.review) return 'the automated review asks for changes';
-			if ($t.ready) return 'the agent reports it ready to merge';
+			if (canMerge(pid, $t)) return 'the agent reports it ready to merge';
 			return from === 'merge' ? 'back with you' : 'the agent is done; it is yours';
 	}
 }
@@ -207,7 +207,7 @@ export function watchPhases(): void {
 				// Everything about the task but its phase is read past the
 				// subscription: this scope is about phases, and a commit message
 				// arriving should not run it again.
-				const note = A.peek(() => announcement($t, was));
+				const note = A.peek(() => announcement(pid, $t, was));
 				if (note) show(A.peek(() => taskTitle($t)), `${A.peek(() => $p.name) ?? 'TPS'}: ${note}`, pathTo(pid, tid));
 			}
 		}

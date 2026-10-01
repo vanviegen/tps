@@ -568,3 +568,75 @@ func TestAddNewProject(t *testing.T) {
 		t.Errorf("checkout after the first commit: %q", got)
 	}
 }
+
+// The agent says the work is ready by leaving its commit message in the tree:
+// a turn that changed the work without one hands the task to the user, and
+// one that leaves it merges a task set to merge by itself.
+func TestCommitMessageMeansReady(t *testing.T) {
+	task, origin := testTask(t)
+	task.p.info.Tasks = map[string]*TaskInfo{task.tid: task.info}
+	task.info.OnReady = AnswerMerge
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	head := gitRun(t, origin, "rev-parse", "HEAD")
+	writeWork(t, task, "a.txt", "not yet\n")
+	task.onTurnEnd(TurnEnd{Text: "Halfway.\n\nSummary: Started on it."})
+	if task.info.Phase != PhaseHuman || gitRun(t, origin, "rev-parse", "HEAD") != head {
+		t.Fatalf("work without a commit message went %s", task.info.Phase)
+	}
+	if got := gitRun(t, task.repoDir(), "log", "--format=%s", "-1", stepsBranch); got != "Agent: Started on it." {
+		t.Errorf("the save point is named %q", got)
+	}
+	task.info.Phase = PhaseAgent
+	writeWork(t, task, commitMessageFile, "Say it twice\n")
+	task.onTurnEnd(TurnEnd{Text: "Summary: Finished it."})
+	if task.info.Phase != PhaseDone {
+		t.Fatalf("work with a commit message went %s", task.info.Phase)
+	}
+	if got := gitRun(t, origin, "log", "--format=%s", "-1"); got != "Say it twice" {
+		t.Errorf("the merge: %q", got)
+	}
+}
+
+// A scratch task turned into a project lands in a repository of its own that
+// starts where the scratch one does, with its work unmerged in its workspace,
+// to be merged there like any other task's.
+func TestTurnIntoProject(t *testing.T) {
+	m := testManager()
+	m.dataDir = t.TempDir()
+	if err := m.ensureScratch(); err != nil {
+		t.Fatal(err)
+	}
+	scratch := m.projects["scratch"]
+	tid, _ := scratch.CreateTask(map[string]any{"description": "look into it"})
+	task := scratch.tasks[tid]
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "notes.md", "found it\n")
+	if err := task.Merge("Notes"); err == nil {
+		t.Error("a scratch task merged")
+	}
+
+	dir := filepath.Join(t.TempDir(), "app")
+	p, moved, err := m.TurnIntoProject(task, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scratch.tasks) != 0 || p.tasks[moved.tid] != moved || p.info.Name != "app" {
+		t.Fatalf("the task did not move: %v, %v", scratch.tasks, p.tasks)
+	}
+	if gitRun(t, dir, "rev-parse", "HEAD") != gitRun(t, scratch.dir(), "rev-parse", "HEAD") {
+		t.Error("the project does not start where the scratch repository does")
+	}
+	if readFile(filepath.Join(moved.repoDir(), "notes.md")) != "found it\n" {
+		t.Error("the work did not come along")
+	}
+	if err := moved.Merge("Notes"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRun(t, dir, "log", "--format=%s", "-1"); got != "Notes" {
+		t.Errorf("the project's history: %q", got)
+	}
+}

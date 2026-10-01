@@ -287,19 +287,6 @@ func TestForkTitle(t *testing.T) {
 	}
 }
 
-// A verdict says what the turn changed, beside where the task goes.
-func TestParseDoneChanges(t *testing.T) {
-	_, done, bad := parseDone(`Did it.
-
-TPS-DONE: {"next": "user", "changes": "Read the config at startup"}`)
-	if done == nil {
-		t.Fatalf("the line was not read: %s", bad)
-	}
-	if done.Changes != "Read the config at startup" {
-		t.Errorf("changes is %q", done.Changes)
-	}
-}
-
 // The commits a task's runs leave behind stay its own: merging still puts one
 // commit on the branch, whatever a task committed along the way.
 func TestMergeFoldsMarkCommits(t *testing.T) {

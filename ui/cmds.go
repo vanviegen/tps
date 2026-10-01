@@ -34,17 +34,43 @@ func (u *UI) addProject(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	return l.newProject(res)
+}
+
+// turnIntoProject is a task command like those forwarded as they are, but
+// what it answers with is a project the dashboard has yet to hear of.
+func (u *UI) turnIntoProject(raw json.RawMessage) (any, error) {
+	args := map[string]any{}
+	_ = json.Unmarshal(raw, &args)
+	id, _ := args["pid"].(string)
+	l, pid, err := u.resolve(id)
+	if err != nil {
+		return nil, err
+	}
+	args["pid"] = pid
+	res, err := l.cmd("turnIntoProject", args)
+	if err != nil {
+		return nil, err
+	}
+	return l.newProject(res)
+}
+
+// newProject reads a daemon's answer naming a project it just made, and a
+// task in it if there is one. The patch announcing the project may not have
+// arrived yet; mirroring it here as well means the dashboard can go straight
+// to it.
+func (l *Link) newProject(res json.RawMessage) (any, error) {
 	var out struct {
 		Pid     string         `json:"pid"`
-		Project map[string]any `json:"project"`
+		Tid     string         `json:"tid,omitempty"`
+		Project map[string]any `json:"project,omitempty"`
 	}
 	if err := json.Unmarshal(res, &out); err != nil {
 		return nil, err
 	}
-	// The patch announcing it may not have arrived yet; mirroring it here as
-	// well means the dashboard can go straight to the project.
 	l.mirror(out.Pid, out.Project)
-	return map[string]any{"pid": l.id(out.Pid)}, nil
+	out.Pid, out.Project = l.id(out.Pid), nil
+	return out, nil
 }
 
 // --- host commands, by host id ---

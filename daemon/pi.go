@@ -236,9 +236,7 @@ type piSession struct {
 	pending      map[string]*ChatEntry // tool calls awaiting their result
 	started      time.Time             // when the turn under way was sent in
 	summary      int64                 // tokens the turn under way summarised the conversation down to (see TurnEnd)
-	lastText     string                // the latest message of the turn under way, which is the reviewer's answer (see review.go)
-	done         *Done                 // the verdict of the turn under way, from its latest message
-	badDone      string                // why that message's TPS-DONE line was unusable
+	lastText     string                // the latest message of the turn under way (see TurnEnd)
 	failed       bool                  // a message of the turn ended in an error pi could not retry away
 	idle         bool                  // the turn is a compaction, in which nothing was asked of the agent
 }
@@ -250,7 +248,7 @@ type piSession struct {
 func (s *piSession) Send(text string) {
 	s.turnActive.Store(true)
 	s.started = time.Now()
-	s.lastText, s.done, s.badDone, s.failed = "", nil, "", false
+	s.lastText, s.failed = "", false
 	if s.idle = isCompact(text); s.idle {
 		s.write(map[string]any{"type": "compact", "customInstructions": strings.TrimSpace(strings.TrimPrefix(text, "/compact"))})
 		return
@@ -390,11 +388,7 @@ func (s *piSession) onMessage(m *piMessage) {
 	for _, b := range m.Content {
 		switch b.Type {
 		case "text":
-			// The verdict lives in the agent's last message, so a later one
-			// (without a line of its own) drops what an earlier one said.
-			text, done, bad := parseDone(strings.TrimSpace(b.Text))
-			s.done, s.badDone = done, bad
-			if text = strings.TrimSpace(text); text != "" {
+			if text := strings.TrimSpace(b.Text); text != "" {
 				s.lastText = text
 				e := s.entry("text")
 				e.Text = text
@@ -456,7 +450,7 @@ func (s *piSession) finish(stats piStats) {
 	e.Text += " · " + turnLine(time.Since(s.started).Seconds(), delta, context)
 	s.opts.OnEntry(e)
 	end := TurnEnd{Cost: delta, Context: context, Summary: s.summary, Idle: s.idle, Failed: s.failed,
-		Text: s.lastText, Done: s.done, Bad: s.badDone}
-	s.summary, s.lastText, s.done, s.badDone, s.failed, s.idle = 0, "", nil, "", false, false
+		Text: s.lastText}
+	s.summary, s.lastText, s.failed, s.idle = 0, "", false, false
 	s.opts.OnTurnEnd(end)
 }

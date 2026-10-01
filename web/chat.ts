@@ -2,10 +2,9 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import { Marked } from 'marked';
 import * as S from 'staffa';
-import { gitFork, gitMerge, undo2 } from 'staffa/icons.js';
+import { gitFork, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
-import { doneDialog } from './task.ts';
-import { canMerge, cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
+import { cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escape = (text: string) => text.replace(/[&<>"]/g, c => ESCAPES[c]);
@@ -62,7 +61,7 @@ export function drawChat(pid: string, tid: string, $t: any): void {
  * and always as the ones its next turn will run under.
  */
 function drawRules(pid: string, tid: string, $t: any): void {
-	const prompt = $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
+	const prompt = $state.projects[pid]?.agentPrompt ?? $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
 	if (!prompt) return;
 	drawEntry({ k: 'note', text: 'the rules the agent works under, above this whole conversation', detail: prompt }, pid, tid, $t);
 }
@@ -114,9 +113,6 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 			}, true);
 			break;
 		case 'note':
-			// The one note that is a moment rather than a remark: the work
-			// reported ready to merge, which stays where it happened.
-			if ($e.ready) { drawReady($e, pid, tid, $t); break; }
 			// A note clips like the rest, and some carry an error behind them:
 			// either way the dialog is where the whole of it is read.
 			line(() => {
@@ -131,22 +127,6 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 			drawMark($e, pid, tid, $t);
 			break;
 	}
-}
-
-/**
- * The agent (or the review) reporting the work done, in the log at the moment
- * it was said. The merge itself rides along for as long as that report is
- * still where the task stands and there is nothing in the way of it: what the
- * line says is history, what the button does is now.
- */
-function drawReady($e: any, pid: string, tid: string, $t: any): void {
-	A('div.s-s.success.tonal p:$2 display:flex align-items:center gap:$2', () => {
-		A('span flex:1 text=', '✔ ' + $e.text);
-		A(() => {
-			if (!$t.ready || !canMerge($t)) return;
-			S.button({ content: 'Merge…', icon: gitMerge, attrs: '.small', click: () => doneDialog(pid, tid, $t) });
-		});
-	});
 }
 
 /**

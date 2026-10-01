@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, ellipsisVertical, ethernetPort, gitMerge, play, plus, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, ellipsisVertical, ethernetPort, folderGit2, gitMerge, play, plus, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
@@ -186,7 +186,8 @@ async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
  */
 export function doneDialog(pid: string, tid: string, $t: any): void {
 	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
-	const mergeable = hasWorkspace($t);
+	const scratch = A.peek(() => !!$state.projects[pid]?.scratch);
+	const mergeable = hasWorkspace($t) && !scratch;
 	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string });
 	void S.dialog({ header: 'Finish this task', attrs: 'w:44rem', content: close => {
 		const drawMerge = (): void => {
@@ -210,7 +211,9 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 		const drawDontMerge = (): void => {
 			A('p mt:0 rich=', mergeable
 				? `The task ends as it stands: its work is kept, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work back as it was, where it can still be merged.`
-				: `This task has nothing to merge, so this is the only way it ends: it is put away as it stands.`);
+				: scratch
+					? 'A scratch task has no project to merge into, so this is how it ends: it is put away as it stands, its work kept for as long as the task is.'
+					: `This task has nothing to merge, so this is the only way it ends: it is put away as it stands.`);
 			A('div display:flex gap:$2 justify-content:flex-end', () => {
 				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined', click: () => { close(); finish(pid, tid, 'closed'); } });
 			});
@@ -367,7 +370,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 			input: debounce(600, (e: Event) => save({ openrouterBudget: (e.target as HTMLInputElement).value })),
 		});
 	});
-	drawReadyFields($t, save);
+	drawReadyFields($t, save, !!$state.projects[pid]?.scratch);
 	// The odd one out: this setting is not the task's but this browser's, so it
 	// goes nowhere near `save` (see notify.ts). Switching it on can be refused —
 	// the browser may not allow notifications — and the box then says so by
@@ -393,13 +396,14 @@ const BACK_TIP = 'The agent works through what the review asked for, and the wor
  * says nothing follows already filled in (the daemon's defaults, repeated
  * here). The two about the review are asked even where no review is set to
  * happen, because a review asked for by hand (the board's Review column) ends
- * the same way and follows the same answers.
+ * the same way and follows the same answers. A scratch task has nothing to
+ * merge into, so merging is no answer there.
  */
-function drawReadyFields($t: any, save: (patch: object) => void): void {
+function drawReadyFields($t: any, save: (patch: object) => void, scratch: boolean): void {
 	drawChoiceField('On agent ready', {
 		human: { icon: user, title: 'Assign it to me', tip: 'The task comes to you, with its work to look over yourself.' },
 		review: { icon: scanEye, title: 'Have it reviewed', tip: 'A second agent reads the work over against what you asked for, and above all for size: what can be left out, and what the project already does elsewhere. It fixes the small and obvious itself, and either accepts the work or lists what to change.' },
-		merge: { icon: gitMerge, title: 'Merge it', tip: 'The work is committed onto the project’s branch as it stands.' },
+		...scratch ? {} : { merge: { icon: gitMerge, title: 'Merge it', tip: 'The work is committed onto the project’s branch as it stands.' } },
 	}, {
 		get value() { return $t.onReady ?? 'review'; },
 		set value(onReady: string) { if (onReady) save({ onReady }); },
@@ -416,7 +420,7 @@ function drawReadyFields($t: any, save: (patch: object) => void): void {
 	});
 	drawChoiceField('On review accept', {
 		human: { icon: user, title: 'Assign it to me', tip: 'The task comes to you, reviewed and ready to merge.' },
-		merge: { icon: gitMerge, title: 'Merge it', tip: 'The work is committed onto the project’s branch as soon as a review accepts it.' },
+		...scratch ? {} : { merge: { icon: gitMerge, title: 'Merge it', tip: 'The work is committed onto the project’s branch as soon as a review accepts it.' } },
 	}, {
 		get value() { return $t.onAccept ?? 'human'; },
 		set value(onAccept: string) { if (onAccept) save({ onAccept }); },
@@ -568,8 +572,9 @@ export function drawPlanEditor(pid: string, tid: string, $t: any): void {
 /**
  * What sits above the log, on one line: the project, the task's title — in
  * full, with what it was asked, in its tooltip — the play button while a
- * service runs and the ports one while something listens, the phase with
- * its menu, and a menu of the rest there is to do with the task.
+ * service runs and the ports one while something listens, the merge button
+ * while the work is ready to merge, the phase with its menu, and a menu of the
+ * rest there is to do with the task.
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
 	A('div display:flex align-items:center gap:0.4rem min-width:0', () => {
@@ -586,6 +591,11 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 				click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: serviceItems(pid, tid, $t) }); } });
 		});
 		drawPortsButton($t);
+		A(() => {
+			if (!canMerge(pid, $t)) return;
+			S.iconButton({ icon: gitMerge, ariaLabel: 'Merge…', attrs: 'fg:$s-success', key: 'mod+shift+g',
+				tooltip: 'The agent reports the work ready to merge', click: () => doneDialog(pid, tid, $t) });
+		});
 		// The phase, worn as the icon it has on the board and in the sidebar, is
 		// the button for everything that is about the phase. It breathes while
 		// something is going on, exactly as the board's does.
@@ -620,9 +630,36 @@ function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 		items.push({ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) });
 	}
 	if ($t.ports?.length) items.push({ label: 'Forwarded ports…', icon: ethernetPort, click: () => portsDialog($t) });
+	if ($state.projects[pid]?.scratch) items.push({ label: 'Turn into project…', icon: folderGit2, click: () => turnIntoProjectDialog(pid, tid) });
 	items.push({ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) });
 	if (hasServices($t)) items.push({ separator: true }, ...serviceItems(pid, tid, $t));
 	return items;
+}
+
+/**
+ * Make a scratch task the first task of a project of its own: a repository
+ * made in the directory given, from the same empty commit the task grew from,
+ * with the task moved into it — conversation and work and all, the work
+ * unmerged.
+ */
+function turnIntoProjectDialog(pid: string, tid: string): void {
+	const $form = A.proxy({ dir: '', name: '' });
+	void S.dialog({ header: 'Turn into project', attrs: 'w:32rem', content: close => {
+		S.form({
+			submit: async () => {
+				const result = await cmd('turnIntoProject', { pid, tid, dir: $form.dir.trim(), name: $form.name.trim() });
+				if (!result) return;
+				close();
+				route.go(pathTo(result.pid, result.tid));
+			},
+			content: () => {
+				A('p mt:0 #A new git repository is made in this directory, and this task becomes the first task of its project, its work unmerged.');
+				S.textline({ label: 'Directory', placeholder: '~/projects/app', required: true, bind: A.ref($form, 'dir') });
+				S.textline({ label: 'Name', help: 'What to call it in the list; the directory name by default.', bind: A.ref($form, 'name') });
+			},
+			actions: () => S.button({ content: 'Turn into project', icon: folderGit2, type: 'submit' }),
+		});
+	}});
 }
 
 /** The chat, what is worth acting on right now, and the input. */
@@ -665,10 +702,6 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
-		// The merge has no button of its own down here: the agent reporting the
-		// work done is a moment in the log, and the button sits with it (see
-		// drawReady). The key it had reaches it from wherever the log is scrolled.
-		A(() => { if (canMerge($t)) S.bindKey('mod+shift+g', 'Merge this task…', () => doneDialog(pid, tid, $t)); });
 		A(() => {
 			if (!['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
 			const { text, color } = taskActivity(pid, $t);

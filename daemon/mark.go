@@ -235,7 +235,7 @@ const markSummary = 200
 // step next to the length of every transcript the agent has.
 //
 // `by` names the point and heads the commit message: "Agent", with the summary
-// of the run it gave in its TPS-DONE line, "Human" for what was in the tree
+// it ended its run on (see summaryOf), "Human" for what was in the tree
 // before an agent was sent in, "Rebase" for a merge of the latest branch (see
 // Rebase), or "Start" for the point every task opens on. A run that changed
 // nothing still gets a point, the conversation having moved even where the
@@ -396,8 +396,7 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 	t.lock()
 	// The commit message is not put back here: it is a file of the tree the
 	// point holds, and the refresh below reads and publishes it (see
-	// commitMessageFile).
-	t.info.Ready = false
+	// commitMessageFile) — and with it whether the work is ready.
 	t.info.Pending = nil // what was waiting was waiting for a turn that is now undone
 	if use.Chat {
 		// A point from before the agent ever ran leaves no session to resume.

@@ -53,8 +53,8 @@ func TestSessionEvents(t *testing.T) {
 	if entries[4].Text != "turn finished · 3s · $0.02" || len(ends) != 2 || ends[0].Cost != 0.0234 || ends[1].Cost < 0.0065 || ends[1].Cost > 0.0067 {
 		t.Errorf("result entry: %q ends %+v", entries[4].Text, ends)
 	}
-	if ends[0].Done != nil || ends[0].Bad != "" || ends[0].Failed || !ends[1].Failed {
-		t.Errorf("verdictless turn: %+v", ends[0])
+	if ends[0].Failed || !ends[1].Failed {
+		t.Errorf("turn ends: %+v", ends)
 	}
 	if entries[5].Text != "turn failed (max turns) · 1s · $0.01" || !entries[5].Error {
 		t.Errorf("failed result: %q", entries[5].Text)
@@ -80,63 +80,19 @@ func TestHelpers(t *testing.T) {
 	}
 }
 
-// The TPS-DONE line: stripped from the message, and carried to the turn's end.
-func TestDoneLine(t *testing.T) {
-	cases := []struct {
-		in, rest, next, bad string
-	}{
-		{in: "All set.\n\nTPS-DONE: {\"next\": \"user\"}", rest: "All set.", next: "user"},
-		{in: "Rebuilding.\nTPS-DONE: {\n  \"next\": \"reload\"\n}", rest: "Rebuilding.", next: "reload"},
-		{in: "a\nTPS-DONE: {\"next\": \"user\"}\nb", rest: "a", bad: "the JSON after it could not be read"}, // not the end
-		{in: "```\nTPS-DONE: {\"next\": \"user\"}\n```", next: "user"},
-		{in: "TPS-DONE: {\"next\": \"user\"}\nTPS-DONE: {\"next\": \"merge\"}", rest: "TPS-DONE: {\"next\": \"user\"}", next: "merge"}, // the last one counts
-		{in: "Nothing to see here.", rest: "Nothing to see here."},
-		{in: "x\nTPS-DONE: {\"next\": \"done\"}", rest: "x", bad: "'done' is not one of user, merge, reload"},
-		{in: "x\nTPS-DONE: {}", rest: "x", bad: "it has no 'next'"},
-		{in: "x\nTPS-DONE: merge please", rest: "x", bad: "the JSON after it could not be read"},
+// The summary an agent ends its turn on: the last paragraph of its last message.
+func TestSummary(t *testing.T) {
+	cases := []struct{ in, summary string }{
+		{"All set.\n\nSummary: Read the config at startup.", "Read the config at startup."},
+		{"**Summary:** Fixed the sidebar.", "Fixed the sidebar."},
+		{"Summary: one\n\nMore words after it.", ""},
+		{"Nothing to see here.", ""},
+		{"", ""},
 	}
 	for _, c := range cases {
-		rest, done, bad := parseDone(c.in)
-		next := ""
-		if done != nil {
-			next = done.Next
+		if got := summaryOf(c.in); got != c.summary {
+			t.Errorf("summaryOf(%q) = %q, want %q", c.in, got, c.summary)
 		}
-		if rest != c.rest || next != c.next || bad != c.bad {
-			t.Errorf("parseDone(%q) = %q, %q, %q", c.in, rest, next, bad)
-		}
-	}
-
-	var entries []*ChatEntry
-	var end TurnEnd
-	s := &claudeSession{pending: map[string]*ChatEntry{}}
-	s.agentProc = &agentProc{opts: SessionOpts{
-		OnEntry:   func(e *ChatEntry) { entries = append(entries, e) },
-		OnUpdate:  func(*ChatEntry) {},
-		OnTurnEnd: func(e TurnEnd) { end = e },
-		OnExit:    func(int, string) {},
-	}}
-	feed := func(line string) {
-		var ev event
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			t.Fatal(err)
-		}
-		s.onEvent(&ev)
-	}
-	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Done.\n\nTPS-DONE: {\"next\": \"merge\"}"}]}}`)
-	feed(`{"type":"result","total_cost_usd":0.01,"duration_ms":1000}`)
-	if len(entries) != 2 || entries[0].Text != "Done." {
-		t.Fatalf("entries: %+v", entries)
-	}
-	if end.Done == nil || end.Done.Next != "merge" {
-		t.Fatalf("verdict: %+v", end)
-	}
-	// A later message without a line of its own drops the earlier verdict, and
-	// no verdict carries over into the next turn.
-	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"TPS-DONE: {\"next\": \"user\"}"}]}}`)
-	feed(`{"type":"assistant","message":{"content":[{"type":"text","text":"Actually, one more thing."}]}}`)
-	feed(`{"type":"result","total_cost_usd":0.02,"duration_ms":1000}`)
-	if end.Done != nil || end.Bad != "" {
-		t.Errorf("stale verdict: %+v", end)
 	}
 }
 
@@ -249,7 +205,7 @@ func TestLimitPark(t *testing.T) {
 
 	// A verdict means the agent was talking about limits, not running into one.
 	info.Phase = PhaseAgent
-	task.onTurnEnd(TurnEnd{Failed: true, Limited: true, Done: &Done{Next: "user"}})
+	task.onTurnEnd(TurnEnd{Failed: true, Limited: true, Text: "Summary: did it."})
 	if info.Phase != PhaseHuman || info.LimitUntil != 0 {
 		t.Errorf("a turn with a verdict was parked: %s, until %d", info.Phase, info.LimitUntil)
 	}
@@ -328,7 +284,7 @@ func TestLoginFailed(t *testing.T) {
 	// A verdict means the agent was talking about logins, not failing on one.
 	m.loginGone.Store(false)
 	info.Phase = PhaseAgent
-	task.onTurnEnd(TurnEnd{Failed: true, NoLogin: true, Done: &Done{Next: "user"}})
+	task.onTurnEnd(TurnEnd{Failed: true, NoLogin: true, Text: "Summary: did it."})
 	if m.loginGone.Load() {
 		t.Error("a turn with a verdict asked for a sign-in")
 	}
@@ -429,7 +385,7 @@ func TestContextRecorded(t *testing.T) {
 	task := newTask(p, "1", info)
 	p.tasks["1"], p.info.Tasks["1"] = task, info
 
-	task.onTurnEnd(TurnEnd{Context: 34_000, Done: &Done{Next: "user"}})
+	task.onTurnEnd(TurnEnd{Context: 34_000, Text: "Summary: did it."})
 	if info.Context != 34_000 {
 		t.Fatalf("the turn's context was not kept: %d", info.Context)
 	}
@@ -456,18 +412,18 @@ func TestCompactTurn(t *testing.T) {
 	if info.Spent != 0.02 || info.Context != 24_000 {
 		t.Errorf("a compaction's cost and the summary on top of the fixed parts should both count: %+v", info)
 	}
-	if info.Phase != PhaseHuman || task.doneNudges != 0 {
-		t.Errorf("the task was moved along by a turn nothing was asked in: %s, %d nudges", info.Phase, task.doneNudges)
+	if info.Phase != PhaseHuman || task.summaryNudges != 0 {
+		t.Errorf("the task was moved along by a turn nothing was asked in: %s, %d nudges", info.Phase, task.summaryNudges)
 	}
 	// One queued behind a message of the user's ends while the task is the
 	// agent's, and leaves it so: the message's turn is next.
 	info.Phase = PhaseAgent
 	task.onTurnEnd(TurnEnd{Idle: true})
-	if info.Phase != PhaseAgent || task.doneNudges != 0 {
-		t.Errorf("the task was moved along by a turn nothing was asked in: %s, %d nudges", info.Phase, task.doneNudges)
+	if info.Phase != PhaseAgent || task.summaryNudges != 0 {
+		t.Errorf("the task was moved along by a turn nothing was asked in: %s, %d nudges", info.Phase, task.summaryNudges)
 	}
 	// A turn measured after it compacted is measured.
-	task.onTurnEnd(TurnEnd{Context: 30_000, Summary: 4_000, Done: &Done{Next: "user"}})
+	task.onTurnEnd(TurnEnd{Context: 30_000, Summary: 4_000, Text: "Summary: did it."})
 	if info.Context != 30_000 {
 		t.Errorf("a measure was passed over for a summary: %d", info.Context)
 	}

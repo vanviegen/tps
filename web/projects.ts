@@ -16,8 +16,12 @@ import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathT
  * (kept by the project's daemon, like its name).
  */
 
-/** Where a project sits in the list, as a sort key: its place in the user's order, the unplaced ones after that by name. */
+/**
+ * Where a project sits in the list, as a sort key: a host's scratch project
+ * first, then the user's order, the unplaced ones after that by name.
+ */
 export function projectOrder(pid: string, $p: any): (number | string)[] {
+	if ($p.scratch) return [-1, ''];
 	const order: string[] = $state.projectOrder ?? [];
 	const i = order.indexOf(pid);
 	return [i < 0 ? order.length : i, ($p.name ?? '').toLowerCase()];
@@ -42,10 +46,10 @@ function compareKeys(a: (number | string)[], b: (number | string)[]): number {
 	return 0;
 }
 
-/** The projects on one host, by name. */
+/** The projects on one host, by name; its scratch project is none of them. */
 export function projectsOn(hid: string): [string, any][] {
 	return (Object.entries($state.projects ?? {}) as [string, any][])
-		.filter(([, $p]) => $p.host === hid)
+		.filter(([, $p]) => $p.host === hid && !$p.scratch)
 		.sort((a, b) => a[1].name.localeCompare(b[1].name));
 }
 
@@ -91,8 +95,12 @@ export function closeBase(pid: string): void {
 	void cmd('closeProjectCode', { pid });
 }
 
-/** The project's menu: everything to do with it, from its row in the sidebar. */
+/**
+ * The project's menu: everything to do with it, from its row in the sidebar.
+ * A scratch project is no project of the user's to set up, move or remove.
+ */
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
+	if ($p.scratch) return [{ label: 'Create scratch task', icon: plus, click: () => addTask(pid) }];
 	return [
 		{ label: 'Create task', icon: plus, click: () => addTask(pid) },
 		{ label: 'Open project directory', icon: folder, click: () => void route.go(pathTo(pid, 'base')) },
@@ -114,13 +122,15 @@ export function drawProjectPage(pid: string, $p: any): void {
 		A('div display:flex align-items:center gap:$3 flex-wrap:wrap min-width:0', () => {
 			// The name in the project's colour, as the sidebar has it.
 			A(() => A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, A.ref($p, 'name')));
-			A(() => drawProjectFacts($p));
+			if ($p.scratch) A('span font-size:0.9em fg:$s-muted #Tasks that belong to no project, each in an empty repository of its own');
+			else A(() => drawProjectFacts($p));
 			A('div flex:1');
 			// The keys are on these rather than on the board's ✛ or the menu's
 			// rows, so each is bound once while the project is on screen (see
 			// KEYS in main.ts).
 			A('div display:flex gap:$2 flex-wrap:wrap', () => {
 				S.button({ content: 'Create task', icon: plus, attrs: '.small', key: 'mod+shift+s', click: () => addTask(pid) });
+				if ($p.scratch) return;
 				S.button({ content: 'Open project directory', icon: folder, attrs: '.small .neutral', key: 'mod+shift+f', click: () => void route.go(pathTo(pid, 'base')) });
 				S.button({ content: 'Settings', icon: settings, attrs: '.small .neutral', click: () => projectSettingsDialog(pid, $p) });
 			});
@@ -132,12 +142,12 @@ export function drawProjectPage(pid: string, $p: any): void {
 
 /**
  * The front page: one board with the tasks of every project. A task started
- * here goes to the first project in the list, and its Plan settings are where
- * another one is picked.
+ * here goes to the first project in the list (scratch ones aside), and its
+ * Plan settings are where another one is picked.
  */
 export function drawDashboard(): void {
 	const create = () => {
-		const first = sortedProjects()[0];
+		const first = sortedProjects().find(([, $p]) => !$p.scratch);
 		if (first) void addTask(first[0]);
 		else void route.go(hostPath('local')); // where a project is added
 	};

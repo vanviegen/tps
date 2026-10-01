@@ -111,7 +111,6 @@ type TaskInfo struct {
 	Phase         Phase          `json:"phase"`
 	Started       bool           `json:"started,omitempty"`           // the agent has a session in the task's state dir to pick back up
 	CommitMessage string         `json:"commitMessage,omitempty"`     // what .tps-commit-message says, for the dashboard to show (see commitMessageFile)
-	Ready         bool           `json:"ready,omitempty"`             // that report still stands: nothing has been asked of the task since (see noteReadyL)
 	Spent         float64        `json:"spent,omitempty"`             // USD spent on agent runs so far
 	Budget        *float64       `json:"budget,omitempty"`            // USD limit; the task is parked when spending reaches it
 	ORBudget      *float64       `json:"openrouterBudget,omitempty"`  // USD of OpenRouter keys the agent may be handed without asking the user (see openrouter.go)
@@ -182,7 +181,7 @@ type Task struct {
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
-	doneNudges    int         // turns in a row the agent was sent back in for what its turn left out
+	summaryNudges int         // turns in a row the agent was sent back in for the summary its turn left out
 	limitTimer    *time.Timer // running while the task waits out a usage limit (see armLimitL)
 	limitWaits    int         // waits in a row that ran straight into the limit again
 	chatMu        sync.Mutex
@@ -278,6 +277,14 @@ func (t *Task) agentPhaseL() bool {
 	return t.info.Phase == PhaseAgent || t.info.Phase == PhaseReview || t.info.Phase == PhaseMerge
 }
 
+// systemPromptL is what the task's own agent is told above its conversation.
+func (t *Task) systemPromptL() string {
+	if t.p.info.Scratch {
+		return scratchPrompt
+	}
+	return systemPrompt
+}
+
 func (t *Task) lock()   { t.p.m.mu.Lock() }
 func (t *Task) unlock() { t.p.m.mu.Unlock() }
 
@@ -304,11 +311,6 @@ func (t *Task) publishL() {
 	t.pubL("phase", t.info.Phase)
 	t.pubL("phaseAt", t.info.PhaseAt)
 	t.pubL("commitMessage", nonEmpty(t.info.CommitMessage))
-	if t.info.Ready {
-		t.pubL("ready", true)
-	} else {
-		t.pubL("ready", nil)
-	}
 	t.pubL("spent", nonZero(t.info.Spent))
 	t.pubL("budget", optional(t.info.Budget))
 	t.pubL("openrouterBudget", optional(t.info.ORBudget))
@@ -432,9 +434,6 @@ func (t *Task) setPhaseL(phase Phase) {
 	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent (the review included) waits for nothing
 		t.clearLimitL()
 	}
-	if phase != PhaseHuman && phase != PhaseMuted { // sent anywhere at all, the task is no longer one reported done
-		t.info.Ready = false
-	}
 	t.info.Phase = phase
 	t.info.PhaseAt = time.Now().UnixMilli()
 	t.p.touchL()
@@ -502,19 +501,6 @@ func (t *Task) lastNote() string {
 }
 
 func (t *Task) noteErr(prefix string, err error) { t.note(prefix + ": " + err.Error()) }
-
-// noteReadyL records work being reported ready to merge: the note stays in the
-// log at the moment it happened, and the flag says the report still stands —
-// until something is asked of the task again (see setPhaseL), which is what
-// tells "the agent is done with this" from "the agent once said so". The
-// message it proposed outlives both, as what the merge dialog opens with.
-// Expects the lock.
-func (t *Task) noteReadyL(text string) {
-	t.info.Ready = true
-	e := newEntry("note")
-	e.Text, e.Ready = text, true
-	t.addEntry(e)
-}
 
 // queueL saves something for the agent to be told the next time it is sent in,
 // ahead of whatever sends it (see kick). Things happen to a workspace while no
@@ -858,7 +844,7 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	// here has been answered, ignored, or sent back in — either way it is said.
 	// A /compact says nothing to anyone, and leaves it all standing.
 	if !compact {
-		t.doneNudges = 0
+		t.summaryNudges = 0
 		t.info.ReviewLoop = 0
 		t.setReviewL("")
 	}
@@ -1002,8 +988,9 @@ func (t *Task) probeContextParts(c *Container) {
 		t.unlock()
 		return
 	}
+	system := t.systemPromptL()
 	t.unlock()
-	p, ok := agent.Window(c, model, systemPrompt)
+	p, ok := agent.Window(c, model, system)
 	if !ok {
 		return
 	}
@@ -1132,6 +1119,16 @@ func (t *Task) Close() error {
 // it into the commit and removes it, so it never reaches the default branch.
 const commitMessageFile = ".tps-commit-message"
 
+// setCommitMessageL records what the file says, which is also whether the
+// work is ready to merge: the dashboard offers the merge while it says anything.
+func (t *Task) setCommitMessageL(message string) {
+	if message != t.info.CommitMessage {
+		t.info.CommitMessage = message
+		t.p.m.saveL()
+		t.pubL("commitMessage", nonEmpty(message))
+	}
+}
+
 // commitMessage reads what the workspace proposes as its commit message.
 func (t *Task) commitMessage() string {
 	data, err := os.ReadFile(filepath.Join(t.repoDir(), commitMessageFile))
@@ -1144,12 +1141,15 @@ func (t *Task) commitMessage() string {
 // Merge replays the workspace's work onto the latest default branch (see
 // replant), commits it as one commit, and fast-forwards the project repo. The
 // task sits in the merge phase meanwhile: conflicts are handed to the task's
-// agent there — it knows what its side of them is for — whose 'merge' verdict
-// runs it again. A failure puts the task
+// agent there — it knows what its side of them is for — whose turn ending with
+// the commit message still in place runs it again. A failure puts the task
 // back with the human.
 func (t *Task) Merge(message string) error {
 	defer t.p.m.work()()
 	repo := t.repoDir()
+	if t.p.info.Scratch {
+		return errors.New("A scratch task has nothing to merge into: turn it into a project first")
+	}
 	if !t.hasWorkspace() {
 		return errors.New("The task has no workspace to merge: it is still in Plan, or finished already")
 	}
@@ -1830,11 +1830,7 @@ func (t *Task) refreshChanges() {
 	t.lock()
 	defer t.unlock()
 	t.refreshing = false
-	if message != t.info.CommitMessage {
-		t.info.CommitMessage = message
-		t.p.m.saveL()
-		t.pubL("commitMessage", nonEmpty(message))
-	}
+	t.setCommitMessageL(message)
 	if err != nil {
 		logf("%s: changes: %v", t.key(), err)
 		return
@@ -2194,7 +2190,7 @@ func (t *Task) down() {
 }
 
 // Reload recreates the workspace, rebuilding the image when Containerfile.dev
-// changed: what the agent gets by ending its turn with 'reload', for a human
+// changed: what the agent gets by changing the file, for a human
 // who edited the file themselves. A live agent turn is left alone.
 func (t *Task) Reload() error {
 	t.lock()
@@ -2254,7 +2250,7 @@ func (t *Task) startSession() (Session, error) {
 	t.sessionReview = t.info.Phase == PhaseReview
 	agent, model := t.agentL()
 	opts := SessionOpts{
-		Container: c, Model: model, System: systemPrompt, Resume: t.info.Started,
+		Container: c, Model: model, System: t.systemPromptL(), Resume: t.info.Started,
 		OnEntry:  t.addEntry,
 		OnUpdate: t.updateEntry,
 		OnTurnStart: func() {
@@ -2381,12 +2377,12 @@ const loginNote = "claude could not sign in on this host, so this turn did not r
 	"to fix: sign in to claude again — the host says so in the sidebar, and the button there does it — and send the " +
 	"task back in."
 
-// maxDoneNudges: how often in a row an agent is sent back in for what its turn
-// left out before the task is handed to the human anyway.
-const maxDoneNudges = 2
+// maxSummaryNudges: how often in a row an agent is sent back in for the
+// summary its turn left out before the task is handed to the human anyway.
+const maxSummaryNudges = 2
 
-// onTurnEnd: a claude turn finished. Account the cost, read the verdict the
-// agent ended on, move the task along.
+// onTurnEnd: a claude turn finished. Account the cost, read what the agent
+// ended on, move the task along.
 func (t *Task) onTurnEnd(end TurnEnd) {
 	t.lock()
 	t.touchL()
@@ -2423,7 +2419,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	t.publishL()
 	// A turn the model was never called in — a /compact's — is a turn of
 	// claude's session but not one of the task's: the agent was asked for
-	// nothing, so there is no verdict to read out of how it ended and no run
+	// nothing, so there is nothing to read out of how it ended and no run
 	// to make a save point of (see isCompact). The log heard about the
 	// compaction from claude itself (see onEvent).
 	if end.Idle && !end.Failed {
@@ -2443,14 +2439,15 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// A turn that could not sign in says nothing about the task, whoever's turn
 	// it was: the host's login is what needs fixing, so the dashboards are told
 	// to ask for one and the chat says as much. Where the task goes is left to
-	// the rest of this, as with any other failed turn. A verdict means the
+	// the rest of this, as with any other failed turn. A summary means the
 	// agent was talking about logins rather than failing on one.
-	if end.Failed && end.NoLogin && end.Done == nil {
+	summary := summaryOf(end.Text)
+	if end.Failed && end.NoLogin && summary == "" {
 		t.p.m.loginExpired()
 		t.note(loginNote)
 	}
-	// The reviewer ends its turns with a review rather than a verdict, and
-	// everything below is about verdicts (see review.go). A review the task has
+	// The reviewer ends its turns with a review rather than a summary, and
+	// everything below is about the agent's (see review.go). A review the task has
 	// moved on from — the user's message took it back — is nothing to act on.
 	if t.sessionReview {
 		reviewing := t.info.Phase == PhaseReview
@@ -2463,23 +2460,24 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	t.unlock()
 	go t.refreshChanges()
 	// Whether the turn left anything behind, for the save point it is about
-	// to become and for the words that work is to be committed under.
-	dirty, message := false, ""
+	// to become, whether it left the work ready to merge, and whether the
+	// container still is what Containerfile.dev says it should be.
+	dirty, message, cf := false, "", ""
 	if t.hasWorkspace() {
 		dirty, _ = t.dirtyTree(t.repoDir())
 		message = t.commitMessage()
+		cf = t.containerfile()
 	}
 	t.lock()
 	if !t.agentPhaseL() { // stopped or dragged elsewhere meanwhile
 		t.unlock()
 		return
 	}
-	next, changes := "", ""
-	if end.Done != nil {
-		next, changes = end.Done.Next, end.Done.Changes
-	}
-	if next == "reload" && !t.overBudgetL() {
-		t.note("the agent asked for a container rebuild; recreating the workspace")
+	t.setCommitMessageL(message)
+	// A container rebuilt mid-turn would take the agent down with it, so a
+	// changed Containerfile.dev is acted on here, and the agent sent back in.
+	if t.container != nil && cf != "" && imageTag(cf) != t.lastTag && !t.overBudgetL() {
+		t.note("Containerfile.dev changed; recreating the workspace container")
 		s := t.session
 		t.unlock()
 		if s != nil {
@@ -2491,9 +2489,9 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	}
 	// A turn that ran into a usage limit never got to do anything: wait the
 	// limit out and send the agent back in, rather than handing over a task
-	// nobody has to do anything about. A verdict means the message was the
+	// nobody has to do anything about. A summary means the message was the
 	// agent talking about limits, not claude reporting one.
-	if end.Failed && end.Limited && next == "" && !t.overBudgetL() {
+	if end.Failed && end.Limited && summary == "" && !t.overBudgetL() {
 		if until, ok := t.limitWaitL(end.LimitAt); ok {
 			t.note(limitNote(until))
 			t.armLimitL(until)
@@ -2503,71 +2501,57 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.note("claude reports a usage limit that is not one to wait out here; the task is yours")
 	}
 	t.limitWaits = 0
-	// No verdict: send the agent back in for one, unless the turn failed on its
+	// No summary: send the agent back in for one, unless the turn failed on its
 	// own (asking again would only fail again) or it keeps forgetting.
-	if next == "" && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
-		t.doneNudges++
+	if summary == "" && !end.Failed && !t.overBudgetL() && t.summaryNudges < maxSummaryNudges {
+		t.summaryNudges++
 		t.unlock()
-		t.note("the agent's turn ended without a TPS-DONE line; asking it where the task goes next")
-		t.kick(donePrompt(end.Bad))
+		t.note("the agent's turn ended without a summary; asking for one")
+		t.kick(summaryPrompt)
 		return
 	}
-	// Work left in the tree has to be committable: the save point about to be
-	// made needs the summary of what this turn changed, and the merge needs the
-	// message for the task as a whole. Ask for whatever is missing, until the
-	// streak below ends it — a verdict is no sign the rest arrived with it. A
-	// task that merges by itself makes no save point worth naming.
-	autoMerging := next == "merge" && t.onReadyL() == AnswerMerge
-	noChanges, noMessage := changes == "" && !autoMerging, message == ""
-	if next != "" && dirty && (noChanges || noMessage) && !end.Failed && !t.overBudgetL() && t.doneNudges < maxDoneNudges {
-		t.doneNudges++
-		t.unlock()
-		t.note("the agent left work behind without saying how to commit it; asking for what is missing")
-		t.kick(missingPrompt(noChanges, noMessage))
-		return
-	}
-	// The turn came back whole, so the streak of sending it back in ends here.
-	t.doneNudges = 0
+	t.summaryNudges = 0
 	if t.info.Phase == PhaseMerge { // the agent was resolving conflicts
-		if next != "merge" {
+		if message == "" {
 			if t.overBudgetL() {
 				t.noteBudgetL()
 			}
-			t.note("merge paused: the agent did not report the conflicts resolved")
-			t.endRunL(changes)
+			t.note("merge paused: the agent took back its commit message")
+			t.endRunL(summary)
 			return
 		}
 		t.unlock()
-		t.mark("Agent", changes) // the resolution is its step, not the user's (see replant)
+		t.mark("Agent", summary) // the resolution is its step, not the user's (see replant)
 		t.note("conflicts resolved; merging")
 		_ = t.Merge("")
 		return
 	}
-	if next == "merge" {
-		// What becomes of work the agent calls finished is the task's own answer
-		// (see review.go). A review costs a turn of its own, so a task with no
-		// room left for one skips to the user; a merge costs nothing.
+	// What becomes of work the agent calls ready is the task's own answer (see
+	// review.go) — once, for the turn that made it so: a turn that changed
+	// nothing, say an answer to a question, leaves the work where it was, and
+	// so does one that failed. A review costs a turn of its own, so a task with
+	// no room left for one goes to the user; a merge costs nothing.
+	if message != "" && dirty && !end.Failed {
 		switch {
 		case t.onReadyL() == AnswerReview && !t.overBudgetL():
 			// The run's save point is made here as for any other run; the
 			// review makes one of its own when it is done.
 			t.unlock()
-			t.mark("Agent", changes)
+			t.mark("Agent", summary)
 			t.beginReview()
 			return
 		case t.onReadyL() == AnswerMerge:
 			t.unlock()
-			t.mark("Agent", changes) // its step, not the user's (see replant)
+			t.mark("Agent", summary) // its step, not the user's (see replant)
 			t.note("the agent reports the task is ready; merging")
 			_ = t.Merge("")
 			return
 		}
-		t.noteReadyL("the agent reports the task is ready to merge")
 	}
 	if t.overBudgetL() {
 		t.noteBudgetL()
 	}
-	t.endRunL(changes)
+	t.endRunL(summary)
 }
 
 // endRunL closes an agent's run: a save point on what it did (which needs the

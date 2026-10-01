@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { funnel, plus, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -230,7 +230,7 @@ function drawCard(pid: string, tid: string, $t: any): void {
 						if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
 						else if ($t.openrouterAsk) A('small fg:$s-warning #⚠ asks for OpenRouter budget');
 						else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ review feedback to weigh');
-						else if (waitsForHuman($t) && $t.ready) A('small fg:$s-success #✔ ready to merge');
+						else if (canMerge(pid, $t)) A('small fg:$s-success #✔ ready to merge');
 						else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
 					});
 				});

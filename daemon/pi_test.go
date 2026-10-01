@@ -38,7 +38,7 @@ func TestPiSessionEvents(t *testing.T) {
 		`{"type":"thinking","thinking":"  let me   think\nabout it "},{"type":"text","text":"Working on it."},` +
 		`{"type":"toolCall","id":"call_1","name":"edit","arguments":{"path":"/work/a.go","edits":[{"oldText":"x","newText":"y"}]}}],"stopReason":"toolUse"}}`)
 	feed(`{"type":"tool_execution_end","toolCallId":"call_1","toolName":"edit","result":{"content":[{"type":"text","text":"ok\ndone"}]},"isError":false}`)
-	feed(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Done.\n\nTPS-DONE: {\"next\": \"user\", \"changes\": \"a.go\"}"}],"stopReason":"stop"}}`)
+	feed(`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Done.\n\nSummary: a.go"}],"stopReason":"stop"}}`)
 	feed(`{"type":"agent_settled"}`)
 	feed(`{"type":"response","command":"get_session_stats","success":true,"data":{"cost":0.0234,"contextUsage":{"tokens":1520,"contextWindow":128000}}}`)
 
@@ -57,13 +57,10 @@ func TestPiSessionEvents(t *testing.T) {
 	if len(updates) != 1 || updates[0] != entries[2] || updates[0].Res != "ok done" || updates[0].Error {
 		t.Errorf("tool result merge: %+v", updates)
 	}
-	if entries[3].Text != "Done." {
-		t.Errorf("the text entry keeps the TPS-DONE line out of the log: %q", entries[3].Text)
-	}
 	if !strings.HasPrefix(entries[4].Text, "turn finished · ") || !strings.HasSuffix(entries[4].Text, "$0.01 · 1.5k in context") {
 		t.Errorf("result entry: %q", entries[4].Text)
 	}
-	if len(ends) != 1 || ends[0].Cost != 0.0134 || ends[0].Context != 1520 || ends[0].Done == nil || ends[0].Done.Changes != "a.go" {
+	if len(ends) != 1 || ends[0].Cost != 0.0134 || ends[0].Context != 1520 || summaryOf(ends[0].Text) != "a.go" {
 		t.Errorf("turn end: %+v", ends)
 	}
 	if s.TurnActive() {
