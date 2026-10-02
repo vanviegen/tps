@@ -106,6 +106,7 @@ type Session interface {
 // provider's to know.
 type agentProc struct {
 	turnActive atomic.Bool
+	stopping   atomic.Bool
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
 	stdout     io.ReadCloser
@@ -168,6 +169,11 @@ func (p *agentProc) run(onLine func(line []byte)) {
 		sc := bufio.NewScanner(p.stdout)
 		sc.Buffer(make([]byte, 1<<20), 256<<20)
 		for sc.Scan() {
+			// The turn being stopped has ended: a message that came in during it
+			// would start the next one, and nothing of that is wanted.
+			if p.stopping.Load() && !p.turnActive.Load() {
+				continue
+			}
 			if line := strings.TrimSpace(sc.Text()); line != "" {
 				onLine([]byte(line))
 			}
@@ -187,6 +193,7 @@ func (p *agentProc) TurnActive() bool { return p.turnActive.Load() }
 // stop sends the CLI whatever it takes for an interrupt, then makes sure the
 // process is gone.
 func (p *agentProc) stop(interrupt any) {
+	p.stopping.Store(true)
 	p.write(interrupt)
 	for i := 0; i < 40 && p.turnActive.Load(); i++ {
 		time.Sleep(100 * time.Millisecond)

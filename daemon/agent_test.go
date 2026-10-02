@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -426,5 +427,30 @@ func TestCompactTurn(t *testing.T) {
 	task.onTurnEnd(TurnEnd{Context: 30_000, Summary: 4_000, Text: "Summary: did it."})
 	if info.Context != 30_000 {
 		t.Errorf("a measure was passed over for a summary: %d", info.Context)
+	}
+}
+
+// A turn being stopped is the last one: a message queued during it, which the
+// agent takes up the moment the turn ends, is not let through.
+func TestStopDropsNextTurn(t *testing.T) {
+	cmd := exec.Command("printf", `working\nend\nnext\nmore\n`)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	p := &agentProc{cmd: cmd, stdout: stdout, exited: make(chan struct{}), opts: SessionOpts{OnExit: func(int, string) {}}}
+	p.turnActive.Store(true)
+	p.stopping.Store(true)
+	var lines []string
+	p.run(func(line []byte) {
+		lines = append(lines, string(line))
+		p.turnActive.Store(string(line) != "end")
+	})
+	<-p.exited
+	if strings.Join(lines, " ") != "working end" {
+		t.Errorf("lines read: %q", lines)
 	}
 }
