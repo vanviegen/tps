@@ -129,9 +129,9 @@ function drawTaskView(pid: string, tid: string, $t: any): void {
 	}, () => {
 		A(() => {
 			if ($t.phase === 'plan') return drawPlanEditor(pid, tid, $t);
-			// Finished, there is nothing left to open — once the workspace is
-			// gone, which takes a moment; until then it is still worth showing.
-			if (isFinished($t) && !hasWorkspace($t)) return drawDonePanel(pid, tid, $t);
+			// Finished or kept in Plan, there is nothing left to open — once the
+			// workspace is gone, which takes a moment; until then it is still worth showing.
+			if ((isFinished($t) || $t.phase === 'muted') && !hasWorkspace($t)) return drawDonePanel(pid, tid, $t);
 			drawTaskCode(pid, tid, $t, TASK_CODE_LEFT);
 		});
 	});

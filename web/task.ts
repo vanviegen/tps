@@ -15,13 +15,9 @@ import { autoStarts, canMerge, chatDraft, cmd, contextSlices, debounce, drawCont
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
  * once it has a workspace, VS Code runs in it.
- *
- * Opening a muted task is how it stops being muted: looking at it is taking it
- * back on, and a task you are working on belongs in the sidebar with the rest.
  */
 export function useTask(pid: string, tid: string, $t: any): void {
 	watch(pid, tid);
-	A(() => { if ($t.phase === 'muted') void cmd('moveTask', { pid, tid, phase: 'human' }); });
 	// Closing the page of a task that was never written down throws it away.
 	// This scope is also torn down and built up again while the page stays put
 	// (the task arriving anew from the server does that), so what is checked
@@ -827,20 +823,25 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 }
 
 /**
- * The right column for a finished task, which has nothing to open: one that
- * merged (its work being on the branch) or one closed without merging (its
- * work kept beside it). Its workspace is gone either way, and its
- * conversation kept, so picking it back up — by a message to the agent, or by
- * hand here — clones the branch again, puts the kept work back if there is
- * any, and carries on.
+ * The right column for a parked task, which has nothing to open: one that
+ * merged (its work being on the branch), one closed without merging or one
+ * kept in Plan (its work kept beside it). Its workspace is gone either way,
+ * and its conversation kept, so picking it back up — by a message to the
+ * agent, or by hand here — clones the branch again, puts the kept work back if
+ * there is any, and carries on.
  */
 export function drawDonePanel(pid: string, tid: string, $t: any): void {
 	const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 	const closed = $t.phase === 'closed';
+	const muted = $t.phase === 'muted';
 	const scratch = !!$state.projects[pid]?.scratch;
 	const files = `${$t.changes?.length} file${$t.changes?.length === 1 ? '' : 's'}`;
-	S.box({ header: scratch ? 'Closed' : closed ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
-		A('p m:0 text=', scratch
+	S.box({ header: muted ? 'Kept in Plan' : scratch ? 'Closed' : closed ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+		A('p m:0 text=', muted
+			? `This task was put away for later. ${$t.changes?.length
+				? `Its work is kept, ${files}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
+				: 'It had no work to keep; its conversation is kept. Pick it back up to carry on.'}`
+		: scratch
 			? `This task was closed. ${$t.changes?.length
 				? `Its work is kept, ${files}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
 				: 'It had no work to keep; its conversation is kept. Pick it back up to carry on in an empty workspace.'}`

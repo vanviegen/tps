@@ -238,7 +238,7 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 
 /** Where the task stands, in one line: its phase, whether claude is on it, and what its workspace is doing. */
 export function taskTip(pid: string, $t: any): string {
-	const phase = $t.phase === 'muted' ? 'Started: its work and conversation are kept. Open it to carry on where it was left.'
+	const phase = $t.phase === 'muted' ? 'Started: its work and conversation are kept. Pick it back up to carry on where it was left.'
 		: $t.phase === 'closed' ? 'Not merged: this task was finished without merging. Its work is kept, off the branch, and comes back if the task is picked up again.'
 		: PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 	return `${phase}${$t.working ? ', the agent is working' : ''} · ${taskActivity(pid, $t).text}`;
