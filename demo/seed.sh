@@ -3,7 +3,8 @@
 # small projects in ~/projects, and a board's worth of tasks around them —
 # merged ones whose commits are in the git log, one waiting to be merged with
 # its work sitting in a workspace, a couple in the plan column (one of them
-# waiting for another), a parked one and a closed one.
+# waiting for another), a parked one, a closed one, one waiting for more
+# OpenRouter budget, and an experiment among the scratch tasks.
 #
 # Nothing seeded here runs an agent on its own: every task is in a phase that
 # waits (plan, human, muted, done, closed), and the one task set to follow
@@ -88,7 +89,7 @@ rmContainers() {
 if [ "${1:-}" = --force ]; then
 	dropDaemon
 	rmContainers
-	rm -rf "$PROJECTS/snip" "$PROJECTS/standup" "$DATA/tasks/snip" "$DATA/tasks/standup" \
+	rm -rf "$PROJECTS/snip" "$PROJECTS/standup" "$DATA/scratch" "$DATA/tasks/snip" "$DATA/tasks/standup" "$DATA/tasks/scratch" \
 		"$DATA/cache/snip" "$DATA/cache/standup" "$CONFIG"
 elif [ -e "$CONFIG" ]; then
 	echo "demo/seed.sh: $CONFIG exists, leaving it alone (--force to reseed)"
@@ -153,15 +154,21 @@ commit 16 "standup: add a line, see today, see the week"
 copy - README.md Containerfile.dev test/standup.test.js
 commit 6 "A dev container, and tests for add and copy"
 
+# The scratch project, made the way TPS makes it: a repository holding nothing
+# but an empty root commit (see ensureScratch).
+git init -q -b main "$DATA/scratch"
+git -C "$DATA/scratch" update-ref HEAD "$(git -C "$DATA/scratch" -c user.name=TPS -c user.email=tps@localhost \
+	commit-tree "$(git -C "$DATA/scratch" mktree </dev/null)" -m "Initial commit")"
+
 # --- task directories ---------------------------------------------------------
 
-# workspace <project> <task> : the clone a task works in, made the way TPS
-# makes one (a plain clone of the project, committing as TPS).
+# workspace <project> <task> [repository] : the clone a task works in, made the
+# way TPS makes one (a plain clone of the project, committing as TPS).
 workspace() {
 	local dir="$DATA/tasks/$1/$2"
 	mkdir -p "$dir/claude"
 	rm -rf "$dir/repo"
-	git clone -q -b main "$PROJECTS/$1" "$dir/repo"
+	git clone -q -b main "${3:-$PROJECTS/$1}" "$dir/repo"
 	git -C "$dir/repo" config user.name TPS
 	git -C "$dir/repo" config user.email tps@localhost
 }
@@ -180,6 +187,23 @@ say() {
 	printf '{%s,"t":%s}\n' "$2" "$CHAT_AT" >>"$CHAT"
 }
 
+# point <project> <task> <name> : a save point in the chat, holding the
+# workspace as it is the way TPS holds it (see step in daemon/mark.go): a commit
+# on its steps branch, if the tree differs from the last one.
+point() {
+	local repo="$DATA/tasks/$1/$2/repo" last tree commit
+	last=$(git -C "$repo" rev-parse --verify --quiet tps-steps || git -C "$repo" rev-parse HEAD)
+	git -C "$repo" add -A
+	tree=$(git -C "$repo" write-tree)
+	git -C "$repo" reset -q
+	commit=$last
+	if [ "$tree" != "$(git -C "$repo" rev-parse "$last^{tree}")" ]; then
+		commit=$(git -C "$repo" commit-tree "$tree" -p "$last" -m "$3")
+	fi
+	git -C "$repo" update-ref refs/heads/tps-steps "$commit"
+	say 1 "\"k\":\"mark\",\"id\":\"mark-$CHAT_AT\",\"text\":\"$3\",\"mark\":{\"commit\":\"$commit\"}"
+}
+
 # snip #2 — merged: the change that added the dev container.
 chat snip 2 10
 say 0 '"k":"user","text":"Tasks cant run the tests, since the image has no python. Add a Containerfile.dev, with the test suite as a service, and a first test for the key generator."'
@@ -196,8 +220,9 @@ say 3 '"k":"note","text":"merged into main as 1 commit"'
 # Two turns, the second one the user coming back with something they spotted:
 # a task the demo opens on has a conversation in it, not a single command.
 workspace snip 3
-cp -a "$SRC/repos/snip/_work/." "$DATA/tasks/snip/3/repo/"
 chat snip 3 1
+point snip 3 Start
+cp -a "$SRC/repos/snip/_work/." "$DATA/tasks/snip/3/repo/"
 say 0 '"k":"user","text":"Anything that is not an http(s) link should be refused with a 400, not shortened. A javascript: URL that redirects is a nasty thing to hand out."'
 say 11 '"k":"thinking","text":"The check belongs where the URL arrives, after read_url and before a key is made.","detail":"The check belongs where the URL arrives, after read_url and before a key is made.\n\nread_url already normalises both body shapes, so one test on its result covers the JSON and the form path at once."'
 say 5 '"k":"tool","id":"d1","name":"Read","text":"snip.py","arg":"snip.py","res":"110 lines"'
@@ -215,7 +240,29 @@ say 8 '"k":"tool","id":"d8","name":"Bash","text":"run the tests","arg":"python3 
 say 5 '"k":"tool","id":"d9","name":"Bash","text":"post an upper-case url","arg":"curl -sd {\"url\": \"HTTPS://EXAMPLE.COM/\"} http://localhost:8000/","res":"201 {\"key\": \"Kp3v\", \"short\": \"http://localhost:8000/Kp3v\"}"'
 say 4 '"k":"text","text":"Good catch — the scheme is the one part of a URL that is not case-sensitive, and `startswith` is. The check is now `allowed(url)`, which lower-cases before comparing and is a function rather than a branch, so the three cases have tests: http and https go through, `HTTPS://` goes through, and `javascript:`, `file:`, `data:` and a bare hostname do not. Eight tests, all green.\n\nThe URL that gets stored is still the one that arrived; only the comparison is lower-cased."'
 say 2 '"k":"result","text":"turn finished · 47s · $0.14"'
+point snip 3 'Agent: Refuse links that are not http(s), whatever their case'
 say 1 '"k":"note","ready":true,"text":"the agent reports the task is ready to merge"'
+
+# scratch #1 — an experiment that belongs to no project, its answer waiting
+# to be read, the script it was found with in the workspace.
+workspace scratch 1 "$DATA/scratch"
+cp -a "$SRC/repos/scratch/_work/." "$DATA/tasks/scratch/1/repo/"
+chat scratch 1 0
+say 0 '"k":"user","text":"Quick experiment: how many single-row INSERTs per second does SQLite manage here when every row is committed on its own? With and without WAL. Wondering whether it would do for a small URL shortener."'
+say 8 '"k":"thinking","text":"Autocommit per row is the worst case, and the realistic one for a shortener.","detail":"Autocommit per row is the worst case, and the realistic one for a shortener: one link, one commit. What dominates is the fsync per commit, so journal_mode and synchronous are the knobs; DELETE/FULL is the default, WAL/FULL and WAL/NORMAL the two worth comparing."'
+say 21 '"k":"tool","id":"s1","name":"Write","text":"bench.py","arg":"bench.py","res":"wrote 24 lines"'
+say 9 '"k":"tool","id":"s2","name":"Bash","text":"run the benchmark","arg":"python3 bench.py","res":"DELETE FULL 190/s · WAL FULL 750/s · WAL NORMAL 48,300/s"'
+say 6 '"k":"text","text":"2,000 single-row INSERTs, each its own transaction, on a temporary file:\n\n| journal | synchronous | inserts/s |\n|---|---|---:|\n| DELETE (default) | FULL | 190 |\n| WAL | FULL | 750 |\n| WAL | NORMAL | 48,300 |\n\nWhat a commit costs is its fsyncs. WAL halves them; `synchronous=NORMAL` in WAL mode drops the one per commit altogether, at the price of losing the last few commits (never the database) on a power cut.\n\nFor a URL shortener that writes once per link, even the default is far more than it will ever see, and WAL also lets readers carry on while a write is in progress. `bench.py` is in the workspace if you want to try another disk."'
+say 2 '"k":"result","text":"turn finished · 52s · $0.06"'
+
+# standup #4 — the agent waiting on an OpenRouter request beyond its budget.
+workspace standup 4
+chat standup 4 0
+say 0 '"k":"user","text":"Add `standup say`: read today'"'"'s notes aloud, for the days I join the call from my phone. Use a text-to-speech model through OpenRouter."'
+say 7 '"k":"thinking","text":"Before wiring a model in, try one: that takes a key, and the budget left is too little.","detail":"Before wiring a model in, try one or two voices on a real note: that takes an OpenRouter key, and the task has too little OpenRouter budget left for a few minutes of audio."'
+say 4 '"k":"tool","id":"g1","name":"Read","text":"standup.js","arg":"standup.js","res":"76 lines"'
+say 6 '"k":"tool","id":"g2","name":"Bash","text":"ask for an OpenRouter key","arg":"tps-guest-tool openrouter 2"'
+say 1 '"k":"note","text":"the agent asks for $2 of OpenRouter spending, more than the task'"'"'s OpenRouter budget has left"'
 
 # snip #7 — closed without merging. Its workspace is made the way an older TPS
 # left one, and parked by the daemon at startup.
@@ -248,6 +295,27 @@ mkdir -p "$(dirname "$CONFIG")"
 cat >"$CONFIG.new" <<JSON
 {
 	"projects": [
+		{
+			"dir": "$DATA/scratch",
+			"name": "Scratch",
+			"color": "#f06b8a",
+			"scratch": true,
+			"defaults": { "model": "claude: haiku", "onReady": "human" },
+			"activity": $(ms 0 1),
+			"nextTask": 2,
+			"tasks": {
+				"1": {
+					"title": "SQLite insert speed, with and without WAL",
+					"model": "claude: haiku",
+					"phase": "human",
+					"started": true,
+					"spent": 0.06,
+					"context": 21000,
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"phaseAt": $(ms 0 1)
+				}
+			}
+		},
 		{
 			"dir": "$PROJECTS/snip",
 			"name": "snip",
@@ -287,7 +355,6 @@ cat >"$CONFIG.new" <<JSON
 					"phase": "human",
 					"started": true,
 					"ready": true,
-					"commitMessage": "Only shorten http and https links\n\nA URL with any other scheme is refused with a 400 rather than given a key: a\nshort link that redirects to javascript: is worth more to an attacker than to\nanyone else. The scheme is compared in lower case, so HTTPS:// is a link like\nany other. The README says what is accepted, and allowed() has tests.",
 					"spent": 0.43,
 					"context": 46000,
 					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
@@ -339,7 +406,7 @@ cat >"$CONFIG.new" <<JSON
 			"color": "#c8d35a",
 			"defaults": { "model": "claude: haiku", "budget": 5 },
 			"activity": $(ms 3),
-			"nextTask": 4,
+			"nextTask": 5,
 			"tasks": {
 				"1": {
 					"title": "A dev container and the first tests",
@@ -369,6 +436,21 @@ cat >"$CONFIG.new" <<JSON
 					"phase": "muted",
 					"budget": 5,
 					"phaseAt": $(ms 5)
+				},
+				"4": {
+					"title": "standup say: read today's notes aloud",
+					"description": "Read today's notes aloud, for the days I join the call from my phone, with a text-to-speech model through OpenRouter.",
+					"model": "claude: haiku",
+					"phase": "human",
+					"started": true,
+					"spent": 0.04,
+					"context": 19000,
+					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
+					"budget": 5,
+					"openrouterBudget": 1,
+					"openrouterGranted": 0.25,
+					"openrouterAsk": 2,
+					"phaseAt": $(ms 0 1)
 				}
 			}
 		}
@@ -384,4 +466,4 @@ if [ -d /claude-auth ] && [ ! -e "$DATA/claude" ]; then
 	ln -s /claude-auth "$DATA/claude"
 fi
 
-echo "demo/seed.sh: seeded $PROJECTS/{snip,standup} and $CONFIG"
+echo "demo/seed.sh: seeded $PROJECTS/{snip,standup}, a scratch task and $CONFIG"

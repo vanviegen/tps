@@ -9,13 +9,15 @@
 # 'app'; a LABEL tps.service.<name>="command" declares another), and the
 # ports EXPOSE names are forwarded to it.
 #
-# TPS itself needs Go (the binary) and node (only to bundle the web UI).
+# TPS itself needs Go (the binary) and node (only to bundle the web UI), and
+# chromium for the README's screenshots (doc/screenshots.mjs).
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git sudo bash procps psmisc ripgrep less nano \
       openssh-client unzip zip xz-utils build-essential pkg-config python3 \
+      chromium fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 # The docker CLI, with compose: TPS serves the task a docker socket (backed by
 # podman) for containers of its own, and the client is the image's to provide.

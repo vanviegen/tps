@@ -3,6 +3,9 @@ ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git curl sudo less nano procps \
     && rm -rf /var/lib/apt/lists/*
+# The docker CLI: TPS serves tasks a docker socket for containers of their own.
+RUN curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-27.5.1.tgz" \
+      | tar -C /usr/local/bin --strip-components=1 -xz docker/docker
 RUN useradd -m -u 1000 -s /bin/bash dev && echo 'dev ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/dev
 USER dev
 WORKDIR /work

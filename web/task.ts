@@ -339,7 +339,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		});
 	});
 	S.textline({
-		label: 'Task budget limit (USD)', type: 'number', placeholder: 'No limit',
+		label: 'Task budget limit (USD)', type: 'number', inputAttrs: 'step=0.01', placeholder: 'No limit',
 		help: 'The task is parked for you when spending reaches it.',
 		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
 		input: debounce(600, (e: Event) => save({ budget: (e.target as HTMLInputElement).value })),
@@ -352,7 +352,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		if (!$or.on) return;
 		const granted = A.peek($t, 'openrouterGranted');
 		S.textline({
-			label: 'OpenRouter budget limit (USD)', type: 'number', placeholder: 'None',
+			label: 'OpenRouter budget limit (USD)', type: 'number', inputAttrs: 'step=0.01', placeholder: 'None',
 			help: 'Separate from the task budget: what the agent may be handed in OpenRouter API keys without asking you.' + (granted ? ` $${granted.toFixed(2)} handed out so far.` : ''),
 			value: A.peek($t, 'openrouterBudget') != null ? String(A.peek($t, 'openrouterBudget')) : '',
 			input: debounce(600, (e: Event) => save({ openrouterBudget: (e.target as HTMLInputElement).value })),
@@ -706,7 +706,7 @@ function openRouterDialog(pid: string, tid: string, $t: any): void {
 			content: () => {
 				A('p m:0 text=', `The agent asks for an OpenRouter API key with a limit of $${ask}. This task’s OpenRouter budget is `
 					+ `$${budget}, of which $${granted.toFixed(2)} has been handed out already, so the OpenRouter budget would need to be raised to grant it.`);
-				S.textline({ label: 'OpenRouter budget limit (USD)', type: 'number', bind: A.ref($form, 'budget') });
+				S.textline({ label: 'OpenRouter budget limit (USD)', type: 'number', inputAttrs: 'step=0.01', bind: A.ref($form, 'budget') });
 			},
 			actions: () => {
 				S.button({ content: 'Reject request', attrs: '.neutral', click: () => { void cmd('rejectOpenRouter', { pid, tid }); close(); } });

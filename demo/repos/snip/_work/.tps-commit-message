@@ -1,0 +1,6 @@
+Only shorten http and https links
+
+A URL with any other scheme is refused with a 400 rather than given a key: a
+short link that redirects to javascript: is worth more to an attacker than to
+anyone else. The scheme is compared in lower case, so HTTPS:// is a link like
+any other. The README says what is accepted, and allowed() has tests.
