@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Welcome, Sam</title>
+<style>
+	body { margin: 0; font: 32px/1.4 system-ui, sans-serif; background: #14161a; color: #eee; }
+	section { display: none; height: 100vh; padding: 10vh 12vw; box-sizing: border-box; }
+	section.on { display: block; }
+	h1 { color: #45c4d6; }
+</style>
+<section><h1>Welcome, Sam</h1><p>Your first week, on six slides. ← → to step.</p></section>
+<section><h1>What we build</h1><p>snip, the link shortener, and standup, the notes CLI: small tools, used every day.</p></section>
+<section><h1>The stack</h1><ul><li>Python 3.12, standard library only</li><li>Node 22 for standup</li><li>A Containerfile.dev in every repository</li></ul></section>
+<section><h1>Running things</h1><ul><li>Open a task in TPS: the app and the tests are services, one click each</li><li>VS Code is in the browser, next to the agent</li></ul></section>
+<section><h1>Your first week</h1><ul><li>Monday: accounts, and a first task on snip's board</li><li>Wednesday: pair on the stats page</li><li>Friday: demo what you shipped</li></ul></section>
+<section><h1>Who to ask</h1><ul><li>Robin: snip, and anything about releases</li><li>Kim: standup, and the CI</li></ul></section>
+<script>
+	const slides = [...document.querySelectorAll('section')];
+	let at = 0;
+	const show = () => slides.forEach((s, i) => s.classList.toggle('on', i === at));
+	addEventListener('keydown', e => {
+		at = Math.max(0, Math.min(slides.length - 1, at + (e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0)));
+		show();
+	});
+	show();
+</script>

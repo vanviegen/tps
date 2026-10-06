@@ -4,7 +4,7 @@
 # merged ones whose commits are in the git log, one waiting to be merged with
 # its work sitting in a workspace, a couple in the plan column (one of them
 # waiting for another), a parked one, a closed one, one waiting for more
-# OpenRouter budget, and an experiment among the scratch tasks.
+# OpenRouter budget, and a slide deck among the scratch tasks.
 #
 # Nothing seeded here runs an agent on its own: every task is in a phase that
 # waits (plan, human, muted, done, closed), and the one task set to follow
@@ -243,17 +243,17 @@ say 2 '"k":"result","text":"turn finished · 47s · $0.14"'
 point snip 3 'Agent: Refuse links that are not http(s), whatever their case'
 say 1 '"k":"note","ready":true,"text":"the agent reports the task is ready to merge"'
 
-# scratch #1 — an experiment that belongs to no project, its answer waiting
-# to be read, the script it was found with in the workspace.
+# scratch #1 — work that belongs to no project, waiting to be looked at: the
+# deck it made is in the workspace.
 workspace scratch 1 "$DATA/scratch"
 cp -a "$SRC/repos/scratch/_work/." "$DATA/tasks/scratch/1/repo/"
 chat scratch 1 0
-say 0 '"k":"user","text":"Quick experiment: how many single-row INSERTs per second does SQLite manage here when every row is committed on its own? With and without WAL. Wondering whether it would do for a small URL shortener."'
-say 8 '"k":"thinking","text":"Autocommit per row is the worst case, and the realistic one for a shortener.","detail":"Autocommit per row is the worst case, and the realistic one for a shortener: one link, one commit. What dominates is the fsync per commit, so journal_mode and synchronous are the knobs; DELETE/FULL is the default, WAL/FULL and WAL/NORMAL the two worth comparing."'
-say 21 '"k":"tool","id":"s1","name":"Write","text":"bench.py","arg":"bench.py","res":"wrote 24 lines"'
-say 9 '"k":"tool","id":"s2","name":"Bash","text":"run the benchmark","arg":"python3 bench.py","res":"DELETE FULL 190/s · WAL FULL 750/s · WAL NORMAL 48,300/s"'
-say 6 '"k":"text","text":"2,000 single-row INSERTs, each its own transaction, on a temporary file:\n\n| journal | synchronous | inserts/s |\n|---|---|---:|\n| DELETE (default) | FULL | 190 |\n| WAL | FULL | 750 |\n| WAL | NORMAL | 48,300 |\n\nWhat a commit costs is its fsyncs. WAL halves them; `synchronous=NORMAL` in WAL mode drops the one per commit altogether, at the price of losing the last few commits (never the database) on a power cut.\n\nFor a URL shortener that writes once per link, even the default is far more than it will ever see, and WAL also lets readers carry on while a write is in progress. `bench.py` is in the workspace if you want to try another disk."'
-say 2 '"k":"result","text":"turn finished · 52s · $0.06"'
+say 0 '"k":"user","text":"Sam starts on Monday. Make me a short slide deck to walk them through on their first morning: what we build, the stack, how to run things, their first week, and who to ask. One HTML file I can open in a browser."'
+say 7 '"k":"thinking","text":"Six slides, one file, no framework: sections and a few lines of script for the arrow keys.","detail":"Six slides, one file, no framework: sections shown one at a time and a few lines of script for the arrow keys. The names and projects come from what was asked; the week plan is a sensible default to edit."'
+say 18 '"k":"tool","id":"s1","name":"Write","text":"slides.html","arg":"slides.html","res":"wrote 26 lines"'
+say 6 '"k":"tool","id":"s2","name":"Bash","text":"render the first slide","arg":"chromium --headless --screenshot=slide1.png slides.html","res":"wrote slide1.png"'
+say 5 '"k":"text","text":"`slides.html` has six slides; open it in a browser and step through with ← →:\n\n1. **Welcome, Sam**\n2. **What we build**: snip and standup\n3. **The stack**\n4. **Running things**: services and VS Code in TPS\n5. **Your first week**: Monday to Friday\n6. **Who to ask**\n\nThe week plan and the who-to-ask names are placeholders of mine: say what they should be and I will put them in."'
+say 2 '"k":"result","text":"turn finished · 41s · $0.05"'
 
 # standup #4 — the agent waiting on an OpenRouter request beyond its budget.
 workspace standup 4
@@ -305,12 +305,12 @@ cat >"$CONFIG.new" <<JSON
 			"nextTask": 2,
 			"tasks": {
 				"1": {
-					"title": "SQLite insert speed, with and without WAL",
+					"title": "Slides for Sam's first morning",
 					"model": "claude: haiku",
 					"phase": "human",
 					"started": true,
-					"spent": 0.06,
-					"context": 21000,
+					"spent": 0.05,
+					"context": 19000,
 					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
 					"phaseAt": $(ms 0 1)
 				}
