@@ -16,6 +16,7 @@ func (u *UI) addProject(raw json.RawMessage) (any, error) {
 		Hid  string `json:"hid"`
 		Dir  string `json:"dir"`
 		Name string `json:"name"`
+		Init bool   `json:"init"`
 	}
 	_ = json.Unmarshal(raw, &args)
 	l, err := u.link(args.Hid)
@@ -30,9 +31,16 @@ func (u *UI) addProject(raw json.RawMessage) (any, error) {
 	if err := l.awaitConnection(10 * time.Minute); err != nil {
 		return nil, err
 	}
-	res, err := l.cmd("addProject", map[string]any{"dir": dir, "name": strings.TrimSpace(args.Name)})
+	res, err := l.cmd("addProject", map[string]any{"dir": dir, "name": strings.TrimSpace(args.Name), "init": args.Init})
 	if err != nil {
 		return nil, err
+	}
+	// A directory or repository still to be made is a question for the user, not a project yet.
+	var ask struct {
+		Missing string `json:"missing"`
+	}
+	if json.Unmarshal(res, &ask) == nil && ask.Missing != "" {
+		return ask, nil
 	}
 	return l.newProject(res)
 }
