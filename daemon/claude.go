@@ -110,6 +110,7 @@ func (claudeCLI) Start(opts SessionOpts) (Session, error) {
 	env := []string{
 		"TZ=UTC", // the zone claude words its usage-limit resets in; see parseReset
 		"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1",
+		"BASH_MAX_TIMEOUT_MS=3600000", // room for the half hour an OpenRouter request may wait (see orWait)
 		"TPS_MODEL=" + model,
 		"TPS_SYSTEM=" + opts.System,
 		"TPS_EXTRA=" + extra,

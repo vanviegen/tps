@@ -78,8 +78,8 @@ for anything that serves or takes a while: dev servers, test suites, builds.
                            models you lack (audio, video) or a system under
                            test that calls an LLM API. Prints the key. A
                            request beyond the task's OpenRouter budget waits
-                           for the user; one they have not answered within 100
-                           seconds exits 124: run it again to keep waiting.
+                           for the user, half an hour at most; one they have
+                           not answered by then exits 124.
                            Ask again when a key's limit runs out.
 `
 

@@ -212,10 +212,10 @@ func (st *guestTool) openRouter(args []string) int {
 		fmt.Println(a.Key)
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "The request waits for the user, who has not answered yet. Run the same command again to keep waiting.\n")
+	fmt.Fprintf(os.Stderr, "The user has not answered the request in half an hour: carry on without the key. The request stands, and running the same command later picks the answer up.\n")
 	return 124
 }
 
-// orWait is how long the tool waits for an answer in one go: under the two
-// minutes an agent's shell command gets by default.
-const orWait = 100 * time.Second
+// orWait is how long the tool waits for the user to answer before the agent
+// carries on without the key (see BASH_MAX_TIMEOUT_MS in claude.go).
+const orWait = 30 * time.Minute

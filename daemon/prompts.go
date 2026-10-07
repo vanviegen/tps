@@ -108,8 +108,10 @@ Rules:
 - OpenRouter: where the task needs an LLM API of its own — models your own tools lack,
   such as audio and video ones, or a system under test that calls one — 'tps-guest-tool
   openrouter 3' asks for an OpenRouter API key limited to $3 of spending, and prints it.
-  A request beyond the task's OpenRouter budget waits for the user to decide. Keep the
-  key out of the files you leave in /work, and ask again when its limit runs out.
+  A request beyond the task's OpenRouter budget waits up to half an hour for the user
+  to decide: give the command a timeout that long rather than ending your turn, and carry
+  on without the key if it gives up. Keep the key out of the files you leave in /work,
+  and ask again when its limit runs out.
 
 End every turn with a message whose last paragraph is "Summary: " and one brief sentence
 on what this turn did, such as "Summary: Read the config file at startup, with tests." TPS
