@@ -4,6 +4,7 @@ import { Marked } from 'marked';
 import * as S from 'staffa';
 import { gitFork, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
+import { formatShell } from './shell.ts';
 import { cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
@@ -266,7 +267,7 @@ function detailDialog($e: any): void {
 				A('table', reqTable, () => {
 					for (const f of fields) A('tr', () => {
 						A('td text=', f.k);
-						A('td', () => codeBlock(f.v));
+						A('td', () => codeBlock(/^bash$/i.test($e.name) && f.k === 'command' ? formatShell(f.v) : f.v));
 					});
 				});
 			});
