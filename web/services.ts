@@ -199,20 +199,27 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string, s
 	});
 }
 
-function drawConsole($t: any, name: string, find: () => Service | undefined, $starting: { value: boolean }): void {
-	// The log is a terminal's output: colours and progress lines are played out
-	// (see ansi.ts) into HTML built here, never anything the log itself wrote.
+/**
+ * A terminal's output, following new output unless scrolled up. Colours and
+ * progress lines are played out (see ansi.ts) into HTML built here, never
+ * anything the log itself wrote.
+ */
+export function drawLog(log: () => string): void {
 	const el = A('pre r:0 flex:1 min-height:0 m:0 overflow:auto white-space:pre-wrap overflow-wrap:anywhere', () => {
-		A('html=', ansiToHtml($t.serviceLogs?.[name] || ''));
+		A('html=', ansiToHtml(log()));
 	}) as HTMLElement;
 	let stick = true;
 	el.addEventListener('scroll', () => {
 		stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
 	});
 	A(() => {
-		void $t.serviceLogs?.[name];
+		log();
 		if (stick) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
 	});
+}
+
+function drawConsole($t: any, name: string, find: () => Service | undefined, $starting: { value: boolean }): void {
+	drawLog(() => $t.serviceLogs?.[name] || '');
 	A('div fg:$s-muted font-size:0.9em', () => {
 		const s = find();
 		if ($t.status !== 'up') A('text=', `${$t.statusDetail || $t.status}…`);

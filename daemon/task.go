@@ -2164,7 +2164,37 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	if !imageExists(tag) {
 		t.note("building the dev container image; the first build takes a few minutes…")
 	}
-	if err := buildImage(tag, cf, t.repoDir(), func(string) {}); err != nil {
+	// The build's output tail, shown in place of VS Code while it runs; published
+	// a few times a second rather than per write, as every write resends it all.
+	var out string
+	done := make(chan struct{})
+	go func() {
+		tick := time.NewTicker(300 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+				t.lock()
+				t.pubL("buildLog", nonEmpty(out))
+				t.unlock()
+			}
+		}
+	}()
+	err := buildImage(tag, cf, t.repoDir(), func(s string) {
+		t.lock()
+		if out += s; len(out) > serviceLogMax {
+			out = out[len(out)-serviceLogMax:]
+		}
+		t.unlock()
+	})
+	close(done)
+	t.lock()
+	out = "" // a tick that missed done publishes nothing either
+	t.pubL("buildLog", nil)
+	t.unlock()
+	if err != nil {
 		return nil, buildErr{err}
 	}
 	t.lock()

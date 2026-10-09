@@ -9,7 +9,7 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { sortedProjects } from './projects.ts';
-import { drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
+import { drawLog, drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
 import { autoStarts, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, projectName, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
@@ -814,9 +814,9 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 				S.button({ content: 'Retry', click: () => void cmd('openTask', { pid, tid }) });
 			}});
 		} else {
-			S.box({ contentAttrs: 'display:flex flex-direction:column', content: () => {
-				A('p text=', `${$t.status === 'up' ? 'starting VS Code' : taskActivity(pid, $t).text}…`);
-				A('progress w:100%');
+			S.box({ attrs: 'max-height:100%', contentAttrs: 'display:flex flex-direction:column flex:1 min-height:0', content: () => {
+				A('p m:0 text=', `${$t.status === 'up' ? 'starting VS Code' : taskActivity(pid, $t).text}…`);
+				drawLog(() => $t.buildLog || '');
 			}});
 		}
 	});
