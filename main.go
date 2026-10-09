@@ -2,7 +2,8 @@
 // containers. One binary, two roles: the UI (default) serves the web app and
 // relays to daemons; --daemon runs the workflow on a host, without a UI of its
 // own and outliving the one that started it, until nothing is running and no
-// dashboard is connected. --autostart also has the desktop start it at login.
+// dashboard is connected. --auto-start also has the desktop start it at login,
+// and --auto-update has it replace itself by new releases.
 package main
 
 import (
@@ -46,12 +47,19 @@ func main() {
 	flag.IntVar(port, "p", 4820, "port for the web UI (shorthand)")
 	host := flag.String("host", "127.0.0.1", "address to listen on")
 	noOpen := flag.Bool("no-open", false, "don't open the browser")
-	doAutostart := flag.Bool("autostart", false, "also start this binary (with --no-open) at every login, then run as usual")
+	doAutostart := flag.Bool("auto-start", false, "also start this binary (with --no-open) at every login, then run as usual")
+	autoUpdate := flag.Bool("auto-update", false, "install new GitHub releases, checked for at startup and when the last dashboard closes")
 	daemonBinary := flag.String("daemon-binary", "", "binary to install on remote hosts of another architecture")
 	relayPath := flag.String("relay", "", "internal: relay stdio to the unix socket at this path")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: tps [--port 4820] [--host 127.0.0.1] [--no-open] [--daemon-binary FILE] [--autostart] | tps --daemon")
+		fmt.Fprintln(os.Stderr, "Usage: tps [--port 4820] [--host 127.0.0.1] [--no-open] [--daemon-binary FILE] [--auto-start] [--auto-update] | tps --daemon")
 		flag.PrintDefaults()
+	}
+	// --autostart is what --auto-start was once called.
+	for i, arg := range os.Args {
+		if arg == "--autostart" || arg == "-autostart" {
+			os.Args[i] = "--auto-start"
+		}
 	}
 	flag.Parse()
 
@@ -60,7 +68,7 @@ func main() {
 		return
 	}
 	if *doAutostart {
-		path, err := autostart()
+		path, err := autostart(*autoUpdate)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -72,7 +80,7 @@ func main() {
 		}
 		return
 	}
-	log.Fatal(ui.Run(ui.Options{Addr: fmt.Sprintf("%s:%d", *host, *port), WebFS: webFS, Open: !*noOpen, DaemonBinary: *daemonBinary}))
+	log.Fatal(ui.Run(ui.Options{Addr: fmt.Sprintf("%s:%d", *host, *port), WebFS: webFS, Open: !*noOpen, DaemonBinary: *daemonBinary, AutoUpdate: *autoUpdate}))
 }
 
 // relay connects stdio to a unix socket; the UI runs it over ssh to reach a

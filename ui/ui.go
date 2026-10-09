@@ -13,10 +13,12 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -31,6 +33,9 @@ type Options struct {
 	Open  bool  // open the browser once listening
 	// DaemonBinary is pushed to remote hosts instead of this executable (for another architecture).
 	DaemonBinary string
+	// AutoUpdate installs and restarts into a new release, checked for at
+	// startup and whenever the last dashboard closes.
+	AutoUpdate bool
 }
 
 type UI struct {
@@ -43,6 +48,7 @@ type UI struct {
 	order []string          // project ids as the user arranged them in the sidebar; see dashboard.go
 
 	daemonBinary string
+	autoUpdate   bool
 	askpass      *askpassServer
 }
 
@@ -51,10 +57,13 @@ type UI struct {
 var daemonCmds = []string{"setProject", "removeProject", "openProjectCode", "closeProjectCode", "createTask", "updateTask", "openTask", "chat", "attach", "preview", "stopAgent", "mergeTask", "rebaseTask", "moveTask", "deleteTask", "runService", "stopService", "restartService", "reloadTask", "usePoint", "grantOpenRouter", "rejectOpenRouter"}
 
 func Run(o Options) error {
+	if o.AutoUpdate {
+		autoUpdate(os.Args)
+	}
 	u := &UI{
 		hub:   hub.New(map[string]any{"projects": map[string]any{}, "hosts": map[string]any{}, "models": daemon.FallbackModels, "projectOrder": []string{}, "hostNames": map[string]string{}}),
 		webFS: o.WebFS, links: map[string]*Link{},
-		daemonBinary: o.DaemonBinary,
+		daemonBinary: o.DaemonBinary, autoUpdate: o.AutoUpdate,
 	}
 	var err error
 	if u.askpass, err = u.startAskpass(); err != nil {
@@ -222,6 +231,9 @@ func (u *UI) serveWS(w http.ResponseWriter, r *http.Request) {
 		u.hub.Handle(client, data)
 	}
 	u.hub.RemoveClient(client)
+	if u.autoUpdate && u.hub.ClientCount() == 0 {
+		go autoUpdate(append(slices.Clone(os.Args), "--no-open"))
+	}
 }
 
 var codeRoute = regexp.MustCompile(`^/code/([^/]+)/([^/]+)(/.*)?$`)

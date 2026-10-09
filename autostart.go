@@ -7,9 +7,10 @@ import (
 )
 
 // autostart writes the XDG autostart entry that runs this binary, from where
-// it is now, with --no-open at every login: what `tps --autostart` does
-// before it goes on to run as usual. Returns the entry's path.
-func autostart() (string, error) {
+// it is now, with --no-open (and --auto-update when asked) at every login:
+// what `tps --auto-start` does before it goes on to run as usual. Returns the
+// entry's path.
+func autostart(autoUpdate bool) (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -26,11 +27,15 @@ func autostart() (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, "tps.desktop")
+	args := " --no-open"
+	if autoUpdate {
+		args += " --auto-update"
+	}
 	entry := "[Desktop Entry]\n" +
 		"Type=Application\n" +
 		"Name=TPS\n" +
 		"Comment=Kanban manager for AI coding agents\n" +
-		"Exec=" + desktopQuote(exe) + " --no-open\n" +
+		"Exec=" + desktopQuote(exe) + args + "\n" +
 		"Terminal=false\n" +
 		"StartupNotify=false\n" +
 		"X-GNOME-Autostart-enabled=true\n"

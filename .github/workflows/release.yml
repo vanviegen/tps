@@ -25,7 +25,7 @@ jobs:
           set -e
           for target in amd64:x86_64 arm64:aarch64; do
             GOARCH=${target%%:*} GOOS=linux CGO_ENABLED=0 \
-              go build -trimpath -ldflags='-s -w' -o "dist/tps-linux-${target##*:}" .
+              go build -trimpath -ldflags="-s -w -X github.com/vanviegen/tps/ui.Version=$GITHUB_REF_NAME" -o "dist/tps-linux-${target##*:}" .
           done
           ls -l dist
       - name: Publish

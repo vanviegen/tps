@@ -149,13 +149,16 @@ Download a release into a bin directory of your own and start it:
 mkdir -p ~/.local/bin
 curl -fsSL -o ~/.local/bin/tps https://github.com/vanviegen/tps/releases/latest/download/tps-linux-$(uname -m)
 chmod +x ~/.local/bin/tps
-~/.local/bin/tps --autostart
+~/.local/bin/tps --auto-start
 ```
 
-`--autostart` writes a desktop autostart entry, so TPS starts at every login
+`--auto-start` writes a desktop autostart entry, so TPS starts at every login
 without opening a browser, and then runs like plain `tps` does: the dashboard
 opens at <http://localhost:4820/>. Most distributions put `~/.local/bin` on
-your `PATH` already. Updating is the same `curl`.
+your `PATH` already. Updating is the same `curl`, or add `--auto-update` (to
+the `--auto-start` line too, so the entry it writes has it) and TPS installs a
+new release itself: it checks at startup and whenever the last dashboard
+closes, and restarts into it. The daemons follow once nothing runs on them.
 
 ### Use it as an app
 

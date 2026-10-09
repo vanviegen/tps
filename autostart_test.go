@@ -23,7 +23,7 @@ func TestDesktopQuote(t *testing.T) {
 func TestAutostart(t *testing.T) {
 	conf := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", conf)
-	path, err := autostart()
+	path, err := autostart(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestAutostart(t *testing.T) {
 	}
 	exe, _ := os.Executable()
 	exe, _ = filepath.EvalSymlinks(exe)
-	if !strings.HasPrefix(string(entry), "[Desktop Entry]\n") || !strings.Contains(string(entry), "Exec="+desktopQuote(exe)+" --no-open\n") {
+	if !strings.HasPrefix(string(entry), "[Desktop Entry]\n") || !strings.Contains(string(entry), "Exec="+desktopQuote(exe)+" --no-open --auto-update\n") {
 		t.Fatalf("unexpected entry:\n%s", entry)
 	}
 }
