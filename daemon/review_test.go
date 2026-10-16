@@ -25,7 +25,7 @@ func TestReviewAccepted(t *testing.T) {
 // The reviewer is given the commit to review against and the user's own words,
 // with the agent's turns between them named as gaps.
 func TestReviewPrompt(t *testing.T) {
-	prompt := reviewPrompt("abc123", []string{"make it tidy", "and quick, too"})
+	prompt := reviewPrompt("abc123", []string{"make it tidy", "and quick, too"}, false)
 	for _, want := range []string{"git diff abc123", commitMessageFile, "make it tidy", "and quick, too", "then the agent worked"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the prompt should mention %q:\n%s", want, prompt)
@@ -34,8 +34,14 @@ func TestReviewPrompt(t *testing.T) {
 	if strings.Count(prompt, "then the agent worked") != 1 { // one gap between two messages
 		t.Errorf("one gap per message after the first:\n%s", prompt)
 	}
-	if lone := reviewPrompt("abc123", nil); !strings.Contains(lone, "nothing was written down") {
+	if lone := reviewPrompt("abc123", nil, false); !strings.Contains(lone, "nothing was written down") {
 		t.Errorf("a task nobody wrote for should say so:\n%s", lone)
+	}
+	if strings.Contains(prompt, "^Human$") {
+		t.Errorf("a task the user did not edit should not point at their edits:\n%s", prompt)
+	}
+	if edited := reviewPrompt("abc123", nil, true); !strings.Contains(edited, "--grep='^Human$' abc123.."+stepsBranch) {
+		t.Errorf("the user's own edits should be pointed out:\n%s", edited)
 	}
 }
 

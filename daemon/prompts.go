@@ -181,8 +181,8 @@ there that has to be read. It is read by a machine, and has exactly two allowed 
   worth another round of work, it does not belong in the list.`
 
 // reviewPrompt is the reviewer's one message: the work to read, and everything
-// the user asked for.
-func reviewPrompt(base string, said []string) string {
+// the user asked for, and whether they edited the work themselves.
+func reviewPrompt(base string, said []string, edited bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review the work in /work: it is uncommitted, on top of commit %[1]s, so `git diff %[1]s` "+
 		"and the untracked files `git status` lists are the whole of it. Nothing outside that is yours to judge.\n\n", base)
@@ -200,7 +200,14 @@ func reviewPrompt(base string, said []string) string {
 	if len(said) == 0 {
 		b.WriteString("\n(nothing was written down; go by .tps-commit-message, which says what the agent takes the work to be)\n")
 	}
-	b.WriteString("--- end of what the user asked for ---\n\nOne file of the change is not the project's: .tps-commit-message, the message the " +
+	b.WriteString("--- end of what the user asked for ---\n\n")
+	if edited {
+		fmt.Fprintf(&b, "The user also edited the work themselves, and their edits are part of the diff: `git log -p --grep='^Human$' %s..%s` "+
+			"shows them. What they wrote is asked for as much as anything they said, so do not ask for it to go as unrequested. Take it "+
+			"as the direction they want the work to go — but not as beyond criticism: say where it is wrong, and where the rest of the "+
+			"change, or the code around it, should follow it the same way and does not.\n\n", base, stepsBranch)
+	}
+	b.WriteString("One file of the change is not the project's: .tps-commit-message, the message the " +
 		"agent proposes to commit the work as, which merging writes into the commit and takes back out of the tree. It has to say briefly what " +
 		"the whole change does: correct it in place where it does not, as you would any other small fix.\n\n" +
 		"Containerfile.dev is the project's image definition, and the only place a tool the work needs can be installed to stay: the " +
