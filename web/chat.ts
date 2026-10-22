@@ -122,17 +122,19 @@ const markdown = A.insertCss({
 	img: 'max-width:100% height:auto',
 });
 
-/** A message hides its copy button until it is hovered. */
+/**
+ * A message hides its copy button until it is hovered. The button floats in
+ * the corner, so the text wraps around it rather than running underneath.
+ */
 const copyable = A.insertCss({
-	'&': 'position:relative min-width:0',
-	'& > .copy': 'position:absolute top:$1 right:$1 bg:$s-bg opacity:0 transition: opacity 0.15s;',
+	'&': 'min-width:0 display:flow-root',
+	'& > .copy': 'float:right ml:$1 opacity:0 transition: opacity 0.15s;',
 	'&:hover > .copy, & > .copy:focus-visible': 'opacity:1',
 });
 
 /** A message as markdown, with a button in its corner that copies its source. */
 function drawMessage(attrs: string, text: string): void {
 	A(`div ${attrs}`, copyable, () => {
-		A('div', markdown, 'html=', md.parse(text) as string);
 		const $done = A.proxy(false);
 		A(() => S.iconButton({
 			icon: $done.value ? copyCheck : copy, tooltip: 'Copy as markdown', attrs: '.small .copy fg:$s-muted',
@@ -142,6 +144,7 @@ function drawMessage(attrs: string, text: string): void {
 				setTimeout(() => { $done.value = false; }, 1500);
 			},
 		}));
+		A('div', markdown, 'html=', md.parse(text) as string);
 	});
 }
 
