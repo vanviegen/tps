@@ -660,14 +660,6 @@ func (l *Link) closeForwardsL(key string) {
 	delete(l.forwards, key)
 }
 
-func entryID(raw json.RawMessage) string {
-	var head struct {
-		ID string `json:"id"`
-	}
-	_ = json.Unmarshal(raw, &head)
-	return head.ID
-}
-
 func (l *Link) onChat(key string, msg inbound) {
 	pid, tid, _ := strings.Cut(key, "/")
 	ckey := l.id(pid) + "/" + tid
@@ -675,13 +667,13 @@ func (l *Link) onChat(key string, msg inbound) {
 	case msg.Es != nil:
 		entries := make([]hub.Entry, len(msg.Es))
 		for i, raw := range msg.Es {
-			entries[i] = hub.Entry{ID: entryID(raw), V: raw}
+			entries[i] = hub.RawEntry(raw)
 		}
 		l.ui.hub.SetChat(ckey, entries)
 	case msg.U:
-		l.ui.hub.ChatUpdate(ckey, hub.Entry{ID: entryID(msg.E), V: msg.E})
+		l.ui.hub.ChatUpdate(ckey, hub.RawEntry(msg.E))
 	default:
-		l.ui.hub.Chat(ckey, hub.Entry{ID: entryID(msg.E), V: msg.E})
+		l.ui.hub.Chat(ckey, hub.RawEntry(msg.E))
 	}
 }
 

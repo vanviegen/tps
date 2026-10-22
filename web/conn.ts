@@ -12,14 +12,23 @@ let ws: WebSocket | undefined;
 let nextId = 1;
 const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 const watchCounts = new Map<string, number>();
-const chats = new Map<string, any[]>();
+const chats = new Map<string, any[][]>();
 
-/** A task's chat log as a reactive array, filled by the server while watching. */
-export function chatLog(pid: string, tid: string): any[] {
+/**
+ * A task's chat log as a reactive array of turns, filled by the server while
+ * watching: a turn is a message of the user's and all that followed it, the
+ * first being what came before the first message.
+ */
+export function chatLog(pid: string, tid: string): any[][] {
 	const key = `${pid}/${tid}`;
 	let $chat = chats.get(key);
-	if (!$chat) chats.set(key, $chat = A.proxy([] as any[]));
+	if (!$chat) chats.set(key, $chat = A.proxy([[]] as any[][]));
 	return $chat;
+}
+
+function addEntry(turns: any[][], e: any): void {
+	if (e.k === 'user') turns.push([e]);
+	else turns[turns.length - 1].push(e);
 }
 
 function connect(): void {
@@ -43,13 +52,15 @@ function connect(): void {
 			const [pid, tid] = msg.c.split('/');
 			const $chat = chatLog(pid, tid);
 			if (msg.es) {
-				$chat.splice(0, $chat.length, ...msg.es);
+				const turns: any[][] = [[]];
+				for (const e of msg.es) addEntry(turns, e);
+				$chat.splice(0, $chat.length, ...turns);
 			} else if (msg.u) { // update: replace the newest entry with the same id
-				const i = $chat.findLastIndex(e => e.id === msg.e.id);
-				if (i >= 0) $chat[i] = msg.e;
-				else $chat.push(msg.e);
+				const turn = $chat.findLast(t => t.some(e => e.id === msg.e.id));
+				if (turn) turn[turn.findLastIndex(e => e.id === msg.e.id)] = msg.e;
+				else addEntry($chat, msg.e);
 			} else {
-				$chat.push(msg.e);
+				addEntry($chat, msg.e);
 			}
 		}
 	};

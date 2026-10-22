@@ -69,3 +69,30 @@ func contains(list []string, s string) bool {
 	}
 	return false
 }
+
+// A long log keeps what the user said and its save points, the oldest of the
+// rest folding into gaps that read back as such.
+func TestFold(t *testing.T) {
+	h := New(nil)
+	h.Chat("p/1", Entry{K: "mark", V: "start"})
+	h.Chat("p/1", Entry{K: "user", V: "do it"})
+	for i := 0; i < chatKeep; i++ {
+		h.Chat("p/1", Entry{K: "text", V: i})
+	}
+	h.Chat("p/1", Entry{K: "mark", V: "done"})
+	h.Chat("p/1", Entry{K: "user", V: "more"})
+	h.Chat("p/1", Entry{K: "text", V: "last"})
+	log := h.chats["p/1"]
+	if len(log) != 2+1+chatKeep-101+3 || log[0].V != "start" || log[1].V != "do it" || log[2].V != (Gap{K: "gap", N: 101}) || log[3].V != 101 {
+		t.Fatalf("folded: %v", log[:4])
+	}
+	// A gap from a daemon, folded into further by the UI's hub.
+	raw, _ := json.Marshal(log[2].V)
+	if again := fold(append([]Entry{RawEntry(raw)}, log[3:]...)); again[0].V != (Gap{K: "gap", N: 101}) {
+		t.Errorf("read back: %v", again[0])
+	}
+	h.SetChat("p/2", append([]Entry{RawEntry(raw)}, append(log[3:], log[3:]...)...))
+	if again := h.chats["p/2"]; again[0].V != (Gap{K: "gap", N: 101 + 399}) {
+		t.Errorf("refolded: %v", again[0])
+	}
+}

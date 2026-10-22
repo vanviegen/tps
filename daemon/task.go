@@ -446,13 +446,13 @@ func (t *Task) setPhaseL(phase Phase) {
 // --- chat log (no manager lock needed) ---
 
 func (t *Task) addEntry(e *ChatEntry) {
-	t.p.m.hub.Chat(t.key(), hub.Entry{ID: e.ID, V: e})
+	t.p.m.hub.Chat(t.key(), hub.Entry{ID: e.ID, K: e.K, V: e})
 	t.appendChat(e)
 }
 
 // updateEntry re-sends a changed entry (a tool call that got its result); it replaces by id.
 func (t *Task) updateEntry(e *ChatEntry) {
-	t.p.m.hub.ChatUpdate(t.key(), hub.Entry{ID: e.ID, V: e})
+	t.p.m.hub.ChatUpdate(t.key(), hub.Entry{ID: e.ID, K: e.K, V: e})
 	t.appendChat(e) // appended again; loadChat keeps the last version per id
 }
 
@@ -588,23 +588,37 @@ func (t *Task) readChat() []hub.Entry {
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
 		line := sc.Bytes()
-		var head struct {
-			ID string `json:"id"`
-		}
-		if !json.Valid(line) || json.Unmarshal(line, &head) != nil {
+		if !json.Valid(line) {
 			continue
 		}
-		e := hub.Entry{ID: head.ID, V: json.RawMessage(strings.Clone(string(line)))}
-		if i, ok := byID[head.ID]; ok && head.ID != "" {
+		e := hub.RawEntry(json.RawMessage(strings.Clone(string(line))))
+		if i, ok := byID[e.ID]; ok && e.ID != "" {
 			entries[i] = e
 		} else {
-			if head.ID != "" {
-				byID[head.ID] = len(entries)
+			if e.ID != "" {
+				byID[e.ID] = len(entries)
 			}
 			entries = append(entries, e)
 		}
 	}
 	return entries
+}
+
+// ChatTurn is the n-th turn of the chat log in full, where what the hub holds
+// of it may have gaps (see hub.fold): a message of the user's and all that
+// followed it, turn 0 being what came before the first.
+func (t *Task) ChatTurn(n int) []any {
+	turn := 0
+	out := []any{}
+	for _, e := range t.readChat() {
+		if e.K == "user" {
+			turn++
+		}
+		if turn == n {
+			out = append(out, e.V)
+		}
+	}
+	return out
 }
 
 // --- settings ---

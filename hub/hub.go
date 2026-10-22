@@ -17,8 +17,8 @@ import (
 // Protocol for any change a UI of the previous version could not handle, and
 // MinProtocol when old daemons can no longer be served.
 const (
-	Protocol    = 6
-	MinProtocol = 6
+	Protocol    = 7
+	MinProtocol = 7
 )
 
 // CmdHandler runs one command; the result is sent back as the reply.
@@ -32,14 +32,71 @@ type Client struct {
 	dead    bool
 }
 
-// Entry is a chat log entry together with its id (empty for most entries).
-// A later entry with a known id replaces the earlier one.
+// Entry is a chat log entry together with its id (empty for most entries)
+// and its kind. A later entry with a known id replaces the earlier one.
 type Entry struct {
 	ID string
+	K  string
 	V  any
 }
 
-const chatKeep = 500 // entries held in memory (and replayed to watchers) per task
+// RawEntry is an entry as it reads back from its JSON.
+func RawEntry(raw json.RawMessage) Entry {
+	var head struct {
+		ID, K string
+		N     int
+	}
+	_ = json.Unmarshal(raw, &head)
+	if head.K == "gap" {
+		return Entry{K: "gap", V: Gap{K: "gap", N: head.N}}
+	}
+	return Entry{ID: head.ID, K: head.K, V: raw}
+}
+
+// Gap stands in a log for N entries in a row that it holds no longer (see fold).
+type Gap struct {
+	K string `json:"k"` // "gap"
+	N int    `json:"n"`
+}
+
+// chatKeep is how many entries of a task's log are held in memory (and
+// replayed to watchers) in full; the rest are folded into gaps.
+const chatKeep = 500
+
+// fold folds the oldest entries of a log holding more than chatKeep into gaps,
+// a hundred at a time. What the user said and the save points stay whatever
+// their age, so the log keeps its shape and its points to go back to; what a
+// gap stands for is in the task's log file, for a dashboard to ask for.
+func fold(log []Entry) []Entry {
+	n := 0
+	for _, e := range log {
+		if e.K != "user" && e.K != "mark" && e.K != "gap" {
+			n++
+		}
+	}
+	if n <= chatKeep {
+		return log
+	}
+	n -= chatKeep - 100
+	out := make([]Entry, 0, len(log))
+	for _, e := range log {
+		if e.K == "gap" || n > 0 && e.K != "user" && e.K != "mark" {
+			size := 1
+			if e.K == "gap" {
+				size = e.V.(Gap).N
+			} else {
+				n--
+			}
+			if last := len(out) - 1; last >= 0 && out[last].K == "gap" {
+				size += out[last].V.(Gap).N
+				out = out[:last]
+			}
+			e = Entry{K: "gap", V: Gap{K: "gap", N: size}}
+		}
+		out = append(out, e)
+	}
+	return out
+}
 
 type Hub struct {
 	mu      sync.Mutex
@@ -148,11 +205,8 @@ func (h *Hub) ChatUpdate(key string, e Entry) {
 func (h *Hub) SetChat(key string, entries []Entry) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(entries) > chatKeep {
-		entries = entries[len(entries)-chatKeep:]
-	}
-	h.chats[key] = entries
-	h.toWatchers(key, map[string]any{"c": key, "es": values(entries)})
+	h.chats[key] = fold(entries)
+	h.toWatchers(key, map[string]any{"c": key, "es": values(h.chats[key])})
 }
 
 // LastChat is the newest entry of a task's log, if it has one.
@@ -167,11 +221,7 @@ func (h *Hub) LastChat(key string) (Entry, bool) {
 }
 
 func (h *Hub) appendChat(key string, e Entry) {
-	log := append(h.chats[key], e)
-	if len(log) > chatKeep {
-		log = log[len(log)-chatKeep:]
-	}
-	h.chats[key] = log
+	h.chats[key] = fold(append(h.chats[key], e))
 }
 
 // ClientCount is how many peers are connected, which is how a daemon tells

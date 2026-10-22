@@ -836,6 +836,7 @@ type ref struct {
 	// is a fork rather than this task put back, and how much to bring along
 	// (see mark.go).
 	Entry string `json:"entry"`
+	Turn  int    `json:"turn"` // chatTurn: which, counting what the user said
 	Fork  bool   `json:"fork"`
 	Chat  bool   `json:"chat"`
 	Work  bool   `json:"work"`
@@ -941,6 +942,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
 		"attach":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
 		"preview":          withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
+		"chatTurn":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
 		"stopAgent":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
 		"rebaseTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
