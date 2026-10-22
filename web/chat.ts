@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import { Marked } from 'marked';
 import * as S from 'staffa';
-import { gitFork, undo2 } from 'staffa/icons.js';
+import { copy, copyCheck, gitFork, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
 import { formatShell } from './shell.ts';
 import { cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
@@ -122,6 +122,29 @@ const markdown = A.insertCss({
 	img: 'max-width:100% height:auto',
 });
 
+/** A message hides its copy button until it is hovered. */
+const copyable = A.insertCss({
+	'&': 'position:relative min-width:0',
+	'& > .copy': 'position:absolute top:$1 right:$1 bg:$s-bg opacity:0 transition: opacity 0.15s;',
+	'&:hover > .copy, & > .copy:focus-visible': 'opacity:1',
+});
+
+/** A message as markdown, with a button in its corner that copies its source. */
+function drawMessage(attrs: string, text: string): void {
+	A(`div ${attrs}`, copyable, () => {
+		A('div', markdown, 'html=', md.parse(text) as string);
+		const $done = A.proxy(false);
+		A(() => S.iconButton({
+			icon: $done.value ? copyCheck : copy, tooltip: 'Copy as markdown', attrs: '.small .copy fg:$s-muted',
+			click: async () => {
+				await navigator.clipboard.writeText(text);
+				$done.value = true;
+				setTimeout(() => { $done.value = false; }, 1500);
+			},
+		}));
+	});
+}
+
 function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 	const line = (draw: () => void, opens = false) =>
 		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', () => detailDialog($e), draw) : A(`small ${ELLIPSIS}`, draw);
@@ -131,14 +154,13 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 	const prefix = (text: string) => A(`b fg:${$e.rev ? '$s-link' : '$s-accent'} text=`, text);
 	switch ($e.k) {
 		case 'user':
-			A('div.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', markdown, 'html=', md.parse($e.text) as string);
+			drawMessage('.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', $e.text);
 			break;
 		case 'text':
 			// The reviewer's messages stand among the agent's own, so they are
 			// set apart the way the user's are, in the colour the rest of its
 			// run wears.
-			if ($e.rev) A('div.s-s.link.outlined pv:$1 ph:$3', markdown, 'html=', md.parse($e.text) as string);
-			else A('div', markdown, 'html=', md.parse($e.text) as string);
+			drawMessage($e.rev ? '.s-s.link.outlined pv:$1 ph:$3' : '', $e.text);
 			break;
 		case 'thinking':
 			line(() => {
