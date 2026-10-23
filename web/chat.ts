@@ -33,13 +33,20 @@ export const md = new Marked({
  * The task's chat log, filling its flex column and scrolling: user and assistant
  * messages as markdown; thinking, tool calls (call and result on one line)
  * and TPS notes as compact one-liners that open a dialog with the whole thing.
- * Once the log grows long, every turn but the last is folded into a block of
- * its own (see drawTurn).
+ * Turns far enough back are folded (see drawTurn).
  */
 export function drawChat(pid: string, tid: string, $t: any): void {
 	const $chat = chatLog(pid, tid);
-	const $last = A.derive(() => $chat.length - 1);
-	const $long = A.derive(() => $chat.reduce((n, turn) => n + turn.length, 0) > FOLD_AT);
+	// The turns before this one are folded: the newest that together hold
+	// FOLD_AT entries stay open, the one crossing it included.
+	const $foldBelow = A.derive(() => {
+		let n = 0;
+		for (let i = $chat.length - 1; i > 0; i--) {
+			n += $chat[i].length;
+			if (n >= FOLD_AT) return i;
+		}
+		return 0;
+	});
 	const $open = A.proxy({} as Record<number, boolean>);
 	// Content-sized grid rows: as flex or auto-row items, the one-liners (which
 	// clip their overflow) would be squashed to nothing once the log overflows.
@@ -47,7 +54,7 @@ export function drawChat(pid: string, tid: string, $t: any): void {
 	// can push the left column wider than it is.
 	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2', () => {
 		A(() => drawRules(pid, tid, $t));
-		A.onEach($chat, ($turn: any[], i: number) => drawTurn($chat, $turn, i, $last, $long, $open, pid, tid, $t));
+		A.onEach($chat, ($turn: any[], i: number) => drawTurn($chat, $turn, i, $foldBelow, $open, pid, tid, $t));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
 	let stick = true;
@@ -60,40 +67,46 @@ export function drawChat(pid: string, tid: string, $t: any): void {
 	});
 }
 
-/** How many entries make a log long enough to fold. */
-const FOLD_AT = 150;
+/** How many of the newest entries are never folded away. */
+const FOLD_AT = 200;
 
 /**
- * One turn of the log. Before the last, it folds into a single block — what
- * the user said, and the save points its run ended on — once the log is long;
- * opening it loads what any gaps in it stand for (see hub.fold), and only
- * then is the rest of it drawn. The first turn, what came before the user said
- * anything, holds the point a task starts on, and is never folded.
+ * One turn of the log. Folded, it keeps what the user said and the save points
+ * its runs ended on, each run between them standing as a single line; opening
+ * it loads what any gaps in it stand for (see hub.fold), and only then is the
+ * rest of it drawn. The first turn, what came before the user said anything,
+ * holds the point a task starts on, and is never folded.
  */
-function drawTurn($chat: any[][], $turn: any[], i: number, $last: { value: number }, $long: { value: boolean }, $open: Record<number, boolean>, pid: string, tid: string, $t: any): void {
-	const hasGap = () => $turn.some(e => e.k === 'gap');
+function drawTurn($chat: any[][], $turn: any[], i: number, $foldBelow: { value: number }, $open: Record<number, boolean>, pid: string, tid: string, $t: any): void {
 	const load = async () => {
 		const entries = await cmd('chatTurn', { pid, tid, turn: i });
 		if (entries && A.unproxy($chat)[i] === A.unproxy($turn)) $chat[i] = entries;
 	};
-	const $folded = A.derive(() => i > 0 && i < $last.value && !$open[i] && $long.value);
+	const open = () => {
+		$open[i] = true;
+		if ($turn.some(e => e.k === 'gap')) void load();
+	};
+	const $folded = A.derive(() => i > 0 && i < $foldBelow.value && !$open[i]);
 	A(() => {
-		if (!$folded.value) return void A.onEach($turn, ($e: any) => $e.k === 'gap' ? drawGap($e, load) : drawEntry($e, pid, tid, $t));
-		const marks = $turn.filter(e => e.k === 'mark');
-		const steps = $turn.reduce((n, e) => n + (e.k === 'gap' ? e.n : e.k === 'user' || e.k === 'mark' ? 0 : 1), 0);
-		A('div.s-s.primary.outlined pv:$1 ph:$3 display:grid', openable, 'click=', () => {
-			$open[i] = true;
-			if (hasGap()) void load();
-		}, () => {
-			A(`span ${ELLIPSIS} text=`, $turn[0].text);
-			A(`small fg:$s-muted ${ELLIPSIS} text=`, [`${steps} step${steps === 1 ? '' : 's'}`, ...marks.map(m => m.text)].join(' · '));
-		});
+		if (!$folded.value) return void A.onEach($turn, ($e: any) => $e.k === 'gap' ? drawHidden($e.n, load) : drawEntry($e, pid, tid, $t));
+		let hidden = 0;
+		const flush = () => {
+			if (hidden) drawHidden(hidden, open);
+			hidden = 0;
+		};
+		for (const e of $turn) {
+			if (e.k === 'user' || e.k === 'mark') {
+				flush();
+				drawEntry(e, pid, tid, $t);
+			} else hidden += e.k === 'gap' ? e.n : 1;
+		}
+		flush();
 	});
 }
 
-/** Entries the server holds no longer (see hub.fold): a click loads their turn in full. */
-function drawGap($e: any, load: () => void): void {
-	A(`small ${ELLIPSIS} fg:$s-muted`, openable, 'click=', load, 'text=', `⋯ ${$e.n} earlier entr${$e.n === 1 ? 'y' : 'ies'}; click to load them`);
+/** A run of entries left out of the log, which a click brings in. */
+function drawHidden(n: number, show: () => void): void {
+	A(`small ${ELLIPSIS} fg:$s-muted`, openable, 'click=', show, 'text=', `⋯ ${n} step${n === 1 ? '' : 's'}`);
 }
 
 /**
