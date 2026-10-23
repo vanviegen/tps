@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vanviegen/tps/hub"
 )
@@ -36,8 +37,9 @@ func testTask(t *testing.T) (*Task, string) {
 	gitRun(t, origin, "commit", "--quiet", "-m", "add a.txt")
 
 	data := filepath.Join(dir, "data")
-	m := &Manager{projects: map[string]*Project{}, dataDir: data, configFile: filepath.Join(data, "config.json"), saveCh: make(chan []byte, 1), hub: hub.New(nil)}
-	p := &Project{m: m, pid: "project", info: &ProjectInfo{Dir: origin}, tasks: map[string]*Task{}, defaultBranch: "main"}
+	m := &Manager{projects: map[string]*Project{}, dataDir: data, configFile: filepath.Join(data, "config.json"), saveCh: make(chan []byte, 1), hub: hub.New(nil),
+		models: map[string][]string{}, modelsFailed: map[string]bool{}} // a host with a toolbox asks its agents for their models
+	p := &Project{m: m, pid: "project", info: &ProjectInfo{Dir: origin, Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}, defaultBranch: "main", alone: map[string]bool{}}
 	m.projects[p.pid] = p
 	task := newTask(p, "1", &TaskInfo{Phase: PhaseAgent})
 	p.tasks[task.tid] = task
@@ -52,6 +54,32 @@ func testTask(t *testing.T) (*Task, string) {
 		}
 	})
 	return task, origin
+}
+
+// mergeAndLand merges the task, and waits for the merge train to land it.
+func mergeAndLand(t *testing.T, task *Task, message string) {
+	t.Helper()
+	if err := task.Merge(message); err != nil {
+		t.Fatal(err)
+	}
+	waitLanded(t, task)
+}
+
+// waitLanded waits for the merge train to be done with the task.
+func waitLanded(t *testing.T, task *Task) {
+	t.Helper()
+	for i := 0; ; i++ {
+		task.lock()
+		phase := task.info.Phase
+		task.unlock()
+		if phase != PhaseMerge {
+			return
+		}
+		if i == 100 {
+			t.Fatal("the merge train did not land the task")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // What a merged task keeps and what it loses: the conversation stays, the
@@ -316,9 +344,7 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 		t.Error("the replay is not a merge of the branch into the steps")
 	}
 	writeWork(t, task, "a.txt", "one both\n")
-	if err := task.Merge("the task"); err != nil {
-		t.Fatal(err)
-	}
+	mergeAndLand(t, task, "the task")
 	if task.info.Phase != PhaseDone {
 		t.Errorf("phase %s", task.info.Phase)
 	}
@@ -370,10 +396,9 @@ func TestMergeTakesItsMessageFromTheWorkspace(t *testing.T) {
 	}
 	writeWork(t, task, "a.txt", "one task\n")
 	writeWork(t, task, commitMessageFile, "Do the thing\n\nAnd say why.\n")
-	if err := task.Merge(""); err != nil {
-		t.Fatal(err)
-	}
-	if got := gitRun(t, origin, "log", "--format=%B", "-1"); got != "Do the thing\n\nAnd say why.\n" {
+	mergeAndLand(t, task, "")
+	// The task's stamp is added as a trailer (see branch.go).
+	if got := gitRun(t, origin, "log", "--format=%B", "-1"); got != "Do the thing\n\nAnd say why.\n\n"+taskTrailer+": "+task.info.Stamp+"\n" {
 		t.Errorf("the commit message: %q", got)
 	}
 	if exists(filepath.Join(origin, commitMessageFile)) {
@@ -447,9 +472,7 @@ func TestCloseKeepsABundle(t *testing.T) {
 	if len(task.info.Pending) == 0 || task.info.Pending[len(task.info.Pending)-1].Key != "reopened" {
 		t.Errorf("pending: %v", task.info.Pending)
 	}
-	if err := task.Merge("closed, then merged"); err != nil {
-		t.Fatal(err)
-	}
+	mergeAndLand(t, task, "closed, then merged")
 	for name, want := range map[string]string{"a.txt": "one task\n", "new.txt": "new\n", "b.txt": "two\n"} {
 		if got := readFile(filepath.Join(origin, name)); got != want {
 			t.Errorf("%s on the branch: %q", name, got)
@@ -594,6 +617,7 @@ func TestCommitMessageMeansReady(t *testing.T) {
 	task.info.Phase = PhaseAgent
 	writeWork(t, task, commitMessageFile, "Say it twice\n")
 	task.onTurnEnd(TurnEnd{Text: "Summary: Finished it."})
+	waitLanded(t, task)
 	if task.info.Phase != PhaseDone {
 		t.Fatalf("work with a commit message went %s", task.info.Phase)
 	}
@@ -636,9 +660,7 @@ func TestTurnIntoProject(t *testing.T) {
 	if readFile(filepath.Join(moved.repoDir(), "notes.md")) != "found it\n" {
 		t.Error("the work did not come along")
 	}
-	if err := moved.Merge("Notes"); err != nil {
-		t.Fatal(err)
-	}
+	mergeAndLand(t, moved, "Notes")
 	if got := gitRun(t, dir, "log", "--format=%s", "-1"); got != "Notes" {
 		t.Errorf("the project's history: %q", got)
 	}

@@ -11,5 +11,7 @@ USER dev
 WORKDIR /work
 
 LABEL tps.service.test="python3 -m unittest discover -v"
+# A stand-in deploy, which asks before it ships.
+LABEL tps.deploy="echo deploying snip at $(git rev-parse --short HEAD); /tps/bin/tps-guest-tool ask-human 'Ship snip to production?' --option Ship --option Abort && echo shipped"
 EXPOSE 8000
 CMD python3 snip.py --host 0.0.0.0 --port 8000

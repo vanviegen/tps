@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, folderGit2, gitMerge, menu, plus, refreshCw, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, externalLink, folderGit2, gitMerge, menu, plus, refreshCw, rocket, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
@@ -10,7 +10,7 @@ import { $state, watch } from './conn.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { autoStarts, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, onComposer, pathTo, projectName, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { asks, autoStarts, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, onComposer, pathTo, portUrl, projectName, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -110,6 +110,25 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 	if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
 	void cmd('moveTask', { pid, tid, phase });
 	return true;
+}
+
+/**
+ * Deploy the project once the user says so: the tip of its branch, or the
+ * branch up to one of its commits, which deploys what came before it and
+ * takes back what came after. The question says which commits those are —
+ * by their task where they are one's.
+ */
+export async function deployProject(pid: string, commit?: string): Promise<void> {
+	const $p = $state.projects[pid] ?? {};
+	const commits: { sha: string; subject: string; tid?: string }[] = $p.commits ?? [];
+	const place = (sha: string) => { const i = commits.findIndex(c => c.sha === sha); return i < 0 ? commits.length : i; };
+	const at = place($p.deploy?.at), to = commit ? place(commit) : 0;
+	const name = (c: { subject: string; tid?: string }) => `“${c.tid && $p.tasks?.[c.tid] ? taskTitle($p.tasks[c.tid]) : c.subject}”`;
+	const names = (list: typeof commits) => list.length > 6 ? `${list.slice(0, 5).map(name).join(', ')} and ${list.length - 5} more` : list.map(name).join(', ');
+	const goes = commits.slice(to, at), back = commits.slice(at, to);
+	const what = [goes.length && `deploys ${names(goes)}`, back.length && `takes back ${names(back)}`].filter(Boolean).join(', and ');
+	const where = commit ? `up to ${name(commits[to] ?? { subject: commit.slice(0, 10) })}` : `at the tip of ${$p.defaultBranch ?? 'main'}`;
+	if (await S.confirm(`Deploy ${projectName($p)} ${where}? That ${what || 'deploys it again as it is'}. The Deploy task in the sidebar shows how it goes.`)) void cmd('deploy', { pid, commit });
 }
 
 /**
@@ -589,6 +608,14 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
  * those its services and its forwarded ports.
  */
 function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
+	// A job is TPS's to move (see isJob): what is left to do with it is look
+	// at what runs in it.
+	if (isJob($t)) {
+		const items: S.MenuEntry[] = [{ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) }];
+		if (hasServices($t)) items.push({ separator: true }, ...serviceItems(pid, tid, $t));
+		if ($t.ports?.length) items.push({ separator: true }, ...portItems($t));
+		return items;
+	}
 	const extra: S.MenuEntry[] = [];
 	// Only while the task is yours: rebasing and rebuilding both move the
 	// ground under a running agent, and both are for the human at the wheel.
@@ -641,6 +668,8 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	const zone = A('div display:flex flex-direction:column gap:$3 flex:1 min-width:0 min-height:0', () => {
 		drawTaskHeader(pid, tid, $t);
 		drawChat(pid, tid, $t);
+		drawAsks(pid, tid, $t);
+		if (isJob($t)) return drawJobBar(pid, tid, $t);
 		A(() => {
 			if ($t.phase === 'closed') {
 				if ($state.projects[pid]?.scratch) return; // there was nothing to merge it into
@@ -682,6 +711,56 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		drawInputBar(pid, tid, $t);
 	}) as HTMLElement;
 	acceptFiles(zone, area, files => addFiles(pid, tid, files));
+}
+
+interface Ask { id: string; question: string; options?: string[]; input?: boolean; secret?: boolean; service?: string; port?: number }
+
+/**
+ * The questions something in the task's container puts to the user (see
+ * ask.go), each a strip of its own: the question, a link to the port it names,
+ * a field to type in where it wants text, and a button per answer. A script
+ * waits on the answer, whatever the task's phase.
+ */
+function drawAsks(pid: string, tid: string, $t: any): void {
+	A(() => {
+		for (const ask of ($t.asks ?? []) as Ask[]) drawAsk(pid, tid, $t, ask);
+	});
+}
+
+function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
+	const $form = A.proxy({ text: '' });
+	const answer = (option: number) => void cmd('answerAsk', { pid, tid, id: ask.id, option, text: $form.text });
+	// A field with nothing to press says Send; a question with neither waits for its service.
+	const options = ask.options?.length ? ask.options : ask.input ? ['Send'] : [];
+	A('div.s-s.warning.tonal p:$2 display:flex flex-direction:column gap:$2', () => {
+		A('div font-weight:600 white-space:pre-wrap text=', ask.question);
+		if (ask.input) S.textline({ type: ask.secret ? 'password' : 'text', placeholder: 'Your answer', bind: A.ref($form, 'text') });
+		A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
+			if (ask.port) A(() => {
+				const p = ($t.ports ?? []).find((p: any) => p.port === ask.port);
+				S.button({ content: `Open port ${ask.port}`, icon: externalLink, attrs: '.small .neutral', disabled: !p,
+					tooltip: p ? undefined : `Port ${ask.port} is not forwarded: Containerfile.dev needs an EXPOSE line for it`,
+					click: () => window.open(portUrl(p), '_blank') });
+			});
+			options.forEach((label, i) => S.button({ content: label, attrs: i ? '.small .neutral' : '.small', click: () => answer(i) }));
+			if (ask.service) A('span fg:$s-muted font-size:0.9em text=', `${options.length ? 'Or answered' : 'Answered'} by the service ${ask.service} when it exits`);
+		});
+	});
+}
+
+/**
+ * Where a job's composer would be: what it is doing, and for the deploy, the
+ * button that runs it again.
+ */
+function drawJobBar(pid: string, tid: string, $t: any): void {
+	A('div display:flex align-items:center gap:$2', () => {
+		A(`span flex:1 fg:$s-muted ${ELLIPSIS}`, () => A('text=', $t.phase === 'merge' ? 'Running…' : $t.job === 'deploy'
+			? 'Deploys the default branch, with the credentials the project settings name.'
+			: 'Tests and lands what is merged, a batch at a time.'));
+		if ($t.job === 'deploy') A(() => {
+			S.button({ content: 'Deploy', icon: rocket, attrs: '.small', disabled: $t.phase === 'merge', click: () => void deployProject(pid) });
+		});
+	});
 }
 
 // The tasks that have the dialog below on screen, so it is not stacked twice.

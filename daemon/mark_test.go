@@ -301,9 +301,7 @@ func TestMergeFoldsMarkCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := task.Merge("the whole task"); err != nil {
-		t.Fatal(err)
-	}
+	mergeAndLand(t, task, "the whole task")
 	after, err := git(origin, "rev-list", "--count", "main")
 	if err != nil {
 		t.Fatal(err)

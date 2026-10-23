@@ -25,11 +25,14 @@ func TestContainerfileServices(t *testing.T) {
 	if got := containerfileServices("FROM x\nCMD [\"node\", \"a b.js\", \"it's\"]\n"); !slices.Equal(got, []declaredService{{"app", `node 'a b.js' 'it'\''s'`}}) {
 		t.Errorf("exec form: %v", got)
 	}
-	if _, caches := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a/b, /c\" tps.service.t=x\nLABEL tps.cache=\"rel /d\"\n"); !slices.Equal(caches, []string{"/a/b", "/c", "/d"}) {
+	if _, caches, _ := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a/b, /c\" tps.service.t=x\nLABEL tps.cache=\"rel /d\"\n"); !slices.Equal(caches, []string{"/a/b", "/c", "/d"}) {
 		t.Errorf("caches: %v", caches)
 	}
-	if _, caches := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a /b\"\nFROM y\n"); caches != nil {
+	if _, caches, _ := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a /b\"\nFROM y\n"); caches != nil {
 		t.Errorf("caches of an earlier stage: %v", caches)
+	}
+	if services, _, deploy := containerfileDeclarations("FROM x\nLABEL tps.deploy=\"./ship.sh prod\"\n"); deploy != "./ship.sh prod" || services != nil {
+		t.Errorf("deploy: %q, services %v", deploy, services)
 	}
 	if containerfileServices(defaultContainerfile) != nil {
 		t.Error("no CMD")

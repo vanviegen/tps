@@ -9,7 +9,7 @@ import { drawDashboard, drawProjectCode, drawProjectPage } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
-import { hasWorkspace, isFinished, projectName, selection, taskTitle } from './util.ts';
+import { hasWorkspace, isFinished, isJob, projectName, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -129,6 +129,8 @@ function drawTaskView(pid: string, tid: string, $t: any): void {
 	}, () => {
 		A(() => {
 			if ($t.phase === 'plan') return drawPlanEditor(pid, tid, $t);
+			// A job's workspace is made when it runs (see isJob).
+			if (isJob($t) && !hasWorkspace($t)) return S.box({ header: taskTitle($t), content: 'Nothing to show: its workspace is made afresh whenever it runs.' });
 			// Finished or kept in Plan, there is nothing left to open — once the
 			// workspace is gone, which takes a moment; until then it is still worth showing.
 			if ((isFinished($t) || $t.phase === 'muted') && !hasWorkspace($t)) return drawDonePanel(pid, tid, $t);

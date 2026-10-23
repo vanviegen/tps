@@ -83,11 +83,18 @@ func (t *Task) beginReview() {
 	said := t.userSaid()
 	// The user's own edits are the steps mark names "Human".
 	edited, _ := git(t.repoDir(), "log", "--format=%h", "--grep=^Human$", base+".."+stepsBranch)
+	tests := testsNone
+	if services, _ := t.declarations(t.containerfile()); indexService(services, testService) >= 0 {
+		tests = testsNotPassed
+		if tree, err := writeTree(t.repoDir()); err == nil && t.tested(tree) {
+			tests = testsPassed
+		}
+	}
 	t.lock()
 	t.setReviewL("") // what is about to be said replaces what was said before
 	t.setPhaseL(PhaseReview)
 	t.unlock()
-	prompt := reviewPrompt(base, said, edited != "")
+	prompt := reviewPrompt(base, said, edited != "", tests)
 	// The note carries the whole of what the reviewer is given, so that the
 	// one thing in the log with no conversation behind it can still be read in
 	// full: opening it is how you see what this verdict was formed on.

@@ -1,10 +1,10 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { funnel, plus, settings, x } from 'staffa/icons.js';
+import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
-import { moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { deployProject, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
+import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -25,6 +25,13 @@ import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing
  *
  * A column is one drop area: where in it a card lands says nothing, as muting
  * and closing are not things to do by accident.
+ *
+ * On the board of a project that deploys, Done is its branch as it is (see
+ * drawBranch), cut by a line where the last deploy is, and below a faint line
+ * the tasks with no place on it. The column's rocket deploys the tip; one
+ * hanging above a card or commit of the branch deploys the branch up to that,
+ * moving the line there — up for what is still to go, down for a deploy to
+ * take back.
  */
 const boardWidths = A.insertCss({
 	'&': `--col: clamp(190px, calc((100% - ${COLUMNS.length - 1} * var(--m3)) / ${COLUMNS.length}), 320px);`,
@@ -63,8 +70,9 @@ type Card = { pid: string; tid: string };
 export function drawBoard(pid: string | undefined, create: () => void): void {
 	// Every task on the board in one list, so a column can sort the cards of
 	// all projects among each other.
+	// The project's own jobs (see isJob) are not cards: the sidebar has them.
 	const $cards = A.multiMap($state.projects, ($p: any, p: string) => p === pid || !pid
-		? Object.fromEntries(Object.keys($p.tasks ?? {}).map(tid => [`${p}/${tid}`, { pid: p, tid }]))
+		? Object.fromEntries(Object.entries($p.tasks ?? {}).filter(([, $t]) => !isJob($t)).map(([tid]) => [`${p}/${tid}`, { pid: p, tid }]))
 		: undefined);
 	A('div display:flex gap:$3 align-items:stretch overflow-x:auto h:100%', boardWidths, () => {
 		for (const phase of COLUMNS) {
@@ -78,12 +86,28 @@ export function drawBoard(pid: string | undefined, create: () => void): void {
 					A('text=', PHASE_LABELS[phase]);
 					A('div display:flex align-items:center gap:$1 ml:auto', () => {
 						if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Create task', attrs: '.small', click: create });
+						if (phase === 'done' && pid) drawDeployButton(pid);
 						drawFilterButton(pid, phase);
 					});
 				},
 				content: () => drawColumn(pid, $cards, phase),
 			});
 		}
+	});
+}
+
+/**
+ * Done's rocket, where the project deploys: deploy the tip of the branch. It
+ * lights up while the branch holds work not deployed yet.
+ */
+function drawDeployButton(pid: string): void {
+	A(() => {
+		const $p = $state.projects[pid];
+		if (!$p?.deploy) return;
+		const branch = $p.defaultBranch ?? 'main';
+		S.iconButton({ icon: rocket, ariaLabel: 'Deploy', attrs: $p.deploy.pending ? '.small fg:$s-success' : '.small',
+			tooltip: $p.deploy.pending ? `Deploy: ${branch} holds work not deployed yet` : `Deploy ${branch} again: it is deployed as it is`,
+			click: () => void deployProject(pid) });
 	});
 }
 
@@ -164,22 +188,130 @@ function drawColumn(pid: string | undefined, $cards: Record<string, Card>, phase
 			// the started ones above the ones never begun.
 			if (phase === 'done') drawCards($cards, ['merge'], key);
 			if (phase === 'plan') drawCards($cards, ['muted'], key);
-			drawCards($cards, phase === 'done' ? ['done', 'closed'] : [phase], key);
+			if (phase !== 'done') return drawCards($cards, [phase], key);
+			A(() => {
+				const $p = pid ? $state.projects[pid] : undefined;
+				if (!$p?.deploy) return drawCards($cards, ['done', 'closed'], key);
+				// The branch, and after a faint line the tasks with no place on it
+				// (closed, merged before TPS stamped its commits, or merged long ago).
+				const onBranch = drawBranch(pid!, $p, key);
+				const placeless = Object.entries($p.tasks ?? {}).some(([tid, $t]: [string, any]) =>
+					!isJob($t) && ($t.phase === 'done' || $t.phase === 'closed') && !onBranch.has(tid));
+				if (placeless) A('div border-top: 1px solid currentColor; fg:$s-faint');
+				drawCards($cards, ['done', 'closed'], key, (_$t, tid) => !onBranch.has(tid));
+			});
 		});
 }
 
+/** A branch commit as the daemon sends it: its task, where it is a task's landing. */
+type Commit = { sha: string; subject: string; tid?: string };
+
+/** Where on the branch to deploy up to, and whether that takes back what the deploy holds. */
+type DeployTo = { sha: string; back: boolean };
+
 /**
- * The cards of some phases, oldest change at the bottom, and only the ones the
- * column's filter lets through.
+ * Done of a project that deploys: its branch's commits, newest on top — a
+ * task's as its card, the user's own as a line each, more than three of those
+ * in a row folded into one — cut by the line where the last deploy is. Each
+ * wears the rocket that deploys the branch up to it, but the one the deploy is
+ * at already. Answers the tasks it drew.
  */
-function drawCards($cards: Record<string, Card>, phases: Phase[], key: string): void {
+function drawBranch(pid: string, $p: any, key: string): Set<string> {
+	const commits: Commit[] = $p.commits ?? [];
+	let line = commits.findIndex(c => c.sha === $p.deploy.at);
+	if (line < 0) line = commits.length;
+	const drawn = new Set<string>();
+	let run: Commit[] = [];
+	const to = (c: Commit, n: number): DeployTo | undefined => n === line ? undefined : { sha: c.sha, back: n > line };
+	const flush = (upTo: number) => {
+		if (run.length) drawCommits(pid, run, upTo - run.length, to);
+		run = [];
+	};
+	commits.forEach((c, n) => {
+		if (n === line) {
+			flush(n);
+			drawDeployLine($p.deploy.rewritten);
+		}
+		const $t = c.tid && !drawn.has(c.tid) ? $p.tasks?.[c.tid] : undefined;
+		if ($t?.phase !== 'done') return void run.push(c);
+		flush(n);
+		drawn.add(c.tid!);
+		if (passesFilter($t, key)) drawCard(pid, c.tid!, $t, to(c, n));
+	});
+	flush(commits.length);
+	if (line === commits.length) drawDeployLine($p.deploy.rewritten);
+	return drawn;
+}
+
+// The runs of the user's own commits the user unfolded, by project and first commit.
+const $unfolded = A.proxy<Record<string, boolean>>({});
+
+/** A run of the user's own commits, the first at place `from` on the branch: a line each, or one for all of them. */
+function drawCommits(pid: string, run: Commit[], from: number, to: (c: Commit, n: number) => DeployTo | undefined): void {
+	const key = `${pid}/${run[0].sha}`;
+	if (run.length > 3 && !$unfolded[key]) {
+		A(`div ${commitLine}`, 'click=', () => { $unfolded[key] = true; }, () => {
+			gitCommitVertical({ size: '1em' });
+			A('span text=', `${run.length} commits`);
+			S.addTooltip({ placement: 'left', tip: () => A('div white-space:pre-wrap text=', run.map(c => c.subject).join('\n')) });
+		});
+		return;
+	}
+	run.forEach((c, i) => {
+		const deploy = to(c, from + i);
+		A(`div ${commitLine}`, deploy ? deployHere : '', () => {
+			gitCommitHorizontal({ size: '1em' });
+			A(`span ${ELLIPSIS} text=`, c.subject);
+			S.addTooltip({ placement: 'left', tip: () => A('text=', `${c.sha.slice(0, 10)} ${c.subject}`) }); // not over its rocket
+			if (deploy) drawDeployHere(pid, deploy);
+		});
+	});
+}
+
+// A commit of the user's own: a quiet line between the cards.
+const commitLine = 'display:flex align-items:center gap:$2 ph:$2 font-size:0.85em fg:$s-muted cursor:default';
+
+/** Done's line between what is merged and what the last deploy holds — wherever a rewrite of the branch left it. */
+function drawDeployLine(rewritten: boolean): void {
+	A('div display:flex align-items:center gap:$1 fg:$s-success font-size:0.85em', () => {
+		if (rewritten) S.addTooltip({ tip: 'The branch was rewritten since the last deploy, which went out as it was then: the line is after the newest task it held.' });
+		A('div flex:1 border-top: 1px solid currentColor;');
+		chevronsDown({ size: '1em' });
+		A('span text=', rewritten ? 'Deployed (before a rewrite)' : 'Deployed');
+		chevronsDown({ size: '1em' });
+		A('div flex:1 border-top: 1px solid currentColor;');
+	});
+}
+
+/** The rocket hanging above a card or commit, which deploys the branch up to it (see deployHere). */
+function drawDeployHere(pid: string, to: DeployTo): void {
+	A('div.tps-deploy-here', () => S.iconButton({ icon: rocket, attrs: '.small fg:$s-success',
+		ariaLabel: 'Deploy up to here', tooltip: to.back ? 'Deploy up to here, taking back what came after it' : 'Deploy up to here',
+		click: (e: Event) => { e.stopPropagation(); void deployProject(pid, to.sha); } }));
+}
+
+/**
+ * The cards of some phases that `only` lets through, and the column's
+ * filter, oldest change at the bottom.
+ */
+function drawCards($cards: Record<string, Card>, phases: Phase[], key: string, only?: ($t: any, tid: string) => boolean): void {
 	A.onEach($cards, ({ pid, tid }) => {
 		const $t = $state.projects[pid]?.tasks?.[tid];
 		if (!$t || !phases.includes($t.phase)) return; // each card lives in its phase's column
-		if (!passesFilter($t, key)) return;
+		if ((only && !only($t, tid)) || !passesFilter($t, key)) return;
 		drawCard(pid, tid, $t);
 	}, ({ pid, tid }) => phaseOrder($state.projects[pid]?.tasks?.[tid] ?? {}, tid));
 }
+
+// The rocket above a card or commit of the branch: hidden until that is
+// pointed at, it sits on a dashed line in the gap above it, which is where the
+// deploy line would move to.
+const deployHere = A.insertCss({
+	'&': 'position:relative',
+	'& > .tps-deploy-here': 'position:absolute left:0 right:0 height:0 z-index:1 opacity:0 top: calc(var(--m3) / -2); border-top: 1px dashed $s-success; transition: opacity 0.15s;',
+	'&:hover > .tps-deploy-here': 'opacity:1',
+	'& > .tps-deploy-here > *': 'position:absolute left:50% top:0 transform: translate(-50%, -50%); bg:$s-bg',
+});
 
 /**
  * Whether a card's icon would say more than the column it sits in: the task is
@@ -198,8 +330,8 @@ function saysMore(pid: string, $t: any): boolean {
 // click starts with a pointerdown, so that is where the flag is cleared.
 let dragged = false;
 
-function drawCard(pid: string, tid: string, $t: any): void {
-	A('div draggable=true',
+function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
+	A('div draggable=true', deploy ? deployHere : '',
 		'pointerdown=', () => { dragged = false; },
 		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', `${pid}/${tid}`); },
 		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
@@ -235,5 +367,7 @@ function drawCard(pid: string, tid: string, $t: any): void {
 					});
 				});
 			}});
+			// After the box, which a margin would push down were it not the first child.
+			if (deploy) drawDeployHere(pid, deploy);
 		});
 }

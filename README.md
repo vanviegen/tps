@@ -39,7 +39,21 @@ yourself, run the tests.
 the default branch, authored by you, with a message proposed by the agent. If
 the branch moved on, it is merged into the work first, and a conflict is
 handed to the task's agent to resolve. Tasks can also be set to merge as soon
-as the agent is done.
+as the agent is done. A merge train runs the project's `test` service on what
+lands, a batch of merges at a time, skipping work a passing run already
+covered; a merge that fails it goes back to its agent.
+
+</td></tr>
+<tr><td width="320"></td><td>
+
+**Deploys.** A `LABEL tps.deploy="command"` in `Containerfile.dev` turns the
+Done column into the branch as it is — the tasks' commits, and your own between
+them — with a "Deployed" line through it. Deploy the tip, or up to any commit
+(rolling back works the same way), or have every merge deploy: it runs in a
+container of its own, with the credentials you name. TPS finds its tasks on the
+branch by a trailer in their commits, so a rebase does not lose them. A script
+that needs a person — screenshots to accept, a one-time password — asks with
+`tps-guest-tool ask-human`, and the question shows up on its task.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/review.png" width="320" alt=""></td><td>

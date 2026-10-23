@@ -132,27 +132,36 @@ copy() {
 	done
 }
 
-# commit <days ago> <message>
+# commit <days ago> <message> [stamp]: a task's landing carries its stamp as
+# the trailer TPS writes (see daemon/branch.go). COMMIT is the commit made.
 commit() {
-	local when
+	local when message="$2"
 	when="$(date -d "@$(( NOW - $1 * 86400 ))" --iso-8601=seconds)"
+	[ -n "${3:-}" ] && message="$message
+
+TPS-Task: $3"
 	git -C "$REPO" add -A
-	GIT_AUTHOR_DATE="$when" GIT_COMMITTER_DATE="$when" git -C "$REPO" commit -q -m "$2"
+	GIT_AUTHOR_DATE="$when" GIT_COMMITTER_DATE="$when" git -C "$REPO" commit -q -m "$message"
+	COMMIT="$(git -C "$REPO" rev-parse HEAD)"
 }
 
 repo_init snip
 copy 1 README.md .gitignore snip.py
-commit 23 "A URL shortener that fits on a page"
+commit 23 "A URL shortener that fits on a page" 5a1b0c000001
 copy 2 README.md test_snip.py Containerfile.dev
-commit 9 "A dev container, and a test for the key generator"
+commit 9 "A dev container, and a test for the key generator" 5a1b0c000002
+SNIP_DEPLOYED="$COMMIT" # the last deploy, which what follows is not in yet
+# One of the user's own, made in the checkout rather than by a task.
+echo '*~' >>"$REPO/.gitignore"
+commit 7 "Ignore editor backup files"
 copy - README.md snip.py store.py test_snip.py
-commit 4 "Keep the links in a file, so a restart no longer forgets them"
+commit 4 "Keep the links in a file, so a restart no longer forgets them" 5a1b0c000004
 
 repo_init standup
 copy 1 README.md .gitignore package.json standup.js
 commit 16 "standup: add a line, see today, see the week"
 copy - README.md Containerfile.dev test/standup.test.js
-commit 6 "A dev container, and tests for add and copy"
+commit 6 "A dev container, and tests for add and copy" 57a0d0000001
 
 # The scratch project, made the way TPS makes it: a repository holding nothing
 # but an empty root commit (see ensureScratch).
@@ -318,6 +327,7 @@ cat >"$CONFIG.new" <<JSON
 		},
 		{
 			"dir": "$PROJECTS/snip",
+			"deployed": "$SNIP_DEPLOYED",
 			"name": "snip",
 			"color": "#45c4d6",
 			"defaults": { "model": "claude: haiku" },
@@ -330,7 +340,7 @@ cat >"$CONFIG.new" <<JSON
 					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
-					"merged": true,
+					"stamp": "5a1b0c000001",
 					"spent": 1.87,
 					"context": 118000,
 					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
@@ -342,7 +352,7 @@ cat >"$CONFIG.new" <<JSON
 					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
-					"merged": true,
+					"stamp": "5a1b0c000002",
 					"spent": 0.34,
 					"context": 31000,
 					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
@@ -366,7 +376,7 @@ cat >"$CONFIG.new" <<JSON
 					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
-					"merged": true,
+					"stamp": "5a1b0c000004",
 					"spent": 1.12,
 					"context": 87000,
 					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},
@@ -414,7 +424,7 @@ cat >"$CONFIG.new" <<JSON
 					"model": "claude: haiku",
 					"phase": "done",
 					"started": true,
-					"merged": true,
+					"stamp": "57a0d0000001",
 					"spent": 0.27,
 					"context": 24500,
 					"window": {"model": "claude: haiku", "limit": 167000, "parts": [{"name": "System prompt", "tokens": 6300}, {"name": "System tools", "tokens": 10100}, {"name": "Skills", "tokens": 1500}]},

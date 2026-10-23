@@ -7,7 +7,7 @@ import { $state } from './conn.ts';
 import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
 import { closeBase, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
-import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
+import { asks, drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -173,7 +173,7 @@ function waiting(hid: string): number {
 	let count = 0;
 	for (const $p of Object.values($state.projects) as any[]) {
 		if ($p.host !== hid) continue;
-		for (const $t of Object.values($p.tasks ?? {}) as any[]) if ($t.phase === 'human') count++;
+		for (const $t of Object.values($p.tasks ?? {}) as any[]) if ($t.phase === 'human' || asks($t)) count++;
 	}
 	return count;
 }
@@ -237,13 +237,16 @@ function drawScratch(pid: string, $p: any): void {
 
 /**
  * A task is listed while it waits for a human, while an agent is on it (its
- * own, the one reviewing its work, or its merge), and while it is on screen: everything
- * under way, in other words. A muted one is none of those: putting it away is
- * what muting is for, and opening it takes it back out (see useTask).
+ * own, the one reviewing its work, or its merge), while something in it asks
+ * the user a question, and while it is on screen: everything under way, in
+ * other words. A muted one is none of those: putting it away is what muting is
+ * for, and opening it takes it back out (see useTask). The project's jobs are
+ * listed by the same rule: while they run, failed, or ask something.
  */
 function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
+	if (asks($t)) return true;
 	if ($t.phase === 'muted') return false;
 	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
 }
@@ -253,8 +256,8 @@ function drawTask(pid: string, tid: string, $t: any): void {
 		S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
 			return taskMenuItems(pid, tid, $t, [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }]);
 		}});
-		// Yours to act on: it waits for you, or it is a plan you have yet to start.
-		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan'));
+		// Yours to act on: it waits for you, asks you something, or it is a plan you have yet to start.
+		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan' || asks($t)));
 		A(() => {
 			const { pid: shown, tid: shownTid } = selection();
 			A('.tps-current=', shown === pid && shownTid === tid);

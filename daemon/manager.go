@@ -668,7 +668,8 @@ func (m *Manager) sweep() {
 			if now > t.info.LimitUntil+time.Minute.Milliseconds() {
 				overdue = append(overdue, t)
 			}
-		} else if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown {
+		} else if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown &&
+			len(t.asks) == 0 && !(t.job() && t.info.Phase == PhaseMerge) { // a question, or a job's run, waits on what runs in there
 			idle = append(idle, t)
 		}
 	}
@@ -814,7 +815,7 @@ func (m *Manager) anyAwake() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.allTasksL() {
-		if t.workingL() || t.info.LimitUntil > 0 {
+		if t.workingL() || t.info.LimitUntil > 0 || t.job() && t.info.Phase == PhaseMerge {
 			return true
 		}
 	}
@@ -842,6 +843,10 @@ type ref struct {
 	Work  bool   `json:"work"`
 	// What a dashboard attached to a message, or to a description (see uploads.go).
 	Files []ChatFile `json:"files"`
+	// answerAsk: the question answered, the option picked, and what was typed (see ask.go).
+	ID     string `json:"id"`
+	Option int    `json:"option"`
+	Commit string `json:"commit"` // deploy: what to deploy, the tip for none
 }
 
 func decode(raw json.RawMessage) (ref, map[string]any, error) {
@@ -861,7 +866,10 @@ func decode(raw json.RawMessage) (ref, map[string]any, error) {
 
 // Cmds returns the command handlers to register on the hub.
 func (m *Manager) Cmds() map[string]hub.CmdHandler {
-	withTask := func(f func(t *Task, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
+	// A job task (see jobs.go) takes the commands about looking at it and its
+	// services; the ones that make it the user's — chatting, merging, moving
+	// it, deleting it — are for the user's own tasks (withTask).
+	withAnyTask := func(f func(t *Task, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
 		return func(raw json.RawMessage) (any, error) {
 			r, partial, err := decode(raw)
 			if err != nil {
@@ -873,6 +881,14 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			}
 			return f(t, r, partial)
 		}
+	}
+	withTask := func(f func(t *Task, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
+		return withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			if t.job() {
+				return nil, errors.New("This task is TPS's own, and runs by itself")
+			}
+			return f(t, r, partial)
+		})
 	}
 	withProject := func(f func(p *Project, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
 		return func(raw json.RawMessage) (any, error) {
@@ -938,20 +954,24 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			return nil, t.GrantOpenRouter(partial["budget"])
 		}),
 		"rejectOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RejectOpenRouter() }),
-		"openTask":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
+		"openTask":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
 		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
 		"attach":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
-		"preview":          withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
-		"chatTurn":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
+		"preview":          withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
+		"chatTurn":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
 		"stopAgent":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
 		"rebaseTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
 		"moveTask":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
 		"deleteTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
-		"runService":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
-		"stopService":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
-		"restartService":   withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
-		"reloadTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
+		"runService":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
+		"stopService":      withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
+		"restartService":   withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
+		"reloadTask":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
+		"answerAsk": withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			return nil, t.AnswerAsk(r.ID, r.Option, r.Text)
+		}),
+		"deploy": withProject(func(p *Project, r ref, partial map[string]any) (any, error) { return nil, p.Deploy(r.Commit) }),
 		// Reverting and forking are one command: both put a save point's state
 		// somewhere, and only differ in where (see UsePoint). The reply names
 		// the task it landed in, so the dashboard can go there, and the message

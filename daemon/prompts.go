@@ -72,10 +72,20 @@ Rules:
   over with a service to look at, say so and leave it running. Containerfile.dev
   declares the services a project comes with: its CMD line is the service 'app', and a
   LABEL tps.service.<name>="command" line declares another; both can then be started
-  by name alone. Give it an EXPOSE line for each port a service listens on (several
-  are fine): every exposed port is forwarded to the user's browser. Listen on 0.0.0.0
-  there (binding localhost only would leave it unreachable: the container is a network
-  namespace of its own, and TPS forwards a host port into it). Nothing is exposed
+  by name alone. The service named 'test' is the project's test suite: TPS records the
+  work a run of it passed on, so neither the review nor the merge runs it again for that
+  same work — run it once the work is done, before writing .tps-commit-message. Merging
+  runs it on the work combined with the latest default branch, unless that is the very
+  work it passed on. A deploy script (see Deploying) may need a person's judgment or
+  input as much as a test (screenshots to accept, a one-time password):
+  'tps-guest-tool ask-human' puts a question to the user and waits for the answer (see
+  its usage). You can use it yourself too, to have the user look at something (a service
+  and its port) or decide between options; it blocks until they answer, so give the
+  command a timeout long enough to wait for a person. Give Containerfile.dev an EXPOSE
+  line for each port a service listens on (several are fine): every exposed port is
+  forwarded to the user's browser. Listen on 0.0.0.0 there (binding localhost only
+  would leave it unreachable: the container is a network namespace of its own, and TPS
+  forwards a host port into it). Nothing is exposed
   beyond the machine: TPS publishes the ports on the host's loopback.
 - Attachments: files the user adds to a message (a pasted screenshot, say) are put in
   /uploads, read-only, and their path is what the message refers to — read them there,
@@ -89,6 +99,24 @@ Rules:
   Whatever else the project needs, keep python3 in it: shell commands often want it.
 - Read and write files with your built-in tools wherever they can, rather than through
   shell commands (cat, sed, python3, heredocs, scripts).
+- Deploying: a LABEL tps.deploy="command" line in Containerfile.dev is how the project is
+  deployed, which the user then does from the board (the rocket in the Done column), or
+  TPS after every merge if the project's settings say so. TPS runs the command itself, in
+  a fresh container from Containerfile.dev on a clean checkout of the commit being
+  deployed (nothing ignored or built is there), and its exit code says whether it went
+  through. Asked to set deploys up, write that command (a script in the repo, as a rule)
+  and put every tool it needs in Containerfile.dev. Credentials never go in the repo:
+  the user names files and directories of their host in the project's settings
+  (Settings, Deploy, Credentials: there once the label is merged), which the deploy
+  alone gets mounted read-only at the same path, ~/ being the container user's home; so
+  have the script read them from where the tools look anyway (~/.npmrc, ~/.ssh,
+  ~/.config/...), and tell the user which paths to name there and how to create what
+  they do not have yet. A one-time password or a
+  go-ahead is asked at deploy time with ask-human. You cannot run the real deploy from
+  this task — it has none of those credentials, and deploying is the user's call — so
+  check what you can (that the script parses, that it finds its tools, a dry run where
+  the tool has one), and hand over saying what the user is to set up and that the rocket
+  is how they try it.
 - Caches: a LABEL tps.cache="/abs/path /other/path" line in Containerfile.dev names
   directories TPS keeps per project and mounts into every task's container, so package
   and build caches (npm's, pip's, Go's, cargo's) carry over from one task to the next.
@@ -180,9 +208,18 @@ there that has to be read. It is read by a machine, and has exactly two allowed 
   change to make — no praise, no summary, no restating of the task, no observations. If it is not
   worth another round of work, it does not belong in the list.`
 
+// The reviewer hears whether the project's test passed on the work it reads
+// (see tested.go): it need not run it then, and should otherwise.
+const (
+	testsNone = iota
+	testsPassed
+	testsNotPassed
+)
+
 // reviewPrompt is the reviewer's one message: the work to read, and everything
-// the user asked for, and whether they edited the work themselves.
-func reviewPrompt(base string, said []string, edited bool) string {
+// the user asked for, whether they edited the work themselves, and where the
+// project's test stands.
+func reviewPrompt(base string, said []string, edited bool, tests int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review the work in /work: it is uncommitted, on top of commit %[1]s, so `git diff %[1]s` "+
 		"and the untracked files `git status` lists are the whole of it. Nothing outside that is yours to judge.\n\n", base)
@@ -214,6 +251,14 @@ func reviewPrompt(base string, said []string, edited bool) string {
 		"container is disposable, so anything installed by hand is lost with it. It also declares the project's services (its CMD is the service " +
 		"'app', a LABEL tps.service.<name>=\"command\" line another), the ports TPS forwards (EXPOSE) and the directories kept between tasks " +
 		"(LABEL tps.cache). Read what it adds as you would any other line, but writing/updating it is doing the task, not straying from it.\n")
+	switch tests {
+	case testsPassed:
+		b.WriteString("\nThe project's test suite (the service 'test') passed on the work exactly as it stands: do not run it again.\n")
+	case testsNotPassed:
+		b.WriteString("\nThe project's test suite (the service 'test') has not passed on the work as it stands. Run it — " +
+			"`/tps/bin/tps-guest-tool start test 600`, and `/tps/bin/tps-guest-tool await test 600` for as long as it takes — " +
+			"and if it fails, what makes it fail is something that must change.\n")
+	}
 	return b.String()
 }
 
@@ -372,6 +417,25 @@ commit, do not push. When that is done, verify the result still works and amend
 .tps-commit-message if the resolution changed what the task does: the merge goes on once
 your turn ends with that file in place. Delete it if the conflicts are not yours to
 resolve, and say why.`, defaultBranch, "- "+strings.Join(files, "\n- "))
+}
+
+// mergeTestPrompt sends the agent in to fix what made the test of its merge
+// fail (see train.go).
+func mergeTestPrompt(defaultBranch, why, log string) string {
+	return fmt.Sprintf(`Merging this task: its work, put onto the latest '%[1]s', did not pass the project's test
+suite, the service 'test' (%[2]s). The end of its output:
+
+%[3]s
+
+Your workspace holds this task's work, uncommitted, on top of %[1]s as the merge found it —
+what was tested, unless more landed on %[1]s since. Find out what fails and fix it — run the test service yourself until it passes —
+and amend .tps-commit-message if the fix changed what the task does: the merge goes on once
+your turn ends with that file in place. Delete it if the failure is not this task's to fix
+(it fails on %[1]s alone, say), and say why.`, defaultBranch, why, indent(log))
+}
+
+func indent(text string) string {
+	return "    " + strings.ReplaceAll(strings.TrimRight(text, "\n"), "\n", "\n    ")
 }
 
 // projectPrompt: the scratch task was turned into a project of its own (see

@@ -129,7 +129,9 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # TPS publishes it on the host's loopback, so 0.0.0.0 here is not exposure.
 # A LABEL tps.cache="/path /other/path" line names directories TPS keeps per
 # project and mounts into every task's container, so package and build caches
-# (npm's, pip's, Go's, cargo's) carry over from one task to the next.
+# (npm's, pip's, Go's, cargo's) carry over from one task to the next. The
+# service 'test' is the project's test suite, which merges are tested with, and
+# a LABEL tps.deploy="command" line says how the project is deployed.
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
@@ -244,6 +246,7 @@ type containerOpts struct {
 	nestDir                       string                  // the task's control directory for its docker socket, see nest.go
 	cacheDir                      string                  // the project's cache directories live in here (see caches)
 	caches                        []string                // container paths the Containerfile declares as caches (see cacheLabel): package and build caches, kept per project on the host and mounted into every task's container, so a task starts warm
+	mounts                        []string                // host:container pairs mounted read-only besides: the deploy's credentials (see Task.mounts)
 }
 
 // ensureContainer makes sure a container by this name, based on this image
@@ -255,7 +258,7 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	config := containerConfig(o.image, o.toolbox, o.caches)
+	config := containerConfig(o.image, o.toolbox, o.caches, o.mounts)
 	if c := runningContainer(o.name, config); c != nil {
 		return c, nil
 	}
@@ -314,6 +317,9 @@ func ensureContainer(o containerOpts) (*Container, error) {
 			return nil, err
 		}
 		args = append(args, "-v", dir+":"+path)
+	}
+	for _, m := range o.mounts {
+		args = append(args, "-v", m+":ro")
 	}
 	// Every port the image exposes goes on a loopback port of the host's
 	// choosing, like code-server's: nothing of a task is reachable beyond the
@@ -403,9 +409,14 @@ func nameTaken(err error) bool {
 
 // containerConfig is the label value recording what a container was started
 // with. Bump the version when ensureContainer's run command/args change, so
-// existing containers are recycled instead of reused.
-func containerConfig(image, toolbox string, caches []string) string {
-	config, _ := json.Marshal([]any{15, image, filepath.Base(toolbox), caches})
+// existing containers are recycled instead of reused. Mounts are named only
+// where there are any, which only the deploy task's container has.
+func containerConfig(image, toolbox string, caches, mounts []string) string {
+	fields := []any{15, image, filepath.Base(toolbox), caches}
+	if len(mounts) > 0 {
+		fields = append(fields, mounts)
+	}
+	config, _ := json.Marshal(fields)
 	return string(config)
 }
 

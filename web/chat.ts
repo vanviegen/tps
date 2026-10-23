@@ -5,7 +5,7 @@ import * as S from 'staffa';
 import { copy, copyCheck, gitFork, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
 import { formatShell } from './shell.ts';
-import { cmd, ELLIPSIS, hasWorkspace, pathTo, restoreDraft } from './util.ts';
+import { cmd, ELLIPSIS, hasWorkspace, isJob, pathTo, restoreDraft } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escape = (text: string) => text.replace(/[&<>"]/g, c => ESCAPES[c]);
@@ -117,7 +117,7 @@ function drawHidden(n: number, show: () => void): void {
  */
 function drawRules(pid: string, tid: string, $t: any): void {
 	const prompt = $state.projects[pid]?.agentPrompt ?? $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
-	if (!prompt) return;
+	if (!prompt || isJob($t)) return; // no agent works in a job
 	drawEntry({ k: 'note', text: 'the rules the agent works under, above this whole conversation', detail: prompt }, pid, tid, $t);
 }
 

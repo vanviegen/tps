@@ -156,8 +156,8 @@ func lastStep(repo string) (string, error) {
 // writeTree makes a tree object of the working tree, untracked files
 // included. Ignored files are not work (see the merge, which stages the same
 // set).
-func (t *Task) writeTree(repo string) (string, error) {
-	env, cleanup, err := t.stageAll(repo)
+func writeTree(repo string) (string, error) {
+	env, cleanup, err := stageAll(repo)
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +168,7 @@ func (t *Task) writeTree(repo string) (string, error) {
 
 // dirtyTree: the working tree has something the last step does not hold.
 func (t *Task) dirtyTree(repo string) (bool, error) {
-	tree, err := t.writeTree(repo)
+	tree, err := writeTree(repo)
 	if err != nil {
 		return false, err
 	}
@@ -191,7 +191,7 @@ func (t *Task) step(repo, message string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	tree, err := t.writeTree(repo)
+	tree, err := writeTree(repo)
 	if err != nil {
 		return "", false, err
 	}
@@ -484,7 +484,7 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	// last one; the point's step is what rewinding it means.
 	repo, tip := t.repoDir(), mark.Commit
 	if !use.Work {
-		tree, err := t.writeTree(repo)
+		tree, err := writeTree(repo)
 		if err != nil {
 			return f.tid, err
 		}

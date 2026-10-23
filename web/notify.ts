@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { $state } from './conn.ts';
-import { canMerge, pathTo, projectName, taskTitle, type Phase } from './util.ts';
+import { asks, canMerge, isJob, pathTo, projectName, taskTitle, type Phase } from './util.ts';
 
 /**
  * Notifications about a task being back with you: the desktop's own, so a
@@ -157,6 +157,7 @@ function show(title: string, body: string, url: string): void {
  */
 function announcement(pid: string, $t: any, from: Phase): string | undefined {
 	const phase = $t.phase as Phase;
+	if (isJob($t)) return phase === 'human' ? 'failed' : $t.job === 'deploy' && phase === 'done' ? 'deployed ✔' : undefined;
 	switch (phase) {
 		case 'merge': case 'review': return;
 		case 'done': return 'merged ✔';
@@ -172,14 +173,16 @@ function announcement(pid: string, $t: any, from: Phase): string | undefined {
 
 /** The phase each task was last seen in: what a change is told from. */
 const seen = new Map<string, Phase>();
-/** The tasks last seen with an OpenRouter request waiting for the user. */
+/** The tasks last seen with a request waiting for the user: for OpenRouter budget, or a question (see ask.go). */
 const asking = new Set<string>();
 
 /**
  * Watch every task's phase for the two transitions worth announcing: out of
  * Agent (the agent is done with it) and out of Merge (the merge landed, or
- * didn't) — and for an agent asking for OpenRouter budget, which waits on the
- * user without leaving its phase. Tasks are seen before they are watched — the
+ * didn't) — and for an agent asking for OpenRouter budget, or the container a
+ * question, which wait on the user without leaving their phase. A project's
+ * jobs (see isJob) have nobody to switch this on for them, and announce
+ * themselves to every browser that allows notifications. Tasks are seen before they are watched — the
  * board knows them all — so this works for any task, not only the one on screen.
  *
  * A task is only announced once it has been seen in some phase before: the
@@ -193,9 +196,11 @@ export function watchPhases(): void {
 			for (const [tid, $t] of Object.entries($p.tasks ?? {}) as [string, any][]) {
 				const k = key(pid, tid);
 				live.add(k);
-				const ask = !!$t.openrouterAsk;
-				if (ask && !asking.has(k) && seen.has(k) && A.peek(() => $on[k])) {
-					show(A.peek(() => taskTitle($t)), `${A.peek(() => projectName($p))}: the agent asks for OpenRouter budget`, pathTo(pid, tid));
+				const ask = !!$t.openrouterAsk || asks($t);
+				const on = A.peek(() => $on[k] || isJob($t));
+				if (ask && !asking.has(k) && seen.has(k) && on) {
+					const what = asks($t) ? `asks you: ${A.peek(() => $t.asks[0].question)}` : 'the agent asks for OpenRouter budget';
+					show(A.peek(() => taskTitle($t)), `${A.peek(() => projectName($p))}: ${what}`, pathTo(pid, tid));
 				}
 				if (ask) asking.add(k);
 				else asking.delete(k);
@@ -203,7 +208,7 @@ export function watchPhases(): void {
 				const was = seen.get(k);
 				seen.set(k, phase);
 				if (was === undefined || was === phase || (was !== 'agent' && was !== 'merge' && was !== 'review')) continue;
-				if (!A.peek(() => $on[k])) continue;
+				if (!on) continue;
 				// Everything about the task but its phase is read past the
 				// subscription: this scope is about phases, and a commit message
 				// arriving should not run it again.

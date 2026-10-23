@@ -39,6 +39,12 @@ type ProjectInfo struct {
 	Activity int64                `json:"activity,omitempty"` // unix ms of the last change to a task
 	NextTask int                  `json:"nextTask,omitempty"`
 	Tasks    map[string]*TaskInfo `json:"tasks"`
+
+	// Deploying (see deploy.go): whether a merge deploys by itself, the host's
+	// credentials the deploy gets, and the commit deployed last.
+	AutoDeploy   bool     `json:"autoDeploy,omitempty"`
+	DeployMounts []string `json:"deployMounts,omitempty"`
+	Deployed     string   `json:"deployed,omitempty"`
 }
 
 // Project: a registered git repo plus its tasks.
@@ -52,6 +58,13 @@ type Project struct {
 	codeShown     bool        // a dashboard shows the checkout in VS Code
 	codeSeen      time.Time   // when one last started or stopped doing so
 	head          string      // the default branch's tip at the last refreshMeta; a new one dates every workspace
+
+	training     bool            // the merge train runs (see train.go)
+	alone        map[string]bool // tasks of a batch that failed, tested one at a time from then on
+	deploy       string          // what Containerfile.dev on the default branch declares as the deploy (see deploy.go)
+	deploying    bool            // a deploy runs
+	deployWanted bool            // and another is wanted after it,
+	deployNext   string          // of this commit (the tip, for none)
 }
 
 // projectColors are the accents a project may wear: hues that sit well on the
@@ -106,7 +119,7 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 		}
 		info.NextTask = max(1, info.NextTask)
 	}
-	return &Project{m: m, pid: pid, info: info, tasks: map[string]*Task{}, defaultBranch: "main"}
+	return &Project{m: m, pid: pid, info: info, tasks: map[string]*Task{}, defaultBranch: "main", alone: map[string]bool{}}
 }
 
 func (p *Project) dir() string      { return p.info.Dir }
@@ -144,6 +157,17 @@ func (p *Project) init() error {
 		p.m.mu.Lock()
 		agentPhase := info.Phase == PhaseMerge || info.Phase == PhaseAgent
 		switch {
+		case t.job() && info.Phase == PhaseMerge:
+			// What it was running is run again: the train looks for the tasks
+			// waiting below, and a deploy is the user's to ask for again.
+			if tid == deployTid {
+				t.note("TPS restarted during the deploy; deploy again to be sure it went through")
+				info.Phase = PhaseHuman
+			} else {
+				info.Phase = PhaseDone
+			}
+		case info.Phase == PhaseMerge && info.Landing != "":
+			// Waiting for the merge train, which no agent is part of.
 		case info.Phase == PhaseReview:
 			// The reviewer died with the daemon, and it was nobody's
 			// conversation: there is nothing to pick back up, and the agent's
@@ -167,7 +191,15 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 	}
 	p.refreshMeta()
+	p.pubDeploySettings()
+	p.startTrain() // for the tasks that were waiting for it
 	return nil
+}
+
+// pubDeploySettings publishes the deploy's settings (see deploy.go).
+func (p *Project) pubDeploySettings() {
+	p.pub("autoDeploy", p.info.AutoDeploy)
+	p.pub("deployMounts", strings.Join(p.info.DeployMounts, "\n"))
 }
 
 // pubScratch tells the dashboards a scratch project apart, and the rules its
@@ -268,11 +300,14 @@ func (p *Project) refreshMeta() {
 	// A branch that moved — a merge, or a commit made in the checkout — leaves
 	// every workspace a little further behind; they count again (see refreshBehind).
 	head, _ := git(p.dir(), "rev-parse", p.defaultBranch)
+	cf, _ := git(p.dir(), "show", p.defaultBranch+":"+containerfile)
+	_, _, deploy := containerfileDeclarations(cf)
 	p.m.mu.Lock()
 	moved := head != "" && head != p.head
-	p.head = head
+	p.head, p.deploy = head, deploy
 	tasks := p.taskListL()
 	p.m.mu.Unlock()
+	p.refreshBranch()
 	if !moved {
 		return
 	}
@@ -323,6 +358,22 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		}
 		p.info.Color = strings.ToLower(color)
 	}
+	if auto, ok := partial["autoDeploy"].(bool); ok {
+		p.info.AutoDeploy = auto
+	}
+	if text, ok := partial["deployMounts"].(string); ok {
+		var paths []string
+		for _, line := range strings.Split(text, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				paths = append(paths, line)
+			}
+		}
+		p.info.DeployMounts = paths
+		// The deploy's container gets them when it is made anew.
+		if t := p.tasks[deployTid]; t != nil && !p.deploying {
+			go t.down()
+		}
+	}
 	// The defaults arrive as the task settings they are, one or more at a time.
 	if defaults, ok := partial["defaults"].(map[string]any); ok {
 		d := &p.info.Defaults
@@ -353,6 +404,7 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	p.pub("name", p.info.Name)
 	p.pubDefaults()
 	p.pub("color", p.info.Color)
+	p.pubDeploySettings()
 	return nil
 }
 

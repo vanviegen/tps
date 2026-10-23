@@ -15,8 +15,8 @@ import (
 )
 
 // tps-guest-tool: what a task's agent reaches for from inside its container.
-// That is the task's services — starting, stopping and watching them — and
-// OpenRouter keys (see openrouter.go).
+// That is the task's services — starting, stopping and watching them —
+// OpenRouter keys (see openrouter.go), and questions for the user (see ask.go).
 // It is the tps binary itself, copied into the toolbox under that name (see
 // ensureToolbox) and dispatched on it (see GuestToolInvoked). Both the agent
 // and the daemon (on the dashboard's behalf) go through it, so the two never
@@ -39,6 +39,10 @@ const guestToolName = "tps-guest-tool"
 
 // The environment variable that tells the binary it is the wrapper of a service.
 const serviceWrapEnv = "TPS_SERVICE_WRAP"
+
+// The environment variable that names the service a process runs under, for
+// the questions it puts to a human (see askHuman).
+const serviceEnv = "TPS_SERVICE"
 
 const guestToolUsage = `Usage: tps-guest-tool <command> ...
 
@@ -81,6 +85,27 @@ for anything that serves or takes a while: dev servers, test suites, builds.
                            for the user, half an hour at most; one they have
                            not answered by then exits 124.
                            Ask again when a key's limit runs out.
+
+  ask-human <question> [--option <label>]... [--input] [--secret]
+            [--service <name>] [--port <port>]
+                           Not a service: put a question to the user in the
+                           dashboard, and wait for the answer — to have them
+                           look at something or decide, or for a script that
+                           needs a human's judgment or input, such as a test
+                           whose screenshots someone has to accept, or a
+                           deploy that wants a one-time password. Each option
+                           is a button; the exit code is the index of the one
+                           pressed (so the first means yes), and its label is
+                           printed. --input adds a text field, whose text is
+                           printed instead; --secret hides what is typed in it.
+                           --service starts that service if it is not running
+                           (a review app, say), and its exit code answers the
+                           question if no button does first; --port links the
+                           user to that port of this container. It needs
+                           something to answer with: an option, the field, or
+                           a service. Changes made to /work while a run of the
+                           test service waits on a question are the human's,
+                           and do not void the run.
 `
 
 // GuestToolInvoked tells whether this process is the guest tool: the binary
@@ -131,6 +156,8 @@ func guestToolMain(args []string) int {
 		err = st.logs(rest)
 	case "openrouter":
 		return st.openRouter(rest)
+	case "ask-human":
+		return st.askHuman(rest)
 	case "ps", "list":
 		err = st.ps()
 	case "help", "-h", "--help":
@@ -196,6 +223,7 @@ func (st *guestTool) start(args []string) int {
 		return st.fail(err)
 	}
 	dir, _ := st.dir(name) // launch had it good
+	fmt.Printf("Started '%s' (pid %d): %s\n", name, servicePid(dir), serviceCmd(serviceArgv(dir)))
 	return st.wait(dir, name, seconds)
 }
 
@@ -226,6 +254,9 @@ func (st *guestTool) launch(name string, argv []string) error {
 	}
 	resetService(dir)
 	_ = os.WriteFile(filepath.Join(dir, "argv"), []byte(strings.Join(argv, "\x00")+"\x00"), 0o644)
+	if name == testService {
+		noteTree(dir, "start")
+	}
 	log, err := os.OpenFile(filepath.Join(dir, "log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
@@ -240,7 +271,7 @@ func (st *guestTool) launch(name string, argv []string) error {
 	}
 	defer ready.Close()
 	wrap := exec.Command(self, argv...)
-	wrap.Env = append(colorEnv(os.Environ()), serviceWrapEnv+"="+dir)
+	wrap.Env = append(colorEnv(os.Environ()), serviceWrapEnv+"="+dir, serviceEnv+"="+name)
 	wrap.Stdout, wrap.Stderr = log, log // stdin: /dev/null
 	wrap.ExtraFiles = []*os.File{readyW}
 	wrap.Dir, _ = os.Getwd()
@@ -255,7 +286,6 @@ func (st *guestTool) launch(name string, argv []string) error {
 	_ = wrap.Process.Release()
 	_ = ready.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, _ = ready.Read(make([]byte, 1))
-	fmt.Printf("Started '%s' (pid %d): %s\n", name, pid, serviceCmd(argv))
 	return nil
 }
 
@@ -425,7 +455,11 @@ func (st *guestTool) restart(args []string) error {
 			return err
 		}
 	}
-	return st.launch(args[0], nil)
+	if err := st.launch(args[0], nil); err != nil {
+		return err
+	}
+	fmt.Printf("Restarted '%s'\n", args[0])
+	return nil
 }
 
 // destroy takes a service off the list for good: a one-off that has served

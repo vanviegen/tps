@@ -39,6 +39,15 @@ const serviceLabelPrefix = "tps.service."
 // (see cacheDir): absolute container paths, separated by spaces or commas.
 const cacheLabel = "tps.cache"
 
+// deployLabel declares the command that deploys the project: a service of the
+// project's deploy task alone, run on a commit of its default branch (see
+// deploy.go).
+const deployLabel = "tps.deploy"
+
+// The service that is the project's test suite: what a task's run of it passed
+// on is recorded (see tested.go), and the merge train runs it (see train.go).
+const testService = "test"
+
 var serviceNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$`)
 
 // The last serviceLogMax bytes of a service's output go to the dashboard.
@@ -64,15 +73,16 @@ var instructionRe = regexp.MustCompile(`^(?i)(CMD|FROM|LABEL)\s+(.*)$`)
 
 // containerfileServices reads the services a Containerfile declares (see containerfileDeclarations).
 func containerfileServices(text string) []declaredService {
-	services, _ := containerfileDeclarations(text)
+	services, _, _ := containerfileDeclarations(text)
 	return services
 }
 
 // containerfileDeclarations reads what a Containerfile declares to TPS, all of
 // it in its final stage: the services — its CMD (the last one, as in the
 // image) as 'app', and every tps.service.<name> label, in order; a label named
-// app replaces the CMD's entry — and the cache directories (see cacheLabel).
-func containerfileDeclarations(text string) (services []declaredService, caches []string) {
+// app replaces the CMD's entry — the cache directories (see cacheLabel), and
+// the command that deploys the project (see deployLabel).
+func containerfileDeclarations(text string) (services []declaredService, caches []string, deploy string) {
 	var cmd []string
 	var labels []declaredService
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\\\r\n", ""), "\\\n", "")
@@ -84,7 +94,7 @@ func containerfileDeclarations(text string) (services []declaredService, caches 
 		arg := strings.TrimSpace(m[2])
 		switch strings.ToUpper(m[1]) {
 		case "FROM":
-			cmd, labels, caches = nil, nil, nil
+			cmd, labels, caches, deploy = nil, nil, nil, ""
 		case "CMD":
 			var parsed []string
 			if strings.HasPrefix(arg, "[") && json.Unmarshal([]byte(arg), &parsed) == nil {
@@ -100,6 +110,10 @@ func containerfileDeclarations(text string) (services []declaredService, caches 
 							caches = append(caches, filepath.Clean(path))
 						}
 					}
+					continue
+				}
+				if kv[0] == deployLabel {
+					deploy = strings.TrimSpace(kv[1])
 					continue
 				}
 				name := strings.TrimPrefix(kv[0], serviceLabelPrefix)
@@ -120,7 +134,7 @@ func containerfileDeclarations(text string) (services []declaredService, caches 
 			services = append(services, l)
 		}
 	}
-	return services, caches
+	return services, caches, deploy
 }
 
 func indexService(list []declaredService, name string) int {
@@ -245,9 +259,11 @@ func resetService(dir string) {
 
 // resetServices forgets the runs of every service: for a container about to
 // be replaced, whose processes go with it. The commands stay, declared or ad
-// hoc, so every service the task has can be started again in the new one.
+// hoc, so every service the task has can be started again in the new one. The
+// questions put to a human go too, with whatever was waiting on them.
 func resetServices(dir string) {
 	_ = os.MkdirAll(dir, 0o755)
+	_ = os.RemoveAll(filepath.Join(dir, askDir))
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.IsDir() && serviceNameRe.MatchString(e.Name()) {
@@ -369,7 +385,7 @@ func (t *Task) syncDeclared() {
 	if !t.hasWorkspace() {
 		return
 	}
-	declared := containerfileServices(t.containerfile())
+	declared, _ := t.declarations(t.containerfile())
 	t.lock()
 	defer t.unlock()
 	if t.status != StatusUp || sameDeclared(declared, t.declared) {
@@ -411,7 +427,9 @@ func (t *Task) anyRunningL() bool {
 // syncServicesL reads the services' state off disk and publishes what
 // changed; with logs, their output tails too (for a task someone is looking
 // at). A service seen running that ended badly on its own gets a note in
-// the chat, as the agent's or the user's run of it would deserve.
+// the chat, as the agent's or the user's run of it would deserve; a run of
+// the test service that ended is recorded (see recordTest). The questions
+// the container puts to a human are read along with them (see ask.go).
 func (t *Task) syncServicesL(logs bool) {
 	if t.status != StatusUp || t.container == nil {
 		return
@@ -422,11 +440,16 @@ func (t *Task) syncServicesL(logs bool) {
 	}
 	t.services = readServices(t.servicesDir(), t.declared)
 	for _, s := range t.services {
-		if was[s.Name] == "running" && s.Status == "exited" && s.Code != nil && *s.Code != 0 {
+		if s.Name == testService && !t.job() && s.Ended != 0 && (t.info.Tested == nil || t.info.Tested.At != s.Ended) {
+			t.info.Tested = &TestRun{At: s.Ended}
+			t.p.m.saveL()
+			go t.recordTest(s.Ended)
+		} else if was[s.Name] == "running" && s.Status == "exited" && s.Code != nil && *s.Code != 0 {
 			t.note(fmt.Sprintf("service %s exited (%d)", s.Name, *s.Code))
 		}
 	}
 	t.pubL("services", t.servicesL())
+	t.syncAsksL()
 	if !logs {
 		return
 	}
@@ -449,6 +472,8 @@ func (t *Task) syncServicesL(logs bool) {
 // clearServicesL is for a container gone: nothing runs, and nothing is shown.
 func (t *Task) clearServicesL() {
 	t.services = nil
+	t.asks = nil
+	t.pubL("asks", nil)
 	t.pubL("services", nil)
 	t.pubL("serviceLogs", nil)
 	t.logsPublished = nil
