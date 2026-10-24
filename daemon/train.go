@@ -141,8 +141,7 @@ func (p *Project) trainRound(batch []*Task) {
 	case len(riders) == 1 && commits[0] == landings[0] && riders[0].tested(landings[0]+"^{tree}"):
 		jt.note(fmt.Sprintf("%s: its test passed on exactly this; not running it again", names))
 	default:
-		jt.note(fmt.Sprintf("testing %s on the latest %s", names, branch))
-		_, err := jt.runJob(testService)
+		_, err := jt.runJob(testService, fmt.Sprintf("testing %s on the latest %s", names, branch))
 		passed, accepted, why := false, false, ""
 		if err != nil {
 			why = err.Error()

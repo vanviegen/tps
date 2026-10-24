@@ -4,6 +4,7 @@ import { Marked } from 'marked';
 import * as S from 'staffa';
 import { copy, copyCheck, gitFork, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
+import { serviceDialog } from './services.ts';
 import { formatShell } from './shell.ts';
 import { cmd, ELLIPSIS, hasWorkspace, isJob, pathTo, restoreDraft } from './util.ts';
 
@@ -162,8 +163,13 @@ function drawMessage(attrs: string, text: string): void {
 }
 
 function drawEntry($e: any, pid: string, tid: string, $t: any): void {
+	// A note about a run of a service opens that service's console instead,
+	// which holds the output of its latest run alone.
+	const open = () => !$e.service ? detailDialog($e)
+		: ($t.services ?? []).some((s: any) => s.name === $e.service && s.started === $e.run) ? serviceDialog(pid, tid, $t, $e.service)
+		: S.alert(`The output of this run of ${$e.service} is gone: only its latest run is kept.`);
 	const line = (draw: () => void, opens = false) =>
-		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', () => detailDialog($e), draw) : A(`small ${ELLIPSIS}`, draw);
+		opens ? A(`small ${ELLIPSIS}`, openable, 'click=', open, draw) : A(`small ${ELLIPSIS}`, draw);
 	// The reviewer works in the task's own log, so what it leaves there wears a
 	// colour of its own: everything between the note that starts a review and
 	// the save point that ends it is what that second mind read and did.

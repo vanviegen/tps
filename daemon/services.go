@@ -445,7 +445,7 @@ func (t *Task) syncServicesL(logs bool) {
 			t.p.m.saveL()
 			go t.recordTest(s.Ended)
 		} else if was[s.Name] == "running" && s.Status == "exited" && s.Code != nil && *s.Code != 0 {
-			t.note(fmt.Sprintf("service %s exited (%d)", s.Name, *s.Code))
+			t.serviceNote(s, fmt.Sprintf("service %s exited (%d)", s.Name, *s.Code))
 		}
 	}
 	t.pubL("services", t.servicesL())

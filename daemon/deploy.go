@@ -97,8 +97,7 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	if _, _, deploy := containerfileDeclarations(jt.containerfile()); deploy == "" {
 		return fail("Containerfile.dev declares no deploy any more")
 	}
-	jt.note("deploying " + p.defaultBranch + " at " + sha[:min(len(sha), 10)])
-	s, err := jt.runJob(deployService)
+	s, err := jt.runJob(deployService, "deploying "+p.defaultBranch+" at "+sha[:min(len(sha), 10)])
 	log := serviceLogTail(jt.servicesDir(), deployService)
 	switch {
 	case err != nil:

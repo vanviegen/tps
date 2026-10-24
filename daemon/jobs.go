@@ -74,12 +74,14 @@ func (t *Task) reset(commit string) (string, error) {
 }
 
 // runJob runs one of the job's services to its end — a run of it still going
-// from before is stopped first — and answers how it ended.
-func (t *Task) runJob(name string) (serviceState, error) {
+// from before is stopped first — and answers how it ended. The note says what
+// the run is for, and opens its console.
+func (t *Task) runJob(name, note string) (serviceState, error) {
 	_ = t.guestTool("stop", name) // nothing to stop, mostly
 	if err := t.guestTool("start", name, "0"); err != nil {
 		return serviceState{}, err
 	}
+	t.serviceNote(readService(t.servicesDir(), name), note)
 	for {
 		time.Sleep(time.Second)
 		t.lock()

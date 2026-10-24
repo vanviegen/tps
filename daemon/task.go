@@ -493,6 +493,15 @@ func (t *Task) note(text string, detail ...string) {
 	t.addEntry(e)
 }
 
+// serviceNote is a note about a run of a service, which opens its console
+// for as long as that run is the service's latest.
+func (t *Task) serviceNote(s serviceState, text string) {
+	e := newEntry("note")
+	e.Text = text
+	e.Service, e.Run = s.Name, s.Started
+	t.addEntry(e)
+}
+
 // lastNote is the text of the chat log's newest entry, if that is a note: one
 // made since the log was read in, or one read back from the file.
 func (t *Task) lastNote() string {

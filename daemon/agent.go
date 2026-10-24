@@ -41,6 +41,8 @@ type ChatEntry struct {
 	Res       string     `json:"res,omitempty"`       // tool: the result, one line
 	Req       []ReqField `json:"req,omitempty"`       // tool: the full request, field by field
 	Detail    string     `json:"detail,omitempty"`    // full text (thinking/note)
+	Service   string     `json:"service,omitempty"`   // note: the service whose run it is about, whose console it opens
+	Run       int64      `json:"run,omitempty"`       // note: when that run started, which tells it from later ones
 	ResDetail string     `json:"resDetail,omitempty"` // full result text
 	Error     bool       `json:"error,omitempty"`
 	Rev       bool       `json:"rev,omitempty"`  // said by the reviewer rather than by the task's own agent (see review.go)
