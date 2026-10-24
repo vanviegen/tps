@@ -150,7 +150,7 @@ copy 1 README.md .gitignore snip.py
 commit 23 "A URL shortener that fits on a page" 5a1b0c000001
 copy 2 README.md test_snip.py Containerfile.dev
 commit 9 "A dev container, and a test for the key generator" 5a1b0c000002
-SNIP_DEPLOYED="$COMMIT" # the last deploy, which what follows is not in yet
+git -C "$REPO" update-ref refs/tps/deployed "$COMMIT" # the last deploy (see daemon/deploy.go), which what follows is not in yet
 # One of the user's own, made in the checkout rather than by a task.
 echo '*~' >>"$REPO/.gitignore"
 commit 7 "Ignore editor backup files"
@@ -327,7 +327,6 @@ cat >"$CONFIG.new" <<JSON
 		},
 		{
 			"dir": "$PROJECTS/snip",
-			"deployed": "$SNIP_DEPLOYED",
 			"name": "snip",
 			"color": "#45c4d6",
 			"defaults": { "model": "claude: haiku" },

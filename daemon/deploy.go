@@ -116,13 +116,30 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	return true
 }
 
+// deployedRef is where the project repo keeps the commit deployed last. A
+// ref rather than a setting: task workspaces fetch it (see fetchDeployed), so
+// an agent can see what is live — the version it has, above all — and it
+// keeps that commit from being collected after a rewrite of the branch.
+const deployedRef = "refs/tps/deployed"
+
 // deployed records a deploy of commit sha.
 func (p *Project) deployed(sha string) {
-	p.m.mu.Lock()
-	p.info.Deployed = sha
-	p.m.saveL()
-	p.m.mu.Unlock()
+	if _, err := git(p.dir(), "update-ref", deployedRef, sha); err != nil {
+		logf("%s: recording the deploy: %v", p.pid, err)
+	}
 	p.refreshBranch()
+}
+
+// deployedCommit is the commit deployed last, or none.
+func (p *Project) deployedCommit() string {
+	sha, _ := git(p.dir(), "rev-parse", "--verify", "--quiet", deployedRef)
+	return sha
+}
+
+// fetchDeployed brings the project's deployedRef into a workspace, where
+// there is one: most projects never deploy, so a missing one is no failure.
+func fetchDeployed(repo string) {
+	_, _ = git(repo, "fetch", "--quiet", "origin", "+"+deployedRef+":"+deployedRef)
 }
 
 // The home directory of uid 1000 in an image, by image: where the deploy's

@@ -1,6 +1,6 @@
 {
   "name": "tps",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TPS: a kanban-style manager for AI coding agents working in podman dev containers, local or over SSH",
   "type": "module",
   "license": "MIT",

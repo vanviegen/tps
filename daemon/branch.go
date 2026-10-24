@@ -74,8 +74,9 @@ func branchLog(dir, rev string) ([]branchCommit, error) {
 // that deploy does not.
 func (p *Project) refreshBranch() {
 	p.m.mu.Lock()
-	deploys, head, deployed := p.deploy != "", p.head, p.info.Deployed
+	deploys, head := p.deploy != "", p.head
 	p.m.mu.Unlock()
+	deployed := p.deployedCommit()
 	if !deploys {
 		p.pub("commits", nil)
 		p.pub("deploy", nil)
@@ -91,7 +92,7 @@ func (p *Project) refreshBranch() {
 // the branch, at the newest task it held; nowhere for none.
 func (p *Project) branchState() (log []branchCommit, at string, rewritten bool) {
 	p.m.mu.Lock()
-	branch, deployed := p.defaultBranch, p.info.Deployed
+	branch := p.defaultBranch
 	stamps := map[string]string{}
 	for tid, t := range p.tasks {
 		if t.info.Stamp != "" {
@@ -99,6 +100,7 @@ func (p *Project) branchState() (log []branchCommit, at string, rewritten bool) 
 		}
 	}
 	p.m.mu.Unlock()
+	deployed := p.deployedCommit()
 	log, _ = branchLog(p.dir(), branch)
 	if deployed != "" {
 		if gitOK(p.dir(), "merge-base", "--is-ancestor", deployed, branch) {

@@ -40,11 +40,10 @@ type ProjectInfo struct {
 	NextTask int                  `json:"nextTask,omitempty"`
 	Tasks    map[string]*TaskInfo `json:"tasks"`
 
-	// Deploying (see deploy.go): whether a merge deploys by itself, the host's
-	// credentials the deploy gets, and the commit deployed last.
+	// Deploying (see deploy.go): whether a merge deploys by itself, and the
+	// host's credentials the deploy gets.
 	AutoDeploy   bool     `json:"autoDeploy,omitempty"`
 	DeployMounts []string `json:"deployMounts,omitempty"`
-	Deployed     string   `json:"deployed,omitempty"`
 }
 
 // Project: a registered git repo plus its tasks.

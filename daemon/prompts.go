@@ -99,6 +99,21 @@ Rules:
   Whatever else the project needs, keep python3 in it: shell commands often want it.
 - Read and write files with your built-in tools wherever they can, rather than through
   shell commands (cat, sed, python3, heredocs, scripts).
+- Versions and changelogs: where the project has a version number, a change that alters what
+  users get (a fix, a feature, a change in behavior; not a refactor, tests or internal docs)
+  comes with a bump of it, and with an entry in the changelog where there is one. Keep both
+  in step with the work as it evolves: a breaking change made later may need a bigger bump.
+  Follow the project's conventions (its agent notes, its history), and semver where it has
+  none. The version on the default branch may not have been released yet: if the branch has
+  ever been deployed, refs/tps/deployed is the commit deployed last ('git show
+  refs/tps/deployed:package.json', say), and TPS keeps it current in your workspace. A
+  version newer than the deployed one is a pending release: fold your change into it (its
+  number bumped further only if your change needs a bigger bump; its changelog entry
+  extended) rather than adding a release of your own. A version that went out is final:
+  your change starts the next one. Projects whose version comes from git tags, or whose
+  changelog is generated, have none of this to write. Where the project's notes for agents
+  (CLAUDE.md, or AGENTS.md if that is what it has) do not say how it does versions and
+  changelogs, find out, and write it down there for the agents after you.
 - Deploying: a LABEL tps.deploy="command" line in Containerfile.dev is how the project is
   deployed, which the user then does from the board (the rocket in the Done column), or
   TPS after every merge if the project's settings say so. TPS runs the command itself, in
@@ -247,6 +262,8 @@ func reviewPrompt(base string, said []string, edited bool, tests int) string {
 	b.WriteString("One file of the change is not the project's: .tps-commit-message, the message the " +
 		"agent proposes to commit the work as, which merging writes into the commit and takes back out of the tree. It has to say briefly what " +
 		"the whole change does: correct it in place where it does not, as you would any other small fix.\n\n" +
+		"Where the project keeps a version number or a changelog, the work bumps the one and extends the other as far as what it changes calls " +
+		"for, folding into a release that has not gone out yet (refs/tps/deployed is the commit deployed last) rather than adding one.\n\n" +
 		"Containerfile.dev is the project's image definition, and the only place a tool the work needs can be installed to stay: the " +
 		"container is disposable, so anything installed by hand is lost with it. It also declares the project's services (its CMD is the service " +
 		"'app', a LABEL tps.service.<name>=\"command\" line another), the ports TPS forwards (EXPOSE) and the directories kept between tasks " +
@@ -354,11 +371,28 @@ the task stands before continuing, and keep the remaining room in mind.`, budget
 
 // replantedPrompt tells the agent that its workspace was brought onto the
 // latest default branch while it wasn't running.
-func replantedPrompt(branch string) string {
+func replantedPrompt(branch string, doubled []string) string {
 	return fmt.Sprintf(`Your workspace was brought up to date while you were not running: the latest '%[1]s',
 which had moved on since this task started, was merged into your work, and is HEAD now.
 Your work is all there, uncommitted as before, but the files around it may have changed,
-so re-read what you are about to rely on rather than trusting your notes on it.`, branch)
+so re-read what you are about to rely on rather than trusting your notes on it.`, branch) + doubledNote(branch, doubled)
+}
+
+// doubledNote names the files that merged cleanly although both sides made
+// the same change to them (see doubledFiles), for an agent to look at.
+func doubledNote(branch string, doubled []string) string {
+	if len(doubled) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(`
+
+These files merged cleanly, but '%s' had made some of this task's changes to them as well:
+
+%s
+
+A change made twice can be right, or it can be one that no longer fits — the same version
+number, say, for a release that has gone out meanwhile. Check them (see the rule on versions
+and changelogs).`, branch, "- "+strings.Join(doubled, "\n- "))
 }
 
 // reopenedPrompt tells the agent that the task it works on was put away and
@@ -402,21 +436,26 @@ func titlePrompt(description string) string {
 		"--- description ---\n" + description + "\n--- end of description ---"
 }
 
-func conflictPrompt(defaultBranch string, files []string) string {
-	return fmt.Sprintf(`Merging this task hit conflicts. Its work was put onto the latest '%[1]s', which received
-other changes since this task started, and these files did not merge cleanly:
+func conflictPrompt(defaultBranch string, files, doubled []string) string {
+	conflicts := ""
+	if len(files) > 0 {
+		conflicts = fmt.Sprintf(`These files did not merge cleanly:
 
 %[2]s
 
 They hold conflict markers ('ours'/HEAD is this task's work; 'theirs' is the latest %[1]s),
 or — for a file deleted on one side and changed on the other — the changed version. You know
 what this task's side is for; the commit messages on %[1]s (git log) explain the other.
+Resolve every conflict so the result honors BOTH sides, and remove the markers.`, defaultBranch, "- "+strings.Join(files, "\n- "))
+	}
+	return fmt.Sprintf(`Merging this task needs a look first. Its work was put onto the latest '%[1]s', which
+received other changes since this task started. %[2]s
 
-Resolve every conflict so the result honors BOTH sides, and remove the markers. Do not
+Where versions or changelogs are involved, the rule on them says how to combine them. Do not
 commit, do not push. When that is done, verify the result still works and amend
-.tps-commit-message if the resolution changed what the task does: the merge goes on once
-your turn ends with that file in place. Delete it if the conflicts are not yours to
-resolve, and say why.`, defaultBranch, "- "+strings.Join(files, "\n- "))
+.tps-commit-message if it changed what the task does: the merge goes on once your turn
+ends with that file in place. Delete it if this is not yours to sort out, and say why.`,
+		defaultBranch, strings.TrimPrefix(conflicts+doubledNote(defaultBranch, doubled), "\n\n"))
 }
 
 // mergeTestPrompt sends the agent in to fix what made the test of its merge

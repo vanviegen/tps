@@ -74,8 +74,13 @@ WORKDIR /work
 # address, not its loopback; TPS publishes that port on the host's loopback, so
 # this is not exposure. Seeding is not part of the && chain: a reseed it will
 # not do (an agent still mid-turn) should not cost you the dashboard.
-LABEL tps.service.test="npm run typecheck && go test ./..."
+# The test builds the web bundle first: the binary embeds it, and the merge
+# train runs this on a clean checkout, which has neither it nor node_modules.
+LABEL tps.service.test="npm install --silent && npm run build && npm run typecheck && go test ./..."
 # Go's module and build caches and npm's, shared by this project's tasks.
 LABEL tps.cache="/home/dev/go/pkg/mod /home/dev/.cache/go-build /home/dev/.npm"
+# Releasing: the deployed commit and its version tag pushed to GitHub, with the
+# key the project's deploy settings name (see deploy.sh).
+LABEL tps.deploy="./deploy.sh"
 EXPOSE 8080
 CMD ./demo/seed.sh --force; npm install --silent && npm run build && go run . --host 0.0.0.0 --port 8080 --no-open

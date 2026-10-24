@@ -300,12 +300,12 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 	gitRun(t, repo, "commit", "--quiet", "-m", "against the rules")
 	commitUpstream(t, origin, "upstream", map[string]string{"a.txt": "one upstream\n", "b.txt": "two\n"})
 
-	conflicts, err := task.replant(repo)
+	conflicts, doubled, err := task.replant(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(conflicts) != 1 || conflicts[0] != "a.txt" {
-		t.Fatalf("conflicts: %v", conflicts)
+	if len(conflicts) != 1 || conflicts[0] != "a.txt" || doubled != nil {
+		t.Fatalf("conflicts: %v, doubled: %v", conflicts, doubled)
 	}
 	if !strings.Contains(readFile(filepath.Join(repo, "a.txt")), "<<<<<<< HEAD") {
 		t.Error("a.txt has no conflict markers")
@@ -359,6 +359,28 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 	}
 	if len(task.info.Pending) != 1 || task.info.Pending[0].Key != "merged" {
 		t.Errorf("pending after the merge: %v", task.info.Pending)
+	}
+}
+
+// A change made the same way on both sides merges cleanly, and is named all
+// the same — the same version bump, say — but a line that says nothing (a
+// brace) does not count, and neither does a file only one side changed.
+func TestReplantNamesDoubledChanges(t *testing.T) {
+	task, origin := testTask(t)
+	commitUpstream(t, origin, "a package", map[string]string{"pkg.json": "{\n  \"version\": \"1.3.0\"\n}\n", "c.js": "x\n"})
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "pkg.json", "{\n  \"version\": \"1.4.0\"\n}\n")
+	writeWork(t, task, "c.js", "x\n}\n")
+	writeWork(t, task, "mine.txt", "only mine\n")
+	commitUpstream(t, origin, "released", map[string]string{"pkg.json": "{\n  \"version\": \"1.4.0\"\n}\n", "c.js": "x\n}\n", "theirs.txt": "only mine\n"})
+	conflicts, doubled, err := task.replant(task.repoDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 0 || len(doubled) != 1 || doubled[0] != "pkg.json" {
+		t.Errorf("conflicts %v, doubled %v", conflicts, doubled)
 	}
 }
 

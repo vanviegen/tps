@@ -1,5 +1,5 @@
 # Builds the release binaries and attaches them to a GitHub release, whenever a
-# v* tag is pushed: `git tag v0.2.0 && git push origin v0.2.0`. The assets are
+# v* tag is pushed — which deploying TPS does (see deploy.sh). The assets are
 # named after `uname -m`, so the README's curl line picks the right one.
 name: Release
 on:
@@ -31,7 +31,10 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+        # A draft until its binaries are there: --auto-update installs the
+        # latest release, and must not find one with nothing to download.
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+            || gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "$GITHUB_REF_NAME"
           gh release upload "$GITHUB_REF_NAME" --clobber dist/*
+          gh release edit "$GITHUB_REF_NAME" --draft=false

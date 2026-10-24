@@ -11,10 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/vanviegen/tps/hub"
 )
@@ -1211,13 +1214,13 @@ func (t *Task) Merge(message string) error {
 
 func (t *Task) merge(repo, message string) error {
 	branch := t.p.defaultBranch
-	conflicts, err := t.replant(repo)
+	conflicts, doubled, err := t.replant(repo)
 	if err != nil {
 		return err
 	}
-	if len(conflicts) > 0 {
-		t.note(fmt.Sprintf("merging onto the latest %s hit conflicts in %s; sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
-		t.kick(conflictPrompt(branch, conflicts)) // it comes back through onTurnEnd
+	if len(conflicts) > 0 || len(doubled) > 0 {
+		t.note(fmt.Sprintf("merging onto the latest %s needs a look at %s; sending the agent in", branch, strings.Join(append(conflicts, doubled...), ", ")))
+		t.kick(conflictPrompt(branch, conflicts, doubled)) // it comes back through onTurnEnd
 		return nil
 	}
 	// Whatever a replay left in the files — or an agent that reported 'merge'
@@ -1320,12 +1323,12 @@ func (t *Task) Rebase() error {
 	}
 	_ = t.StopAgent()
 	branch := t.p.defaultBranch
-	conflicts, err := t.replant(repo)
+	conflicts, doubled, err := t.replant(repo)
 	if err != nil {
 		t.noteErr("rebase failed", err)
 		return err
 	}
-	t.queue("rebase", replantedPrompt(branch))
+	t.queue("rebase", replantedPrompt(branch, doubled))
 	if len(conflicts) > 0 {
 		t.note(fmt.Sprintf("rebased onto the latest %s; conflicts in %s, sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
 		t.lock()
@@ -1428,23 +1431,78 @@ func (t *Task) plant(repo string) ([]string, error) {
 // holds is made a step first, and the branch is merged into the steps (see
 // plant). The merge is left uncommitted, for whoever finishes it: Rebase, or
 // the agent resolving its conflicts, whose step the merge becomes (see step);
-// a merge commits it to the branch instead.
-func (t *Task) replant(repo string) ([]string, error) {
+// a merge commits it to the branch instead. Besides the files that conflict,
+// it answers those that merged cleanly but were changed the same way on both
+// sides (see doubledFiles), which are as much the agent's to look at.
+func (t *Task) replant(repo string) (conflicts, doubled []string, err error) {
 	branch := t.p.defaultBranch
 	if _, err := git(repo, "fetch", "--quiet", "origin"); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	fetchDeployed(repo)
 	if err := t.mark("Human", ""); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	target, err := git(repo, "rev-parse", "origin/"+branch)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if base, _ := t.base(repo, "HEAD"); base == target {
-		return nil, nil // the branch has nothing this workspace lacks
+	base, _ := t.base(repo, "HEAD")
+	if base == target {
+		return nil, nil, nil // the branch has nothing this workspace lacks
 	}
-	return t.plant(repo)
+	doubled = doubledFiles(repo, base, stepsBranch, target)
+	if conflicts, err = t.plant(repo); err != nil {
+		return nil, nil, err
+	}
+	doubled = slices.DeleteFunc(doubled, func(f string) bool { return slices.Contains(conflicts, f) })
+	return conflicts, doubled, nil
+}
+
+// doubledFiles are the files to which both the work (base..ours) and the
+// branch it goes onto (base..theirs) added the same line: one change made
+// twice, which git merges without a word, and which may be wrong all the
+// same — two tasks bumping the version to the same number, one of which was
+// deployed already. Lines without a letter or a digit in them say nothing.
+func doubledFiles(repo, base, ours, theirs string) []string {
+	mine := addedLines(repo, base, ours)
+	if len(mine) == 0 {
+		return nil
+	}
+	var files []string
+	for file, lines := range addedLines(repo, base, theirs) {
+		for line := range lines {
+			if mine[file][line] {
+				files = append(files, file)
+				break
+			}
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+// addedLines are the lines a diff adds, by file, trimmed.
+func addedLines(repo, from, to string) map[string]map[string]bool {
+	out, _ := git(repo, "diff", "--no-color", "--no-renames", "--unified=0", from, to)
+	added := map[string]map[string]bool{}
+	file := ""
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ "):
+			file = strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
+		case strings.HasPrefix(line, "+") && file != "/dev/null":
+			text := strings.TrimSpace(line[1:])
+			if strings.IndexFunc(text, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) < 0 {
+				continue
+			}
+			if added[file] == nil {
+				added[file] = map[string]bool{}
+			}
+			added[file][text] = true
+		}
+	}
+	return added
 }
 
 // markedFiles are the files in the workspace that still hold conflict markers
@@ -1980,6 +2038,7 @@ func (t *Task) clone() error {
 	if err := showSteps(tmp, t.p.defaultBranch); err != nil {
 		return err
 	}
+	fetchDeployed(tmp)
 	return os.Rename(tmp, t.repoDir())
 }
 

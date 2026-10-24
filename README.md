@@ -199,7 +199,9 @@ podman build -t tps-dev -f Containerfile.dev . && podman run --rm --userns=keep-
 ```
 
 `./dev.sh` rebuilds and restarts on every change, and `go test ./...` runs the
-tests. Pushing a `v*` tag has GitHub Actions build the release binaries.
+tests. `./deploy.sh` releases: it pushes the commit to GitHub with a tag for
+the version in `package.json`, and GitHub Actions build the release binaries
+from it. TPS runs it itself when the project is deployed from its board.
 
 `demo/seed.sh` fills a home directory with two small projects and a board's
 worth of tasks around them, to have something to click through: a merged task
