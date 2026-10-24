@@ -7,6 +7,7 @@ import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
+import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
@@ -703,6 +704,8 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
+		// A host that cannot run agents (claude wanting a sign-in, say) says so here too, with the way out.
+		A(() => drawHostNotice($state.projects[pid]?.host));
 		A(() => {
 			if (!['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
 			const { text, color } = taskActivity(pid, $t);

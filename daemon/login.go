@@ -40,17 +40,19 @@ func claudeEnv() []string {
 
 func credentialsFile() string { return filepath.Join(authDir(), ".credentials.json") } // where claude keeps a login
 
+// noLogin is what is said wherever a missing or rejected login stops claude:
+// the host's state, a task's chat, a review that did not run. The dashboard
+// puts the button that signs in beside it.
+const noLogin = "claude needs signing in on this host"
+
 // publishLogin tells the dashboards whether this host has a login to run on.
 // A login that is there but no longer accepted counts as none: the dashboards
 // show the same warning and the same button, which is the whole of what the
 // user has to do about it.
 func (m *Manager) publishLogin() {
 	var state any
-	switch {
-	case !exists(credentialsFile()) && os.Getenv("ANTHROPIC_API_KEY") == "":
-		state = "not signed in to claude: its agents cannot run until you sign in"
-	case m.loginGone.Load():
-		state = "claude's login here no longer works: sign in again to let its agents run"
+	if m.loginGone.Load() || !exists(credentialsFile()) && os.Getenv("ANTHROPIC_API_KEY") == "" {
+		state = noLogin
 	}
 	m.hub.Set([]string{"login"}, state)
 }

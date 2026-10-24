@@ -2480,11 +2480,11 @@ func (t *Task) resumeAfterLimit() {
 }
 
 // loginNote tells the user, in the task's own chat, what the failed turn was
-// about and what to do: the sign-in button is in the sidebar, on the host,
-// and signing in is all there is to it before sending the task back in.
-const loginNote = "claude could not sign in on this host, so this turn did not run and nothing about it is yours " +
-	"to fix: sign in to claude again — the host says so in the sidebar, and the button there does it — and send the " +
-	"task back in."
+// about and what to do: the task's page has the sign-in button above its
+// message box, and signing in is all there is to it before sending the task
+// back in.
+const loginNote = noLogin + ", so this turn did not run and nothing about it is yours to fix: sign in, then " +
+	"send the task back in."
 
 // maxSummaryNudges: how often in a row an agent is sent back in for the
 // summary its turn left out before the task is handed to the human anyway.

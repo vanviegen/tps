@@ -59,7 +59,7 @@ export function hostState(hid: string, $h: any): HostState {
 	}
 	// Connected: whatever the daemon there has to say for itself.
 	if ($h.signingIn) return { color: 'warning', icon: keyRound, text: $h.signin, ok: false, action: { label: 'Sign in', run: () => signInDialog(hid) } };
-	if ($h.signin || $h.login) return { color: 'warning', icon: keyRound, text: $h.signin || $h.login, ok: false };
+	if ($h.signin || $h.login) return { color: 'warning', icon: keyRound, text: $h.signin || $h.login, ok: false, action: { label: 'Sign in', run: () => void signIn(hid) } };
 	if ($h.warning) return { color: 'warning', icon: triangleAlert, text: $h.warning, ok: false };
 	if ($h.restarting) return { color: 'neutral', icon: refreshCw, text: 'the daemon restarts into this build once nothing is running', ok: false };
 	if ($h.updatable) {
@@ -122,6 +122,14 @@ export function drawHostPage(hid: string): void {
 /** The way out of what a host is doing, where its state has one. */
 export function drawAction(state: HostState): void {
 	if (state.action) S.button({ content: state.action.label, attrs: `.small .${state.color}`, click: state.action.run });
+}
+
+/** The host's state as a strip, where it has something to say: on a board or a task, it is why nothing there happens. */
+export function drawHostNotice(hid: string): void {
+	const $h = $state.hosts?.[hid];
+	if (!$h) return;
+	const state = hostState(hid, $h);
+	if (!state.ok) drawStrip(state.color, `${$h.name}: ${state.text}`, () => drawAction(state));
 }
 
 /** A project on the host's page: its name and directory, and how many of its tasks are under way. */

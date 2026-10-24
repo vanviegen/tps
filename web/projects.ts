@@ -6,7 +6,7 @@ import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
-import { drawAction, hostInk, hostState } from './hosts.ts';
+import { drawHostNotice, hostInk, hostState } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
 import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, PROJECT_COLORS, projectColor, projectName, selection, shortDir } from './util.ts';
 
@@ -238,17 +238,12 @@ function dirName(dir: string): string {
 
 /** A strip per thing worth knowing: the host's state, the project, its checkout. */
 export function drawNotices(pid: string, $p: any): void {
+	A(() => drawHostNotice($p.host));
 	A(() => {
-		const $h = $state.hosts?.[$p.host];
-		if (!$h) return;
-		// Whatever the host has to say is said the same here as in the sidebar,
-		// and here it is the reason nothing on this board is happening.
-		const state = hostState($p.host, $h);
-		if (!state.ok) drawStrip(state.color, `${$h.name}: ${state.text}`, () => drawAction(state));
 		// What the host says about the project itself, which it can only say
 		// while it is reachable — and which a daemon due an update does not
 		// stand in the way of.
-		if ($h.status === 'connected' && $p.error) drawStrip('danger', `${shortDir($p.host, $p.dir)}: ${$p.error}`);
+		if ($state.hosts?.[$p.host]?.status === 'connected' && $p.error) drawStrip('danger', `${shortDir($p.host, $p.dir)}: ${$p.error}`);
 	});
 	A(() => {
 		if (!$p.dirty) return;

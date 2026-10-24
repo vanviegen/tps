@@ -159,7 +159,7 @@ func (t *Task) finishReview(end TurnEnd) {
 func reviewMissing(end TurnEnd, text string) string {
 	switch {
 	case end.Failed && end.NoLogin: // the failure is what tells it apart from a reviewer quoting one
-		return "claude could not sign in on this host"
+		return noLogin
 	case end.Limited:
 		return "claude's usage limit stopped it"
 	case end.Failed:
