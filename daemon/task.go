@@ -1778,6 +1778,10 @@ func (t *Task) ensureWorkspace() error {
 // leaving Plan does. The caller holds cloneMu.
 func (t *Task) dropWorkspace() error {
 	t.down()
+	// Also one the daemon does not know of — a job's, left running from before
+	// a restart (see adoptL): found running, it would be reused (see
+	// ensureContainer), its /work the directory removed here.
+	_ = rmWorkspace(t.containerName(), nestDir(t.dir()))
 	if err := rmTree(t.repoDir()); err != nil {
 		// The clone is out of the way regardless, so the task goes on: what could
 		// not be unlinked costs disk, which only the human can free.
