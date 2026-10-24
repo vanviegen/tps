@@ -130,6 +130,23 @@ func TestDropAndPickUp(t *testing.T) {
 	}
 }
 
+// A /compact picks a merged task back up as a message does, but as the
+// human's: compacting asks nothing of the agent.
+func TestCompactPicksUpAMergedTask(t *testing.T) {
+	task, _ := testTask(t)
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "b.txt", "two\n")
+	mergeAndLand(t, task, "add b.txt")
+	if err := task.SendChat("/compact", nil); err != nil {
+		t.Fatal(err)
+	}
+	if task.info.Phase != PhaseHuman || !task.hasWorkspace() {
+		t.Errorf("after a /compact: %s, workspace %v", task.info.Phase, task.hasWorkspace())
+	}
+}
+
 // A tree the daemon cannot unlink every file of — what a container writing as
 // root leaves behind — must not hold the task hostage: the workspace path is
 // free, so picking the task up clones into it as usual.

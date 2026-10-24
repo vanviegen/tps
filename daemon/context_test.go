@@ -149,12 +149,4 @@ func TestCompactRefusals(t *testing.T) {
 	if task.info.LimitUntil != 1 {
 		t.Error("a refused /compact called the wait off")
 	}
-	// Nor a finished task, which a message would pick back up into a fresh clone.
-	task.info.LimitUntil = 0
-	if err := task.dropWorkspace(); err != nil {
-		t.Fatal(err)
-	}
-	if err := task.SendChat("/compact", nil); err == nil {
-		t.Error("a task without a workspace has nothing to compact in")
-	}
 }

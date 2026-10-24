@@ -861,13 +861,15 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	case compact && t.info.LimitUntil > 0:
 		t.unlock()
 		return errors.New("The task is waiting out a usage limit; the compaction would run into it too")
-	// A message picks a finished task back up, into a fresh clone; that is
-	// not what asking the agent to forget things is for.
-	case compact && !t.hasWorkspace():
-		t.unlock()
-		return errors.New("This task has no workspace to work from; pick it up first")
 	}
 	t.unlock()
+	// A message picks a parked task back up for the agent (see kick); a
+	// /compact asks nothing of it, so the task is picked up as the human's.
+	if compact && !t.hasWorkspace() {
+		if err := t.reopen(); err != nil {
+			return err
+		}
+	}
 	text, err := t.saveUploads(text, files)
 	if err != nil {
 		return err

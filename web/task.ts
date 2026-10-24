@@ -849,10 +849,10 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 					// Nothing to send and nothing to stop: how full the agent's window is,
 					// and the button that empties it. What is about the conversation rather
 					// than about this message belongs where the eye already is when nothing
-					// is being typed. Nothing is measured before the agent has run, and a
-					// finished task has no window to look into — an empty ring would be a
-					// button over nothing, so neither draws one.
-					else if (hasWorkspace($t) && contextSlices($t)) S.iconButton({
+					// is being typed. Nothing is measured before the agent has run, and an
+					// empty ring would be a button over nothing. A finished task shows the
+					// window it was left with, and compacting it picks the task back up.
+					else if (contextSlices($t)) S.iconButton({
 						icon: () => drawContextRing($t, '1.4rem'),
 						ariaLabel: 'Compact the agent’s memory',
 						attrs: size + 'fg:$s-muted',
