@@ -117,15 +117,16 @@ func TestGuestTool(t *testing.T) {
 	}
 	// The wrapper keeps its own flag to itself: a service that runs a TPS
 	// binary (this project's own does) must not have it take over as wrapper.
-	if code := start("env", "5", `echo "wrap=[$TPS_SERVICE_WRAP] color=[$FORCE_COLOR]"`); code != 0 {
+	// It writes to a terminal of a known size, with nothing to read from, and
+	// its log has newlines as they were written.
+	if code := start("env", "5", `echo "wrap=[$TPS_SERVICE_WRAP] term=[$TERM] pager=[$PAGER]"; [ -t 1 ] && [ -t 2 ] && [ ! -t 0 ] && stty size <&1; printf 'partial'`); code != 0 {
 		t.Errorf("start env: %d", code)
 	}
-	// ...and asks for colour, which nothing writing to a log file gives by itself.
-	if log := readFile(filepath.Join(root, "env", "log")); log != "wrap=[] color=[1]\n" {
+	if log := readFile(filepath.Join(root, "env", "log")); log != "wrap=[] term=[xterm-256color] pager=[cat]\n40 120\npartial" {
 		t.Errorf("the service's environment: %q", log)
 	}
-	if got := colorEnv([]string{"PATH=/bin", "FORCE_COLOR=0"}); strings.Join(got, " ") != "PATH=/bin FORCE_COLOR=0 CLICOLOR_FORCE=1" {
-		t.Errorf("colorEnv overrode what was set: %q", got)
+	if got := termEnv([]string{"TERM=dumb", "PAGER=less"}); strings.Join(got, " ") != "PAGER=less TERM=xterm-256color GIT_PAGER=cat" {
+		t.Errorf("termEnv: %q", got)
 	}
 	// A container replaced takes the running processes with it, not the
 	// services: an ad hoc one runs again by name alone.
@@ -151,7 +152,7 @@ func TestGuestTool(t *testing.T) {
 	if err := launch("nocmd"); err == nil {
 		t.Error("start without a command or declaration")
 	}
-	if got := lastLines("a\nb\nc\n", 2); len(got) != 2 || got[0] != "b" {
+	if got := lastLines("a\nb\nc 10%\rc 20%\r\n", 2); len(got) != 2 || got[0] != "b" || got[1] != "c 20%" {
 		t.Errorf("lastLines: %q", got)
 	}
 }

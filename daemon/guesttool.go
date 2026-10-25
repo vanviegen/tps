@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -272,7 +273,7 @@ func (st *guestTool) launch(name string, argv []string) error {
 	}
 	defer ready.Close()
 	wrap := exec.Command(self, argv...)
-	wrap.Env = append(colorEnv(os.Environ()), serviceWrapEnv+"="+dir, serviceEnv+"="+name)
+	wrap.Env = append(termEnv(os.Environ()), serviceWrapEnv+"="+dir, serviceEnv+"="+name)
 	wrap.Stdout, wrap.Stderr = log, log // stdin: /dev/null
 	wrap.ExtraFiles = []*os.File{readyW}
 	wrap.Dir, _ = os.Getwd()
@@ -317,15 +318,15 @@ func (st *guestTool) wait(dir, name string, seconds int) int {
 	return code
 }
 
-// colorEnv asks the command for colour it would otherwise keep to itself: its
-// output goes to a file rather than a terminal, so everything that looks at
-// isatty falls back to plain text — while the dashboard's console does render
-// colours (see web/ansi.ts). The two spellings between them cover most of what
-// a project runs; a service that wants none can set either to 0 itself.
-func colorEnv(env []string) []string {
-	for _, name := range []string{"FORCE_COLOR", "CLICOLOR_FORCE"} {
+// termEnv describes the terminal a service writes to (see serviceWrap): an
+// xterm, whatever the shell that started it had. Without a pager: one would
+// wait on that terminal for a key nobody presses. A pager the environment
+// names on purpose stays.
+func termEnv(env []string) []string {
+	env = append(withoutEnv(env, "TERM"), "TERM=xterm-256color")
+	for _, name := range []string{"PAGER", "GIT_PAGER"} {
 		if !hasEnv(env, name) {
-			env = append(env, name+"=1")
+			env = append(env, name+"=cat")
 		}
 	}
 	return env
@@ -341,7 +342,12 @@ func hasEnv(env []string, name string) bool {
 }
 
 // serviceWrap is the wrapper: it runs the command as its child and records
-// the exit code. A single argument is a shell line.
+// the exit code. A single argument is a shell line. The command writes to a
+// pseudo-terminal whose output the wrapper copies into the log (its own
+// stdout), so it shows the colours and progress lines it would show a person
+// (web/ansi.ts plays them out), and writes as it goes rather than a buffer at
+// a time. Its stdin stays /dev/null, and the terminal is no controlling one:
+// whatever asks a question finds nobody there, as it would without a terminal.
 func serviceWrap(dir string, argv []string) int {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP) // taken, and ignored: the child gets its own
@@ -356,13 +362,32 @@ func serviceWrap(dir string, argv []string) int {
 	// try to exec its arguments.
 	cmd.Env = withoutEnv(os.Environ(), serviceWrapEnv)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err := cmd.Start()
+	copied := make(chan struct{})
+	master, slave, err := openPty()
+	if err == nil {
+		defer master.Close()
+		cmd.Stdout, cmd.Stderr = slave, slave
+		go func() { _, _ = io.Copy(os.Stdout, master); close(copied) }()
+	} else {
+		close(copied)
+	}
+	err = cmd.Start()
+	if slave != nil {
+		slave.Close()
+	}
 	if ready := os.NewFile(3, "ready"); ready != nil { // launch waits for this (see there)
 		_, _ = ready.Write([]byte{1})
 		ready.Close()
 	}
 	if err == nil {
 		err = cmd.Wait()
+	}
+	// What the command left in the terminal goes to the log before the exit
+	// code says it is complete; whatever it left running in the background
+	// and still holding the terminal is not waited for.
+	select {
+	case <-copied:
+	case <-time.After(time.Second):
 	}
 	code := shellExitCode(err)
 	if code == 127 {
@@ -544,7 +569,9 @@ func (st *guestTool) logs(args []string) error {
 	return nil
 }
 
-// lastLines is the last n lines of text (a trailing newline ends no line).
+// lastLines is the last n lines of text (a trailing newline ends no line),
+// each as it was left: a progress line that rewrote itself after a carriage
+// return says only what it said last.
 func lastLines(text string, n int) []string {
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	if text == "" {
@@ -552,6 +579,10 @@ func lastLines(text string, n int) []string {
 	}
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
+	}
+	for i, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		lines[i] = line[strings.LastIndexByte(line, '\r')+1:]
 	}
 	return lines
 }
