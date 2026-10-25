@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,5 +58,35 @@ func TestOpenRouterToolReadsKey(t *testing.T) {
 	n, _ := r.Read(out)
 	if code != 0 || strings.TrimSpace(string(out[:n])) != "sk-or-test" {
 		t.Errorf("got %d %q", code, out[:n])
+	}
+}
+
+type orStub func(*http.Request) *http.Response
+
+func (f orStub) RoundTrip(r *http.Request) (*http.Response, error) { return f(r), nil }
+
+// The first grant makes the task's key, and a later one raises its limit
+// rather than making another.
+func TestOpenRouterRaisesTheKey(t *testing.T) {
+	task, _ := testTask(t)
+	if err := os.MkdirAll(task.servicesDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	transport := openRouterClient.Transport
+	openRouterClient.Transport = orStub(func(r *http.Request) *http.Response {
+		body, _ := io.ReadAll(r.Body)
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+string(body))
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"key":"sk-or-1","data":{"hash":"h1"}}`))}
+	})
+	defer func() { openRouterClient.Transport = transport }()
+
+	task.grantOpenRouter(2)
+	task.grantOpenRouter(1.5)
+	if k := task.info.ORKey; k == nil || k.Key != "sk-or-1" || k.Limit != 3.5 || task.info.ORGranted != 3.5 {
+		t.Fatalf("got %+v, granted %g", task.info.ORKey, task.info.ORGranted)
+	}
+	if len(calls) != 2 || !strings.HasPrefix(calls[0], "POST /api/v1/keys ") || calls[1] != `PATCH /api/v1/keys/h1 {"limit":3.5}` {
+		t.Errorf("calls: %q", calls)
 	}
 }

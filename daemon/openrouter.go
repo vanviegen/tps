@@ -16,9 +16,10 @@ import (
 
 // An agent may ask for OpenRouter spending with 'tps-guest-tool openrouter
 // <usd>': to reach models its own agent does not offer, or to test something
-// that calls an LLM API. What it gets is a key of its own, made on this host's
-// OpenRouter account with the management key the user set for the host, and
-// limited to what it asked for. The task's OpenRouter budget is how much of
+// that calls an LLM API. What it gets is the task's key, made on this host's
+// OpenRouter account with the management key the user set for the host at the
+// first request, and its limit raised by what each later one asks for, so the
+// agent keeps the one key it has. The task's OpenRouter budget is how much of
 // that may be handed out without asking; a request beyond it waits for the
 // user, who may raise the budget or turn the request down.
 //
@@ -50,28 +51,45 @@ func (m *Manager) setOpenRouterKey(key string) {
 
 var openRouterClient = &http.Client{Timeout: 30 * time.Second}
 
-// createOpenRouterKey makes a key limited to spending limit USD, and returns it.
-func createOpenRouterKey(mgmtKey, name string, limit float64) (string, error) {
-	body, _ := json.Marshal(map[string]any{"name": name, "limit": limit})
-	req, _ := http.NewRequest("POST", "https://openrouter.ai/api/v1/keys", bytes.NewReader(body))
+// orKey is a task's OpenRouter key: Hash is what OpenRouter's API names it by,
+// and Limit the USD of spending it allows.
+type orKey struct {
+	Key   string  `json:"key"`
+	Hash  string  `json:"hash"`
+	Limit float64 `json:"limit"`
+}
+
+// openRouterKey makes a key limited to spending limit USD, or, given the hash
+// of one made before, sets that one's limit; and returns the key and its hash
+// (the key itself only when it was made).
+func openRouterKey(mgmtKey, hash, name string, limit float64) (key, keyHash string, err error) {
+	method, url, fields := "POST", "https://openrouter.ai/api/v1/keys", map[string]any{"name": name, "limit": limit}
+	if hash != "" {
+		method, url, fields = "PATCH", url+"/"+hash, map[string]any{"limit": limit}
+	}
+	body, _ := json.Marshal(fields)
+	req, _ := http.NewRequest(method, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+mgmtKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := openRouterClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	var out struct {
-		Key   string `json:"key"`
+		Key  string `json:"key"`
+		Data struct {
+			Hash string `json:"hash"`
+		} `json:"data"`
 		Error struct {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if resp.StatusCode/100 != 2 || out.Key == "" {
-		return "", fmt.Errorf("OpenRouter answered %s %s", resp.Status, out.Error.Message)
+	if resp.StatusCode/100 != 2 || hash == "" && (out.Key == "" || out.Data.Hash == "") {
+		return "", "", fmt.Errorf("OpenRouter answered %s %s", resp.Status, out.Error.Message)
 	}
-	return out.Key, nil
+	return out.Key, cmp.Or(hash, out.Data.Hash), nil
 }
 
 // orRoomL is what is left of the task's OpenRouter budget.
@@ -159,25 +177,34 @@ func (t *Task) RejectOpenRouter() error {
 	return nil
 }
 
+// grantOpenRouter raises the task's key's limit by amount, or makes the key
+// when there is none yet.
 func (t *Task) grantOpenRouter(amount float64) {
 	t.lock()
 	mgmtKey := t.p.m.orKey
 	name := fmt.Sprintf("TPS %s: %s", t.p.info.Name, oneLine(t.info.Title, 40))
+	k := orKey{Limit: amount}
+	if t.info.ORKey != nil {
+		k = *t.info.ORKey
+		k.Limit += amount
+	}
 	t.unlock()
-	key, err := createOpenRouterKey(mgmtKey, name, amount)
+	key, hash, err := openRouterKey(mgmtKey, k.Hash, name, k.Limit)
+	k.Key, k.Hash = cmp.Or(key, k.Key), hash
 	t.lock()
 	defer t.unlock()
 	t.orBusy = false
 	if err != nil {
-		t.noteErr("making an OpenRouter key failed", err)
+		t.noteErr("making or raising the OpenRouter key failed", err)
 		writeORAnswer(t.servicesDir(), orAnswer{Error: err.Error()})
 		return
 	}
+	t.info.ORKey = &k
 	t.info.ORGranted += amount
 	t.p.m.saveL()
 	t.publishL()
-	writeORAnswer(t.servicesDir(), orAnswer{Key: key, Limit: amount})
-	t.note(fmt.Sprintf("handed the agent an OpenRouter key for $%g", amount))
+	writeORAnswer(t.servicesDir(), orAnswer{Key: k.Key, Limit: k.Limit})
+	t.note(fmt.Sprintf("the agent's OpenRouter key allows $%g more, $%g in all", amount, k.Limit))
 }
 
 // openRouter is the tool's side: ask for a key and wait for the answer. A
@@ -208,7 +235,7 @@ func (st *guestTool) openRouter(args []string) int {
 		if json.Unmarshal(raw, &a) != nil || a.Key == "" {
 			return st.fail(fmt.Errorf("no key: %s", cmp.Or(a.Error, "the answer could not be read")))
 		}
-		fmt.Fprintf(os.Stderr, "An OpenRouter API key for https://openrouter.ai/api/v1, limited to $%g of spending:\n", a.Limit)
+		fmt.Fprintf(os.Stderr, "The task's OpenRouter API key for https://openrouter.ai/api/v1, limited to $%g of spending in all:\n", a.Limit)
 		fmt.Println(a.Key)
 		return 0
 	}

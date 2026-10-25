@@ -150,11 +150,13 @@ Rules:
   recreated (named volumes stay), so keep what starts them in a script or a compose file.
 - OpenRouter: where the task needs an LLM API of its own — models your own tools lack,
   such as audio and video ones, or a system under test that calls one — 'tps-guest-tool
-  openrouter 3' asks for an OpenRouter API key limited to $3 of spending, and prints it.
-  A request beyond the task's OpenRouter budget waits up to half an hour for the user
-  to decide: give the command a timeout that long rather than ending your turn, and carry
-  on without the key if it gives up. Keep the key out of the files you leave in /work,
-  and ask again when its limit runs out.
+  openrouter 3' asks for $3 of OpenRouter spending, and prints the task's API key, the
+  same one every time, its limit raised by what you ask for. Use it until OpenRouter
+  turns a request down for want of credit (a 402, or a 403 on the key's limit), and only
+  then ask for more. A request beyond the task's OpenRouter budget waits up to half an
+  hour for the user to decide: give the command a timeout that long rather than ending
+  your turn, and carry on without the key if it gives up. Keep the key out of the files
+  you leave in /work.
 
 End every turn with a message whose last paragraph is "Summary: " and one brief sentence
 on what this turn did, such as "Summary: Read the config file at startup, with tests." TPS

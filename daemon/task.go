@@ -117,7 +117,8 @@ type TaskInfo struct {
 	Spent         float64        `json:"spent,omitempty"`             // USD spent on agent runs so far
 	Budget        *float64       `json:"budget,omitempty"`            // USD limit; the task is parked when spending reaches it
 	ORBudget      *float64       `json:"openrouterBudget,omitempty"`  // USD of OpenRouter keys the agent may be handed without asking the user (see openrouter.go)
-	ORGranted     float64        `json:"openrouterGranted,omitempty"` // the limits of the keys it was handed so far
+	ORGranted     float64        `json:"openrouterGranted,omitempty"` // the USD of OpenRouter spending it was granted so far
+	ORKey         *orKey         `json:"openrouterKey,omitempty"`     // the key it is handed, its limit raised with every grant
 	ORAsk         float64        `json:"openrouterAsk,omitempty"`     // a request of the agent's beyond that budget, waiting for the user
 	Context       int64          `json:"context,omitempty"`           // tokens the conversation came to at the agent's last turn
 	Window        *ContextWindow `json:"window,omitempty"`            // and what claude's window holds besides it (see context.go)

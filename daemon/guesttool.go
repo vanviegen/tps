@@ -77,14 +77,15 @@ for anything that serves or takes a while: dev servers, test suites, builds.
   logs <name> [lines]      The last lines of its output (default 100).
   ps                       Every service, with its state.
 
-  openrouter <usd>         Not a service: ask TPS for an OpenRouter API key of
-                           your own, limited to that many USD of spending, for
-                           models you lack (audio, video) or a system under
-                           test that calls an LLM API. Prints the key. A
-                           request beyond the task's OpenRouter budget waits
-                           for the user, half an hour at most; one they have
-                           not answered by then exits 124.
-                           Ask again when a key's limit runs out.
+  openrouter <usd>         Not a service: ask TPS for that many USD more of
+                           OpenRouter spending, for models you lack (audio,
+                           video) or a system under test that calls an LLM
+                           API. Prints the task's key, the same one each time,
+                           its limit raised by that much. A request beyond the
+                           task's OpenRouter budget waits for the user, half
+                           an hour at most; one they have not answered by then
+                           exits 124. Ask only once OpenRouter turns the key
+                           down for want of credit.
 
   ask-human <question> [--option <label>]... [--input] [--secret]
             [--service <name>] [--port <port>]
