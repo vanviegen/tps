@@ -165,7 +165,7 @@ function drawMessage(attrs: string, text: string): void {
 function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 	// A note about a run of a service opens that service's console instead,
 	// which holds the output of its latest run alone.
-	const open = () => !$e.service ? detailDialog($e)
+	const open = () => !$e.service ? detailDialog($e, pid, tid, $t)
 		: ($t.services ?? []).some((s: any) => s.name === $e.service && s.started === $e.run) ? serviceDialog(pid, tid, $t, $e.service)
 		: S.alert(`The output of this run of ${$e.service} is gone: only its latest run is kept.`);
 	const line = (draw: () => void, opens = false) =>
@@ -335,7 +335,7 @@ function oldFields(detail: string): { k: string; v: string }[] {
  * One log entry in full: a box per section, each as tall as it needs to be —
  * the dialog is the only thing that scrolls.
  */
-function detailDialog($e: any): void {
+function detailDialog($e: any, pid: string, tid: string, $t: any): void {
 	const title = $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps' : 'Thinking';
 	const section = (header: string, content: () => void) =>
 		S.box({ header, attrs: 'flex-shrink:0', contentAttrs: 'p:0', content });
@@ -344,7 +344,7 @@ function detailDialog($e: any): void {
 	// at the width a dialog has of its own.
 	const wide = $e.k !== 'note' || !!$e.detail;
 	const attrs = wide ? 'w:min(94vw,84rem) max-width:min(94vw,84rem)' : undefined;
-	void S.dialog({ header: title, attrs, content: () => {
+	void S.dialog({ header: title, attrs, content: close => {
 		if ($e.k === 'tool') {
 			const fields = $e.req ?? ($e.detail ? oldFields($e.detail) : []);
 			section('Request', () => {
@@ -359,6 +359,12 @@ function detailDialog($e: any): void {
 			if ($e.resDetail !== undefined) {
 				section($e.error ? 'Response (error)' : 'Response', () => codeBlock($e.resDetail));
 			}
+			// A file the agent read (an image, often) opens in the task's VS Code.
+			const path = /^read$/i.test($e.name) && fields.find((f: any) => f.k === 'file_path' || f.k === 'path')?.v;
+			if (path && $t.codePort) S.button({
+				content: 'Open in VS Code', attrs: '.outlined align-self:start',
+				click: () => { close(); void cmd('openInCode', { pid, tid, path }); },
+			});
 		} else if ($e.k === 'note') {
 			// The note is prose and wraps under the header; what it carries (a
 			// build log, an error) is not, and keeps its own lines in a box.

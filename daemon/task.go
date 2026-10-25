@@ -2166,6 +2166,17 @@ func (t *Task) terminalBusy() bool {
 	return c != nil && up && c.TerminalBusy()
 }
 
+// OpenInCode opens a file of the workspace in the task's VS Code.
+func (t *Task) OpenInCode(path string) error {
+	t.lock()
+	c, up := t.container, t.codeUp
+	t.unlock()
+	if c == nil || !up {
+		return errors.New("VS Code is not running")
+	}
+	return c.OpenInCode(path)
+}
+
 func (t *Task) bgUp() {
 	go func() {
 		if _, err := t.up(); err != nil {

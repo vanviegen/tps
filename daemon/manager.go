@@ -847,6 +847,7 @@ type ref struct {
 	ID     string `json:"id"`
 	Option int    `json:"option"`
 	Commit string `json:"commit"` // deploy: what to deploy, the tip for none
+	Path   string `json:"path"`   // openInCode: the file to open
 }
 
 func decode(raw json.RawMessage) (ref, map[string]any, error) {
@@ -968,6 +969,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"stopService":      withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
 		"restartService":   withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
 		"reloadTask":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
+		"openInCode":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.OpenInCode(r.Path) }),
 		"answerAsk": withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) {
 			return nil, t.AnswerAsk(r.ID, r.Option, r.Text)
 		}),

@@ -513,9 +513,14 @@ func (c *Container) waitReady() error {
 // picking up a $PORT the image may set for whatever the task itself serves.
 // Its pid is written down first (exec keeps it), for termBusyScript.
 var codeScript = fmt.Sprintf("export PATH=/tps/bin:$PATH; echo $$ >%[2]s; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d"+
-	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions /work", codePort, codePidFile)
+	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions --session-socket %[3]s /work",
+	codePort, codePidFile, codeSocket)
 
 const codePidFile = "/tmp/.tps-code.pid"
+
+// codeSocket is where code-server takes requests to open files (see
+// OpenInCode): in the container's own /tmp, as /vscode is every task's.
+const codeSocket = "/tmp/.tps-code-ipc.sock"
 
 // termBusyScript exits 0 when a terminal in VS Code is running something:
 // a shell under the pty host of the code-server whose pid it is given (or,
@@ -562,6 +567,17 @@ func (c *Container) StartCode() error {
 func (c *Container) TerminalBusy() bool {
 	_, err := runCmd([]string{"podman", "exec", c.Name, "sh", "-c", termBusyScript}, RunOpts{Timeout: 10 * time.Second})
 	return err == nil
+}
+
+// OpenInCode opens a file in the VS Code window connected to the container's
+// code-server, through its session socket.
+func (c *Container) OpenInCode(path string) error {
+	r, err := runCmd([]string{"podman", "exec", c.Name, "/tps/bin/code-server",
+		"--session-socket", codeSocket, "--reuse-window", path}, RunOpts{Timeout: 10 * time.Second, NoCheck: true})
+	if err == nil && r.Code != 0 {
+		err = fmt.Errorf("code-server could not open %s", path)
+	}
+	return err
 }
 
 // codeAlive: does a code-server answer on this (host) port?
