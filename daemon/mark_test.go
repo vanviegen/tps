@@ -136,7 +136,7 @@ func TestRevert(t *testing.T) {
 	task.note("something the agent said")
 	task.mark("Agent", "second")
 
-	_, draft, err := task.UsePoint(id, Use{Chat: true, Work: true})
+	_, err := task.UsePoint(id, Use{Chat: true, Work: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,8 +164,8 @@ func TestRevert(t *testing.T) {
 	if strings.Contains(readFile(task.chatFile()), "something the agent said") {
 		t.Error("the log still holds what was said after the point")
 	}
-	if draft != "now do the other thing" {
-		t.Errorf("the message that set the undone run off came back as %q", draft)
+	if task.info.Draft != "now do the other thing" {
+		t.Errorf("the message that set the undone run off came back as %q", task.info.Draft)
 	}
 }
 
@@ -174,8 +174,7 @@ func TestRevert(t *testing.T) {
 func TestForkFull(t *testing.T) {
 	task, _ := markTask(t)
 	task.info.Title = "Do the thing"
-	write(t, filepath.Join(task.repoDir(), briefFile), "the description\n")
-	task.syncBrief()
+	task.info.Description = "the description"
 	transcript(t, task, "s.jsonl", "one", "two")
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "forked from here\n")
 	task.mark("Agent", "did the thing")
@@ -184,7 +183,7 @@ func TestForkFull(t *testing.T) {
 	// Work after the point, which the fork must not have.
 	write(t, filepath.Join(task.repoDir(), "c.txt"), "later\n")
 
-	tid, _, err := task.UsePoint(id, Use{Fork: true, Chat: true, Work: true})
+	tid, err := task.UsePoint(id, Use{Fork: true, Chat: true, Work: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +239,7 @@ func TestForkFromTheStart(t *testing.T) {
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "work\n")
 	task.mark("Agent", "did it")
 
-	tid, draft, err := task.UsePoint(start, Use{Fork: true, Chat: true, Work: true})
+	tid, err := task.UsePoint(start, Use{Fork: true, Chat: true, Work: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,8 +264,8 @@ func TestForkFromTheStart(t *testing.T) {
 	if len(fork.info.Pending) != 0 {
 		t.Errorf("the fork's agent was told about a rewind it cannot notice: %+v", fork.info.Pending)
 	}
-	if draft != "please do the thing" {
-		t.Errorf("the first message did not come back to the composer: %q", draft)
+	if fork.info.Draft != "please do the thing" {
+		t.Errorf("the first message did not come back to the composer: %q", fork.info.Draft)
 	}
 }
 
@@ -335,8 +334,7 @@ func atoi(t *testing.T, s string) int {
 func TestRewindTheConversationOnly(t *testing.T) {
 	task, _ := markTask(t)
 	task.info.Title = "Do the thing"
-	write(t, filepath.Join(task.repoDir(), briefFile), "make the widget blue\n")
-	task.syncBrief()
+	task.info.Description = "make the widget blue"
 	task.mark("Start", "")
 	start := lastMark(t, task)
 	path := transcript(t, task, "s.jsonl", "one", "two")
@@ -346,7 +344,7 @@ func TestRewindTheConversationOnly(t *testing.T) {
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "the work\n")
 	task.mark("Agent", "did it")
 
-	if _, _, err := task.UsePoint(start, Use{Chat: true}); err != nil {
+	if _, err := task.UsePoint(start, Use{Chat: true}); err != nil {
 		t.Fatal(err)
 	}
 	if body := readFile(filepath.Join(task.repoDir(), "a.txt")); body != "the work\n" {
@@ -383,10 +381,10 @@ func TestRewindTheConversationPastAMerge(t *testing.T) {
 	gone := strings.Repeat("0", 40)
 	write(t, task.chatFile(), strings.ReplaceAll(readFile(task.chatFile()), point.Mark.Commit, gone))
 
-	if _, _, err := task.UsePoint(point.ID, Use{Work: true}); err == nil {
+	if _, err := task.UsePoint(point.ID, Use{Work: true}); err == nil {
 		t.Error("the tree went back to a commit that is not there")
 	}
-	if _, _, err := task.UsePoint(point.ID, Use{Chat: true}); err != nil {
+	if _, err := task.UsePoint(point.ID, Use{Chat: true}); err != nil {
 		t.Errorf("the conversation could not go back for want of a commit it does not need: %v", err)
 	}
 }
@@ -405,7 +403,7 @@ func TestRevertTheCodeOnly(t *testing.T) {
 	task.addEntry(asked)
 	task.mark("Agent", "second")
 
-	if _, _, err := task.UsePoint(id, Use{Work: true}); err != nil {
+	if _, err := task.UsePoint(id, Use{Work: true}); err != nil {
 		t.Fatal(err)
 	}
 	if body := readFile(filepath.Join(task.repoDir(), "a.txt")); body != "first\n" {
@@ -437,7 +435,7 @@ func TestPointWithoutASession(t *testing.T) {
 		t.Fatalf("the point should hold no transcripts: %+v", points)
 	}
 
-	tid, _, err := task.UsePoint(points[0].ID, Use{Fork: true, Chat: true, Work: true})
+	tid, err := task.UsePoint(points[0].ID, Use{Fork: true, Chat: true, Work: true})
 	if err != nil {
 		t.Fatal(err)
 	}

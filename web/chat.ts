@@ -6,7 +6,7 @@ import { copy, copyCheck, gitFork, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
 import { serviceDialog } from './services.ts';
 import { formatShell } from './shell.ts';
-import { cmd, ELLIPSIS, hasWorkspace, isJob, pathTo, restoreDraft } from './util.ts';
+import { cmd, ELLIPSIS, hasWorkspace, isJob, pathTo } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escape = (text: string) => text.replace(/[&<>"]/g, c => ESCAPES[c]);
@@ -34,9 +34,10 @@ export const md = new Marked({
  * The task's chat log, filling its flex column and scrolling: user and assistant
  * messages as markdown; thinking, tool calls (call and result on one line)
  * and TPS notes as compact one-liners that open a dialog with the whole thing.
- * Turns far enough back are folded (see drawTurn).
+ * Turns far enough back are folded (see drawTurn). Above it all, the task's
+ * `settings`.
  */
-export function drawChat(pid: string, tid: string, $t: any): void {
+export function drawChat(pid: string, tid: string, $t: any, settings: () => void): void {
 	const $chat = chatLog(pid, tid);
 	// The turns before this one are folded: the newest that together hold
 	// FOLD_AT entries stay open, the one crossing it included.
@@ -54,6 +55,9 @@ export function drawChat(pid: string, tid: string, $t: any): void {
 	// The single column is capped at the space available, so nothing in the log
 	// can push the left column wider than it is.
 	const el = A('div flex:1 min-width:0 min-height:0 overflow-y:auto display:grid grid-template-columns:minmax(0,1fr) grid-auto-rows:max-content gap:$2', () => {
+		// What the task is set to, where it is in reach when it matters most: as
+		// it starts. A job has no settings of its own.
+		if (!isJob($t)) A('div display:flex flex-direction:column gap:$2 pb:$3 border-bottom: 1px solid $s-faint;', settings);
 		A(() => drawRules(pid, tid, $t));
 		A.onEach($chat, ($turn: any[], i: number) => drawTurn($chat, $turn, i, $foldBelow, $open, pid, tid, $t));
 	}) as HTMLElement;
@@ -264,11 +268,9 @@ function pointDialog(pid: string, tid: string, $e: any, title: () => void): void
 		header: () => A('div display:flex align-items:center gap:$2 min-width:0', title),
 		content: close => S.form({
 			submit: async () => {
-				const done = await cmd('usePoint', { pid, tid, entry: $e.id, fork: $use.fork, chat: $use.chat, work: $use.work });
+				const landed = await cmd('usePoint', { pid, tid, entry: $e.id, fork: $use.fork, chat: $use.chat, work: $use.work });
 				close();
-				if (!done) return;
-				restoreDraft(pid, done.tid as string, done.draft as string);
-				if (done.tid !== tid) route.go(pathTo(pid, done.tid as string));
+				if (landed && landed !== tid) route.go(pathTo(pid, landed as string));
 			},
 			content: () => {
 				box('chat', 'Rewind the conversation',

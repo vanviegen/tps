@@ -19,7 +19,7 @@ func TestCreateTaskDefaults(t *testing.T) {
 		Defaults: TaskDefaults{Model: "opus", ReviewModel: "haiku", OnReady: AnswerReview, ReviewLoops: &loops, Budget: &budget}})
 	m.projects[p.pid] = p
 
-	tid, err := p.CreateTask(map[string]any{"description": "do it"})
+	tid, err := p.CreateTask(map[string]any{"draft": "do it"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestCreateTaskDefaults(t *testing.T) {
 		t.Error("the default budget was changed along with the task's")
 	}
 
-	tid, err = p.CreateTask(map[string]any{"description": "do it my way", "model": "haiku", "budget": "1.5", "onReady": "merge", "reviewLoops": "1"})
+	tid, err = p.CreateTask(map[string]any{"draft": "do it my way", "model": "haiku", "budget": "1.5", "onReady": "merge", "reviewLoops": "1"})
 	if err != nil {
 		t.Fatal(err)
 	}

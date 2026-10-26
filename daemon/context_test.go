@@ -130,12 +130,12 @@ func TestCompactRefusals(t *testing.T) {
 	session := &claudeSession{agentProc: &agentProc{}}
 	task.session = session
 	session.turnActive.Store(true)
-	if err := task.SendChat("/compact", nil); err == nil {
+	if err := task.SendChat("/compact"); err == nil {
 		t.Error("a /compact sent into a running turn is lost on it; it should be refused")
 	}
 	task.session = nil
 	task.info.Phase = PhaseReview
-	if err := task.SendChat("/compact keep the file list", nil); err == nil {
+	if err := task.SendChat("/compact keep the file list"); err == nil {
 		t.Error("a task in review should not compact: the session it would reach is the reviewer's")
 	}
 	if task.info.Phase != PhaseReview {
@@ -143,7 +143,7 @@ func TestCompactRefusals(t *testing.T) {
 	}
 	// Nor into a usage limit being waited out, which a message would call off.
 	task.info.Phase, task.info.LimitUntil = PhaseAgent, 1
-	if err := task.SendChat("/compact", nil); err == nil {
+	if err := task.SendChat("/compact"); err == nil {
 		t.Error("a /compact should not call off a wait for the limit it would run into")
 	}
 	if task.info.LimitUntil != 1 {

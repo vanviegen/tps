@@ -58,7 +58,7 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 		el.setAttribute('allow', 'clipboard-read; clipboard-write');
 		el.style.display = 'none';
 		el.src = src;
-		el.addEventListener('load', () => { el.focus(); shareKeys(el); });
+		el.addEventListener('load', () => { shareKeys(el); keepFocus(el); });
 		document.body.appendChild(el);
 		views.push(view = { key, el, gen, uses: 0, idle: 0 });
 	} else if (view.gen !== gen) {
@@ -77,11 +77,11 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 	A.mount(document.body, () => A('keydown=', (e: KeyboardEvent) => {
 		if (e.key.toLowerCase() !== 'p' || !(e.ctrlKey || e.metaKey)) return;
 		e.preventDefault();
+		reached = true;
 		shown.el.focus();
 		const win = shown.el.contentWindow as any;
 		win.document.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', e));
 	}));
-	setTimeout(() => shown.el.focus(), 100);
 	A.clean(() => {
 		if (--shown.uses) return;
 		shown.idle = Date.now();
@@ -118,6 +118,34 @@ function shareKeys(el: HTMLIFrameElement): void {
 			}
 		}, true);
 	} catch { /* another origin after all: its keys are not ours to see */ }
+}
+
+// Whether the user put the focus in VS Code themselves — clicking into it,
+// or a keystroke of its own handed to it — since they last had it on the
+// page, and which element of the page that was.
+let reached = false;
+let pageFocus: HTMLElement | undefined;
+document.addEventListener('focusin', e => {
+	if (e.target instanceof HTMLIFrameElement) return;
+	reached = false;
+	pageFocus = e.target as HTMLElement;
+});
+
+/**
+ * VS Code puts the focus in itself as it starts, its editor or its terminal,
+ * which would take it from wherever on the page it was — the composer, most
+ * often. Only the user moves it into the frame: anything else has it handed
+ * straight back.
+ */
+function keepFocus(el: HTMLIFrameElement): void {
+	try {
+		const win = el.contentWindow!;
+		win.addEventListener('pointerdown', () => { reached = true; }, true);
+		win.addEventListener('focus', () => {
+			// Not from within the focus event, which the focus is still moving in.
+			if (!reached) setTimeout(() => { if (pageFocus?.isConnected) pageFocus.focus(); });
+		});
+	} catch { /* another origin after all: its focus is not ours to see */ }
 }
 
 function drop(view: View): void {

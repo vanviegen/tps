@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/base64"
 	"fmt"
+	"mime"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,10 +11,10 @@ import (
 	"strings"
 )
 
-// Attachments: files a user adds to a chat message — a screenshot pasted into
-// the dashboard, most often. They are kept per task, in a directory mounted
-// read-only into its container, and the text refers to them by the path the
-// agent reads them at, so nothing but text ever reaches claude.
+// Attachments: files a user adds to the message they write — a screenshot
+// pasted into the dashboard, most often. They are kept per task, in a
+// directory mounted read-only into its container, and the text refers to them
+// by the path the agent reads them at, so nothing but text ever reaches claude.
 
 // uploadsMount is where a task's attachments are in its container.
 const uploadsMount = "/uploads"
@@ -70,32 +71,39 @@ func (t *Task) storeUploads(files []ChatFile) ([]string, error) {
 	return names, nil
 }
 
-// saveUploads stores a message's attachments and returns its text with the
-// paths corrected: a file stored under another name than the one the dashboard
-// picked (and wrote into the message) is followed there.
-func (t *Task) saveUploads(text string, files []ChatFile) (string, error) {
+// Attach stores files the moment they are added to a message, which is kept
+// unsent with the task for as long as it is being written (see setDraftL), and
+// answers with the paths the agent will read them at.
+func (t *Task) Attach(files []ChatFile) ([]string, error) {
 	names, err := t.storeUploads(files)
 	if err != nil {
-		return text, err
+		return nil, err
 	}
-	// Renames are collected and applied in one pass at the end: replacing them
-	// one by one could rewrite a path another attachment just got given.
-	var renames []string
-	for i, f := range files {
-		asked := uploadName(f.Name)
-		if names[i] != asked {
-			renames = append(renames, uploadsMount+"/"+asked, uploadsMount+"/"+names[i])
-		}
-		// A client that wrote the name unfolded into its message (this
-		// dashboard folds it the same way beforehand) is followed too.
-		if raw := strings.TrimSpace(f.Name); raw != "" && raw != asked {
-			renames = append(renames, uploadsMount+"/"+raw, uploadsMount+"/"+names[i])
-		}
+	paths := make([]string, len(names))
+	for i, name := range names {
+		paths[i] = uploadsMount + "/" + name
 	}
-	if len(renames) > 0 {
-		text = strings.NewReplacer(renames...).Replace(text)
+	return paths, nil
+}
+
+// Preview answers with one of the task's attachments as a data URL. A
+// message's files are stored here the moment they are picked, so the
+// dashboard has no copy of its own to show a thumbnail of and asks for this
+// one. Nothing at all where there is no thumbnail to be had — a name that is
+// no attachment of this task (a message may say /uploads/whatever without
+// one) or a file no browser would draw — which the dashboard shows as the
+// file's name rather than as a failure.
+func (t *Task) Preview(name string) string {
+	file := filepath.Join(t.uploadsDir(), uploadName(name))
+	ctype := mime.TypeByExtension(filepath.Ext(file))
+	if !strings.HasPrefix(ctype, "image/") {
+		return ""
 	}
-	return text, nil
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	return "data:" + ctype + ";base64," + base64.StdEncoding.EncodeToString(raw)
 }
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)

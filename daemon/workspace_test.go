@@ -139,7 +139,7 @@ func TestCompactPicksUpAMergedTask(t *testing.T) {
 	}
 	writeWork(t, task, "b.txt", "two\n")
 	mergeAndLand(t, task, "add b.txt")
-	if err := task.SendChat("/compact", nil); err != nil {
+	if err := task.SendChat("/compact"); err != nil {
 		t.Fatal(err)
 	}
 	if task.info.Phase != PhaseHuman || !task.hasWorkspace() {
@@ -495,7 +495,7 @@ func TestCloseKeepsABundle(t *testing.T) {
 	if !gitOK(repo, "merge-base", "--is-ancestor", step, stepsBranch) {
 		t.Error("the save point's step is not among the steps")
 	}
-	if got := gitRun(t, repo, "status", "--porcelain"); got != " M a.txt\n?? "+briefFile+"\n?? new.txt" {
+	if got := gitRun(t, repo, "status", "--porcelain"); got != " M a.txt\n?? new.txt" {
 		t.Errorf("uncommitted: %q", got)
 	}
 	if exists(filepath.Join(repo, "b.txt")) {
@@ -675,7 +675,7 @@ func TestTurnIntoProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	scratch := m.projects["scratch"]
-	tid, _ := scratch.CreateTask(map[string]any{"description": "look into it"})
+	tid, _ := scratch.CreateTask(map[string]any{"draft": "look into it"})
 	task := scratch.tasks[tid]
 	if err := task.ensureWorkspace(); err != nil {
 		t.Fatal(err)

@@ -209,7 +209,7 @@ export function shortDir(hid: string, dir: string): string {
 
 /**
  * What to call a task. A task gets its title when it leaves Plan (claude is
- * asked for one), so until then its brief's first line stands in for it
+ * asked for one), so until then its description's first line stands in for it
  * — and a task with nothing written down yet is simply "New".
  */
 export function taskTitle($t: any, fallback = 'New'): string {
@@ -443,69 +443,3 @@ export function phaseOrder($t: any, tid: string): number[] {
 	return [-($t.phaseAt ?? 0), -(Number(tid) || 0)]; // a job's tid is no number (see isJob)
 }
 
-/**
- * Message drafts: what was typed into a task's chat input but never sent. They
- * live in localStorage, so leaving the task — or closing the tab — does not
- * throw away half a thought. One key holds them all, which makes dropping the
- * ones whose task is gone a matter of rewriting it.
- */
-const DRAFTS_KEY = 'tps.chatDrafts';
-
-function readDrafts(): Record<string, string> {
-	try {
-		const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
-		return drafts && typeof drafts === 'object' ? drafts : {};
-	} catch {
-		return {};
-	}
-}
-
-/** What was left unsent in this task's chat input, if anything. */
-export function chatDraft(pid: string, tid: string): string {
-	const text = readDrafts()[`${pid}/${tid}`];
-	return typeof text === 'string' ? text : '';
-}
-
-/** Remember (or, for empty text, forget) this task's unsent message. */
-export function setChatDraft(pid: string, tid: string, text: string): void {
-	const drafts = readDrafts();
-	const key = `${pid}/${tid}`;
-	if ((drafts[key] ?? '') === text) return;
-	if (text) drafts[key] = text;
-	else delete drafts[key];
-	// Deleted and merged tasks leave their draft behind; sweep those up here.
-	// A project that is not listed is on a host not connected (yet), whose
-	// tasks are not known to be gone.
-	for (const k of Object.keys(drafts)) {
-		const [p, t] = k.split('/');
-		const $p = A.peek(() => $state.projects[p]);
-		if ($p && !A.peek(() => $p.tasks?.[t])) delete drafts[k];
-	}
-	try {
-		localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
-	} catch {} // storage off or full: a draft is a convenience, not data
-}
-
-// The composers on screen, by task: a draft handed back from somewhere other
-// than the field itself has to reach the field the user is looking at, and
-// the textarea's value is not drawn from reactive state (see drawInputBar).
-const composers: Record<string, (text: string) => void> = {};
-
-/** Register this task's composer for as long as it is drawn. */
-export function onComposer(pid: string, tid: string, fill: (text: string) => void): void {
-	const key = `${pid}/${tid}`;
-	composers[key] = fill;
-	A.clean(() => { if (composers[key] === fill) delete composers[key]; });
-}
-
-/**
- * Put a message back in a task's composer: what the user said after a revert
- * point is theirs again once the run it set off is undone or forked away, to
- * send as it stands or to word differently. A draft they are part-way through
- * writing wins — this is a convenience, and overwriting that would not be one.
- */
-export function restoreDraft(pid: string, tid: string, text: string): void {
-	if (!text.trim() || chatDraft(pid, tid).trim()) return;
-	setChatDraft(pid, tid, text);
-	composers[`${pid}/${tid}`]?.(text);
-}

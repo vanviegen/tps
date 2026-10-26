@@ -771,8 +771,7 @@ func answersHTTP(port int) bool {
 }
 
 // refreshWatched keeps what the dashboard has open current: the changed files,
-// the brief, and the services Containerfile.dev declares, which an agent may
-// just have written.
+// and the services Containerfile.dev declares, which an agent may just have written.
 func (m *Manager) refreshWatched() {
 	m.mu.Lock()
 	var watched []*Task
@@ -846,7 +845,7 @@ type ref struct {
 	Fork  bool   `json:"fork"`
 	Chat  bool   `json:"chat"`
 	Work  bool   `json:"work"`
-	// What a dashboard attached to a message (see uploads.go).
+	// What a dashboard attaches to a message (see uploads.go).
 	Files []ChatFile `json:"files"`
 	// answerAsk: the question answered, the option picked, and what was typed (see ask.go).
 	ID     string `json:"id"`
@@ -961,7 +960,9 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		}),
 		"rejectOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RejectOpenRouter() }),
 		"openTask":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
-		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
+		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text) }),
+		"attach":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
+		"preview":          withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
 		"chatTurn":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
 		"stopAgent":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
@@ -979,14 +980,9 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"deploy": withProject(func(p *Project, r ref, partial map[string]any) (any, error) { return nil, p.Deploy(r.Commit) }),
 		// Reverting and forking are one command: both put a save point's state
 		// somewhere, and only differ in where (see UsePoint). The reply names
-		// the task it landed in, so the dashboard can go there, and the message
-		// the undone work was set off by, for the composer to hand back.
+		// the task it landed in, so the dashboard can go there.
 		"usePoint": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
-			tid, draft, err := t.UsePoint(r.Entry, Use{Fork: r.Fork, Chat: r.Chat, Work: r.Work})
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{"tid": tid, "draft": draft}, nil
+			return t.UsePoint(r.Entry, Use{Fork: r.Fork, Chat: r.Chat, Work: r.Work})
 		}),
 		// Exit once idle and let the UI start the binary it wants; containers stay up and are reused.
 		"restart": func(raw json.RawMessage) (any, error) {

@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { arrowDownToLine, check, circleSlash, circleStop, externalLink, folderGit2, gitMerge, menu, plus, refreshCw, rocket, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
-import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, removeRef, takeAttachments, uploadPath } from './attach.ts';
+import { acceptFiles, attachButton, drawRefs, removeRef, uploadFiles } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
@@ -11,7 +11,7 @@ import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { asks, autoStarts, canMerge, chatDraft, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, onComposer, pathTo, portUrl, projectName, restoreDraft, selection, setChatDraft, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { asks, autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, pathTo, portUrl, projectName, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -221,8 +221,8 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 
 /**
  * Start a task: no dialog, and no half-existing state either — the task is
- * created right away, in Plan and without a brief, so the board and the
- * sidebar have it from the first moment. It goes by "New" until its brief's
+ * created right away, in Plan and without a plan written, so the board and the
+ * sidebar have it from the first moment. It goes by "New" until its plan's
  * first line names it (see taskTitle). `partial` sets what
  * differs from the project's defaults, such as the tasks it starts after.
  */
@@ -237,21 +237,18 @@ export async function addTask(pid: string, partial: object = {}): Promise<void> 
 }
 
 /**
- * Move a task in Plan to another project: its brief is written down
+ * Move a task in Plan to another project: its plan is written down
  * there as a new task, and this one deleted. The rest it gets from the new
  * project's defaults — the tasks it followed are not that project's to follow.
  */
 async function changeProject(pid: string, tid: string, $t: any, to: string): Promise<void> {
 	if (to === pid) return;
-	const created = await cmd('createTask', { pid: to, description: A.peek($t, 'description') ?? '' });
+	const created = await cmd('createTask', { pid: to, draft: A.peek($t, 'description') ?? '' });
 	if (!created) return;
 	applyNotifyDefault(to, created.tid as string);
 	await cmd('deleteTask', { pid, tid });
 	route.go(pathTo(to, created.tid as string));
 }
-
-/** The file a task's brief is written in, in its workspace (see briefFile in daemon/task.go). */
-const BRIEF = '.tps-task.md';
 
 /** What the review model reads as when the task has none of its own. */
 const SAME_MODEL = 'Same as agent model';
@@ -458,32 +455,41 @@ export async function deleteTask(pid: string, tid: string, $t: any): Promise<voi
 	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
 }
 
-/**
- * Task settings behind a dialog. The title leads, this being the only place
- * one is ever typed by hand — claude writes the first one as the task leaves
- * Plan, and until then the brief's first line stands in. A task still in Plan
- * can move to another project as well.
- */
+/** Task settings behind a dialog, for wherever the top of the task's chat log is out of reach (see drawTaskSettings). */
 export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
+	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: close => drawTaskSettings(pid, tid, $t, close) });
+}
+
+/**
+ * A task's settings, in a dialog or at the top of its chat log. The title
+ * leads, this being the only place one is ever typed by hand — claude writes
+ * the first one as the task leaves Plan, and until then the plan's first line
+ * stands in — which the field follows, while it is not being typed in. A task
+ * still in Plan can move to another project as well.
+ */
+export function drawTaskSettings(pid: string, tid: string, $t: any, close?: () => void): void {
 	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
-	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: close => {
-		S.textline({
-			label: 'Title',
-			value: A.peek($t, 'title') ?? '',
-			input: debounce(600, (e: Event) => save({ title: (e.target as HTMLInputElement).value.trim() })),
+	const field = A('div', () => S.textline({
+		label: 'Title',
+		value: A.peek($t, 'title') ?? '',
+		input: debounce(600, (e: Event) => save({ title: (e.target as HTMLInputElement).value.trim() })),
+	})) as HTMLElement;
+	A(() => {
+		const title = $t.title ?? '';
+		const el = field.querySelector('input')!;
+		if (document.activeElement !== el) el.value = title;
+	});
+	A(() => {
+		if ($t.phase !== 'plan') return;
+		S.select({
+			label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: projectName($p) })),
+			bind: {
+				get value() { return pid; },
+				set value(to: string) { close?.(); void changeProject(pid, tid, $t, to); },
+			},
 		});
-		A(() => {
-			if ($t.phase !== 'plan') return;
-			S.select({
-				label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: projectName($p) })),
-				bind: {
-					get value() { return pid; },
-					set value(to: string) { close(); void changeProject(pid, tid, $t, to); },
-				},
-			});
-		});
-		drawTaskFields(pid, tid, $t, save);
-	}});
+	});
+	drawTaskFields(pid, tid, $t, save);
 }
 
 /**
@@ -577,7 +583,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	const area = () => zone.querySelector('textarea') as HTMLTextAreaElement;
 	const zone = A('div display:flex flex-direction:column gap:$3 flex:1 min-width:0 min-height:0', () => {
 		drawTaskHeader(pid, tid, $t);
-		drawChat(pid, tid, $t);
+		drawChat(pid, tid, $t, () => drawTaskSettings(pid, tid, $t));
 		drawAsks(pid, tid, $t);
 		if (isJob($t)) return drawJobBar(pid, tid, $t);
 		A(() => {
@@ -603,16 +609,16 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				A('div.s-s.warning.tonal p:$2 text=', `⏳ This task ${taskActivity(pid, $t).text}${also}.`);
 			}
 			if ($t.phase === 'plan') {
-				A('div.s-s.neutral.tonal p:$2 text=', `Write the brief in ${BRIEF} in VS Code, message the agent, or both: sending hands the task to the agent.`);
+				A('div.s-s.neutral.tonal p:$2 #Write the plan below, kept as you type it: sending it hands the task to the agent.');
 				return;
 			}
 			if (!waitsForHuman($t)) return;
 			// The last review's feedback is put in the message box, to send on as it
 			// stands, to word differently, or to clear: what the reviewer asks for is
 			// the user's to weigh, and saying it back to the agent is a message like
-			// any other. A message half written wins (see restoreDraft).
+			// any other. A message half written wins (see offerDraftL in
+			// daemon/task.go).
 			if ($t.review) {
-				restoreDraft(pid, tid, $t.review);
 				A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
 			}
 		});
@@ -632,7 +638,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		});
 		drawInputBar(pid, tid, $t);
 	}) as HTMLElement;
-	acceptFiles(zone, area, files => addFiles(pid, tid, files));
+	acceptFiles(zone, area, files => uploadFiles(pid, tid, files));
 }
 
 interface Ask { id: string; question: string; options?: string[]; input?: boolean; secret?: boolean; service?: string; port?: number }
@@ -728,46 +734,57 @@ const working = A.insertCss({
 A.insertGlobalCss({ '@keyframes tps-flow': { to: 'background-position: 0 0, 200% 0;' } });
 
 function drawInputBar(pid: string, tid: string, $t: any): void {
-	// Whatever was typed here and never sent, from before this task was left.
-	const draft = chatDraft(pid, tid);
-	const $atts = attachments(pid, tid);
-	const $has = A.proxy({ text: !!draft.trim() });
-	// Looked up rather than remembered: with a draft restored, the field is in
-	// use before it has seen a single keystroke.
+	// What the field holds unsent is kept with the task (see setDraftL in
+	// daemon/task.go): in Plan that is the plan, after it the next message.
+	const plan = () => A.peek($t, 'phase') === 'plan';
+	// What this field last stored. The task's copy coming back as that is an
+	// echo; anything else was put there from elsewhere — a rewind, a review,
+	// another dashboard — and takes the field, unless that has moved on since.
+	let stored = A.peek(() => (plan() ? $t.description : $t.draft) ?? '');
+	let planSent = false; // sent from Plan: the plan is the task's now, and no draft
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const store = (draft: string) => {
+		clearTimeout(timer);
+		timer = setTimeout(() => {
+			stored = draft;
+			void cmd('updateTask', { pid, tid, draft });
+		}, 600);
+	};
+	const $text = A.proxy({ value: stored });
 	const area = () => bar.querySelector('textarea') as HTMLTextAreaElement;
-	const sendMsg = async () => {
+	const fill = (text: string) => {
 		const el = area();
-		if (!el.value.trim() && !A.peek($atts, 'length') && !A.peek(() => briefPending($t))) return;
+		el.value = text;
+		el.dispatchEvent(new Event('input')); // grow or shrink with it, and light the send button
+	};
+	const sendMsg = async () => {
+		const text = area().value.trim();
+		if (!text) return;
 		// Sent from Plan, the task leaves it, and may overtake what it waits for.
-		if (A.peek($t, 'phase') === 'plan' && !(await confirmOvertake(pid, $t))) return;
-		const text = el.value.trim();
-		const files = takeAttachments(pid, tid);
-		el.value = '';
-		el.dispatchEvent(new Event('input')); // shrink it back down, drop $has.text, and forget the draft
-		void cmd('chat', { pid, tid, text, files });
+		if (plan() && !(await confirmOvertake(pid, $t))) return;
+		planSent = plan();
+		fill('');
+		clearTimeout(timer);
+		stored = '';
+		if (!planSent) void cmd('updateTask', { pid, tid, draft: '' });
+		void cmd('chat', { pid, tid, text });
 	};
 	const bar = A('div display:flex flex-direction:column gap:$2', () => {
 		A(() => A(working + '=', taskBusy($t)));
-		drawAttachments(pid, tid, name => {
-			dropAttachment(pid, tid, name);
-			removeRef(area(), uploadPath(name));
-		});
+		drawRefs(pid, tid, () => $text.value, ref => removeRef(area(), ref));
 		S.textarea({
 			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh',
-			value: draft,
+			value: stored,
 			// The field's own bottom-right corner, beside the caret: the paperclip
 			// that attaches a file, and then — send while there is something to
-			// send (a brief the agent has yet to hear of is), else stop while
-			// claude works. An inset sizes what it holds `.small`; sending is the
-			// one thing in the composer to aim at, so that button takes its size
-			// back.
+			// send, else stop while claude works. An inset sizes what it holds
+			// `.small`; sending is the one thing in the composer to aim at, so that
+			// button takes its size back.
 			suffix: () => {
-				attachButton(area, files => addFiles(pid, tid, files));
+				attachButton(area, files => uploadFiles(pid, tid, files));
 				A(() => {
 					const size = 'w:2.2rem h:2.2rem font-size:1.1rem ';
-					if ($has.text || $atts.length) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
-					else if (briefPending($t)) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send the brief', tooltip: `Send the agent in on ${BRIEF}`,
-						key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
+					if ($text.value.trim()) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
 					else if ($t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
 						click: () => void cmd('stopAgent', { pid, tid }) });
 					// Nothing to send and nothing to stop: how full the agent's window is,
@@ -787,27 +804,17 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 			},
 			input: (e: Event) => {
 				const text = (e.target as HTMLTextAreaElement).value;
-				$has.text = !!text.trim();
-				setChatDraft(pid, tid, text);
+				$text.value = text;
+				store(text);
 			},
 		});
 	}) as HTMLElement;
-	// A message handed back by a revert or a fork lands here, in the field as
-	// it stands on screen.
-	onComposer(pid, tid, text => {
-		const el = area();
-		el.value = text;
-		el.dispatchEvent(new Event('input')); // grow it, and light the send button
-		el.focus();
+	A(() => {
+		const kept = ($t.phase === 'plan' ? (planSent ? '' : $t.description) : $t.draft) ?? '';
+		if (kept.trim() === stored.trim() || A.peek($text, 'value') !== stored) return;
+		stored = kept;
+		fill(kept);
 	});
-}
-
-/**
- * Whether sending with nothing typed has something to send: the brief of a
- * task in Plan, or one the agent has not heard of as it now stands.
- */
-function briefPending($t: any): boolean {
-	return $t.phase === 'plan' ? !!($t.description ?? '').trim() : !!$t.briefChanged;
 }
 
 /**
@@ -820,11 +827,8 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 		if ($t.codePort) {
 			// code-server's remote authority is the Host header, which the proxy
 			// passes on unchanged. A restarted code-server has a new start time,
-			// and the frame is reloaded for it. A frame opened on a plan opens on
-			// its brief, which is what there is to do in it.
-			const open = A.peek($t, 'phase') === 'plan'
-				? '&payload=' + encodeURIComponent(JSON.stringify([['openFile', `vscode-remote://${location.host}/work/${BRIEF}`]])) : '';
-			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work${open}`, `${$t.codePort}:${$t.codeStart}`, left);
+			// and the frame is reloaded for it.
+			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left);
 		} else if ($t.status === 'error' || $t.codeError) {
 			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
 				A('p fg:$s-danger text=', $t.status === 'error' ? `Workspace error: ${$t.statusDetail || 'unknown'}` : `VS Code failed to start: ${$t.codeError}`);

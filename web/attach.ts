@@ -5,23 +5,17 @@ import { cmd } from './util.ts';
 
 /**
  * Attachments of the message being composed: files pasted, dropped or picked
- * into a task's chat input. Until the message is sent they live here — the
- * composer is redrawn whenever the task changes, and leaving the task and
- * coming back must not throw them away — and the message refers to each by the
- * path the agent will read it at. Sending hands them to the daemon, which
- * writes them there.
+ * into a task's chat input. They are stored with the task the moment they are
+ * picked, the message itself being kept with the task unsent (see setDraftL
+ * in daemon/task.go), and the message refers to each by the path the agent
+ * reads it at — its text is the whole record of them.
  */
-export type Attachment = {
-	name: string;
-	url: string; // object URL of an image, for its thumbnail; anything else has none
-	data: string; // base64 of the bytes, which is how it travels
-};
 
 /** Where the daemon puts a task's attachments in its container (see daemon/uploads.go). */
 const UPLOADS = '/uploads';
 
 /** One attachment's path, which is the reference the message carries. */
-export function uploadPath(name: string): string {
+function uploadPath(name: string): string {
 	return `${UPLOADS}/${name}`;
 }
 
@@ -32,44 +26,22 @@ export function uploadPath(name: string): string {
 const MAX_BYTES = 8 << 20;
 const MAX_TOTAL_BYTES = 10 << 20;
 
-const composers = new Map<string, Attachment[]>();
-
-/** The attachments waiting in this task's composer, as a reactive array. */
-export function attachments(pid: string, tid: string): Attachment[] {
-	const key = `${pid}/${tid}`;
-	let $atts = composers.get(key);
-	if (!$atts) composers.set(key, $atts = A.proxy([] as Attachment[]));
-	return $atts;
-}
-
 /**
- * Take the files on, one attachment each, and answer with the references the
- * message should carry — in the order they were given, and skipping whatever
- * could not be taken.
+ * Store files with the task right away, and answer with the paths they are
+ * read at, for the message to carry.
  */
-export async function addFiles(pid: string, tid: string, files: File[]): Promise<string[]> {
-	const $atts = attachments(pid, tid);
-	const refs: string[] = [];
-	// What is already waiting counts against the message's weight as well.
-	const taken = A.peek(() => $atts.reduce((sum, a) => sum + bytes(a.data), 0));
-	for (const file of fitting(files, taken)) {
-		const carried = await carry(file);
-		if (!carried) continue;
-		const name = freeName(A.peek(() => $atts.map(a => a.name)), carried.name);
-		// Only an image has a thumbnail to show; the rest of them say their name.
-		$atts.push({ name, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : '', data: carried.data });
-		refs.push(uploadPath(name));
-	}
-	return refs;
+export async function uploadFiles(pid: string, tid: string, files: File[]): Promise<string[]> {
+	const carried = (await Promise.all(fitting(files).map(carry))).filter(f => f !== undefined);
+	return (await cmd('attach', { pid, tid, files: carried })) || [];
 }
 
 /**
  * The files that fit, with a word about each that does not — one too big, or
- * one that would tip the batch over what goes at once, `taken` bytes of it
- * being spoken for already.
+ * one that would tip the batch over what goes at once.
  */
-function fitting(files: File[], taken = 0): File[] {
+function fitting(files: File[]): File[] {
 	const fits: File[] = [];
+	let taken = 0;
 	for (const file of files) {
 		if (file.size > MAX_BYTES) {
 			S.toast({ title: file.name || 'Attachment', message: `Larger than ${MAX_BYTES >> 20} MB`, type: 'danger' });
@@ -81,24 +53,6 @@ function fitting(files: File[], taken = 0): File[] {
 		}
 	}
 	return fits;
-}
-
-/** Drop one attachment again, before the message it was for was sent. */
-export function dropAttachment(pid: string, tid: string, name: string): void {
-	const $atts = attachments(pid, tid);
-	const i = A.peek(() => $atts.findIndex(a => a.name === name));
-	if (i < 0) return;
-	URL.revokeObjectURL(A.peek(() => $atts[i].url));
-	$atts.splice(i, 1);
-}
-
-/** The attachments to send with the message, taken out of the composer. */
-export function takeAttachments(pid: string, tid: string): { name: string; data: string }[] {
-	const $atts = attachments(pid, tid);
-	const taken = A.peek(() => $atts.map(a => ({ name: a.name, data: a.data, url: a.url })));
-	for (const a of taken) URL.revokeObjectURL(a.url);
-	$atts.splice(0, $atts.length);
-	return taken.map(({ name, data }) => ({ name, data }));
 }
 
 /**
@@ -202,19 +156,52 @@ const thumb = A.insertCss({
 });
 
 /**
- * The strip of what is attached to the message being composed: a thumbnail
- * each — or, for what is not an image, its name — with the button that takes
- * it back off again.
+ * The strip under the composer: the attachments its text points at, a
+ * thumbnail each — or, for what is not an image, its name — with the button
+ * that takes it back off again, which takes its path back out of the text.
  */
-export function drawAttachments(pid: string, tid: string, onRemove: (name: string) => void): void {
-	const $atts = attachments(pid, tid);
+export function drawRefs(pid: string, tid: string, text: () => string, onRemove: (ref: string) => void): void {
+	// The paths are derived into a line of their own — none of them holds a
+	// space — so that the strip is redrawn when what the text points at changes
+	// rather than on every keystroke.
+	const $refs = A.proxy({ value: '' });
+	A(() => { $refs.value = (text().match(refPattern) ?? []).join(' '); });
 	A(() => {
-		if (!$atts.length) return;
+		if (!$refs.value) return;
 		A('div display:flex flex-wrap:wrap gap:$2', () => {
-			A.onEach($atts, ($a: any) => drawTile($a.name, () => $a.url, () => onRemove($a.name)));
+			for (const ref of $refs.value.split(' ')) {
+				const name = ref.slice(UPLOADS.length + 1);
+				drawTile(name, () => preview(pid, tid, name), () => onRemove(ref));
+			}
 		});
 	});
 }
+
+const previews = new Map<string, { value: string }>();
+
+/**
+ * The thumbnail of an attachment stored with the task, which this browser has
+ * no bytes of: asked for the first time it is shown, and kept for the page's
+ * life — the strip is drawn again whenever what the text points at changes,
+ * and an attachment never changes under its name. Empty until it arrives, and
+ * for what is no image.
+ */
+function preview(pid: string, tid: string, name: string): string {
+	const key = `${pid}/${tid}/${name}`;
+	if (!previews.has(key)) {
+		const $url = A.proxy({ value: '' });
+		previews.set(key, $url);
+		void cmd('preview', { pid, tid, name }).then(url => {
+			if (typeof url === 'string') $url.value = url;
+		});
+	}
+	return previews.get(key)!.value;
+}
+
+// An attachment path where a word begins, which is how one is written into the
+// text (see insertRef): a path that merely ends in one, `web/uploads/index.ts`,
+// is about the project rather than about an attachment.
+const refPattern = new RegExp(`(?<=^|\\s)${UPLOADS}/[A-Za-z0-9._-]+`, 'g');
 
 /** One attachment in a strip: its thumbnail, or its name while there is none to show. */
 function drawTile(name: string, url: () => string, onRemove: () => void): void {
@@ -234,43 +221,14 @@ function drawTile(name: string, url: () => string, onRemove: () => void): void {
 
 /**
  * The name to keep the file under: the one it came with, or — a pasted
- * screenshot arrives without much of one — what its type says it is. Folded
- * the way the daemon folds it (see uploadName), so that the path written into
- * the message is the path the file ends up at.
+ * screenshot arrives without much of one — what its type says it is. The
+ * daemon makes it safe and free (see uploadName), and answers with the path it
+ * ends up at.
  */
 function fileName(file: File): string {
-	if (!file.name) {
-		const ext = (file.type.split('/')[1] || 'bin').split('+')[0];
-		return `${file.type.startsWith('image/') ? 'image' : 'file'}.${ext}`;
-	}
-	const name = file.name.trim().split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
-	return name.slice(0, 80) || 'file';
-}
-
-/**
- * A name no other attachment of this message has: image.png becomes image-2.png,
- * and image-2.png image-3.png — the daemon settles it the same way against the
- * files the task already has (see freeUploadName), and corrects the message
- * where its answer differs.
- */
-function freeName(taken: string[], name: string): string {
-	if (!taken.includes(name)) return name;
-	const dot = name.lastIndexOf('.');
-	let stem = dot > 0 ? name.slice(0, dot) : name;
-	const ext = dot > 0 ? name.slice(dot) : '';
-	let n = 2;
-	const m = /-(\d+)$/.exec(stem);
-	if (m) {
-		stem = stem.slice(0, -m[0].length);
-		n = Number(m[1]) + 1;
-	}
-	while (taken.includes(`${stem}-${n}${ext}`)) n++;
-	return `${stem}-${n}${ext}`;
-}
-
-/** What base64 of this length weighs in bytes. */
-function bytes(data: string): number {
-	return Math.floor(data.length * 3 / 4);
+	if (file.name) return file.name;
+	const ext = (file.type.split('/')[1] || 'bin').split('+')[0];
+	return `${file.type.startsWith('image/') ? 'image' : 'file'}.${ext}`;
 }
 
 /** Bytes as base64, in chunks small enough to pass as arguments. */

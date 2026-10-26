@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -66,54 +67,38 @@ func file(name, body string) ChatFile {
 	return ChatFile{Name: name, Data: base64.StdEncoding.EncodeToString([]byte(body))}
 }
 
-// Attachments land in the task's uploads dir, and the message follows them
-// there when the name it asked for was taken.
-func TestSaveUploads(t *testing.T) {
+// Attaching answers with the paths the files ended up at.
+func TestAttach(t *testing.T) {
 	task := uploadsTask(t)
-	text, err := task.saveUploads("look at /uploads/image.png", []ChatFile{file("image.png", "first")})
+	paths, err := task.Attach([]ChatFile{file("Screen shot.png", "first"), file("Screen shot.png", "second")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text != "look at /uploads/image.png" {
-		t.Errorf("a free name needs no correction: %q", text)
+	want := []string{"/uploads/Screen-shot.png", "/uploads/Screen-shot-2.png"}
+	if !slices.Equal(paths, want) {
+		t.Errorf("attached at %v, want %v", paths, want)
 	}
-	if body, _ := os.ReadFile(filepath.Join(task.uploadsDir(), "image.png")); string(body) != "first" {
-		t.Errorf("not written: %q", body)
-	}
-
-	// Two more of the same name, one of them under the name the other is about
-	// to be given: both move up, and neither takes the other's path with it.
-	text, err = task.saveUploads("/uploads/image.png and /uploads/image-2.png", []ChatFile{
-		file("image.png", "second"), file("image-2.png", "third"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if text != "/uploads/image-2.png and /uploads/image-3.png" {
-		t.Errorf("paths not corrected: %q", text)
-	}
-	for name, want := range map[string]string{"image.png": "first", "image-2.png": "second", "image-3.png": "third"} {
-		if body, _ := os.ReadFile(filepath.Join(task.uploadsDir(), name)); string(body) != want {
-			t.Errorf("%s holds %q, want %q", name, body, want)
+	for i, path := range paths {
+		if body, _ := os.ReadFile(filepath.Join(task.uploadsDir(), filepath.Base(path))); string(body) != []string{"first", "second"}[i] {
+			t.Errorf("%s holds %q", path, body)
 		}
-	}
-
-	// A name that had to be folded, referred to in the message as it was sent.
-	text, err = task.saveUploads("see /uploads/Screen shot.png", []ChatFile{file("Screen shot.png", "fourth")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if text != "see /uploads/Screen-shot.png" {
-		t.Errorf("folded name not followed: %q", text)
-	}
-
-	// Too much to take: the message keeps its text and nothing is written.
-	big := ChatFile{Name: "big.png", Data: base64.StdEncoding.EncodeToString(make([]byte, maxUploadBytes+1))}
-	if _, err := task.saveUploads("/uploads/big.png", []ChatFile{big}); err == nil {
-		t.Error("an oversized attachment was accepted")
-	}
-	if exists(filepath.Join(task.uploadsDir(), "big.png")) {
-		t.Error("an oversized attachment was written")
 	}
 }
 
+// A thumbnail is the stored file as a data URL, and nothing outside the
+// uploads directory can be asked for.
+func TestPreview(t *testing.T) {
+	task := uploadsTask(t)
+	if _, err := task.Attach([]ChatFile{file("shot.png", "bytes")}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("bytes")); task.Preview("shot.png") != want {
+		t.Errorf("preview is %q, want %q", task.Preview("shot.png"), want)
+	}
+	if err := os.WriteFile(filepath.Join(task.dir(), "secret.png"), []byte("no"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if url := task.Preview("../secret.png"); url != "" {
+		t.Errorf("a file outside the uploads directory was handed over: %q", url)
+	}
+}

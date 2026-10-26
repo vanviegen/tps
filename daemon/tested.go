@@ -46,10 +46,10 @@ func noteTree(dir, event string) {
 	fmt.Fprintf(f, "%s %s\n", event, tree)
 }
 
-// sameWork: two trees of the work hold the same, the commit message and the
-// brief aside — which are no part of what is merged (see landingTree).
+// sameWork: two trees of the work hold the same, the commit message aside —
+// which is no part of what is merged (see commitMessageFile).
 func sameWork(repo, a, b string) bool {
-	return a == b || gitOK(repo, "diff", "--quiet", a, b, "--", ".", ":(exclude)"+commitMessageFile, ":(exclude)"+briefFile)
+	return a == b || gitOK(repo, "diff", "--quiet", a, b, "--", ".", ":(exclude)"+commitMessageFile)
 }
 
 // testVerdict reads a finished run of the service in dir: the tree of repo it

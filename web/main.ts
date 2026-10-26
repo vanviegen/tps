@@ -113,9 +113,9 @@ function drawWide(content: () => void): void {
 }
 
 /**
- * A task: its chat beside VS Code — which has the brief open while the task is
- * in Plan — and beside a note of the merge once it is Done, the workspace
- * being gone then.
+ * A task: its chat — where a task in Plan has its plan written — beside VS
+ * Code, and beside a note of the merge once it is Done, the workspace being
+ * gone then.
  */
 function drawTaskView(pid: string, tid: string, $t: any): void {
 	// Its own scope: watching restarts the chat stream, so it must not be torn
