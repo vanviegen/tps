@@ -44,9 +44,14 @@ const cacheLabel = "tps.cache"
 // deploy.go).
 const deployLabel = "tps.deploy"
 
-// The service that is the project's test suite: what a task's run of it passed
-// on is recorded (see tested.go), and the merge train runs it (see train.go).
-const testService = "test"
+// checkLabel declares the project's check — its test suite, as a rule — which
+// work has to pass to land: the merge train runs it (see train.go), and what a
+// task's own run of it passed on is recorded (see tested.go). It is a label of
+// its own rather than a service of some name, so that no project gets a merge
+// gate it never asked for; in the tasks, it is the service checkService.
+const checkLabel = "tps.check"
+
+const checkService = "check"
 
 var serviceNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$`)
 
@@ -73,16 +78,23 @@ var instructionRe = regexp.MustCompile(`^(?i)(CMD|FROM|LABEL)\s+(.*)$`)
 
 // containerfileServices reads the services a Containerfile declares (see containerfileDeclarations).
 func containerfileServices(text string) []declaredService {
-	services, _, _ := containerfileDeclarations(text)
-	return services
+	return containerfileDeclarations(text).services
+}
+
+// containerDecl is what a Containerfile declares to TPS.
+type containerDecl struct {
+	services      []declaredService
+	caches        []string
+	check, deploy string // the commands of checkLabel and deployLabel
 }
 
 // containerfileDeclarations reads what a Containerfile declares to TPS, all of
 // it in its final stage: the services — its CMD (the last one, as in the
 // image) as 'app', and every tps.service.<name> label, in order; a label named
-// app replaces the CMD's entry — the cache directories (see cacheLabel), and
-// the command that deploys the project (see deployLabel).
-func containerfileDeclarations(text string) (services []declaredService, caches []string, deploy string) {
+// app replaces the CMD's entry, and the check is the service checkService — the
+// cache directories (see cacheLabel), and the commands that check and deploy
+// the project (see checkLabel and deployLabel).
+func containerfileDeclarations(text string) (d containerDecl) {
 	var cmd []string
 	var labels []declaredService
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\\\r\n", ""), "\\\n", "")
@@ -94,7 +106,7 @@ func containerfileDeclarations(text string) (services []declaredService, caches 
 		arg := strings.TrimSpace(m[2])
 		switch strings.ToUpper(m[1]) {
 		case "FROM":
-			cmd, labels, caches, deploy = nil, nil, nil, ""
+			cmd, labels, d = nil, nil, containerDecl{}
 		case "CMD":
 			var parsed []string
 			if strings.HasPrefix(arg, "[") && json.Unmarshal([]byte(arg), &parsed) == nil {
@@ -107,13 +119,17 @@ func containerfileDeclarations(text string) (services []declaredService, caches 
 				if kv[0] == cacheLabel {
 					for _, path := range strings.FieldsFunc(kv[1], func(r rune) bool { return r == ' ' || r == ',' || r == '\t' }) {
 						if filepath.IsAbs(path) {
-							caches = append(caches, filepath.Clean(path))
+							d.caches = append(d.caches, filepath.Clean(path))
 						}
 					}
 					continue
 				}
 				if kv[0] == deployLabel {
-					deploy = strings.TrimSpace(kv[1])
+					d.deploy = strings.TrimSpace(kv[1])
+					continue
+				}
+				if kv[0] == checkLabel && strings.TrimSpace(kv[1]) != "" {
+					d.check = strings.TrimSpace(kv[1])
 					continue
 				}
 				name := strings.TrimPrefix(kv[0], serviceLabelPrefix)
@@ -125,16 +141,19 @@ func containerfileDeclarations(text string) (services []declaredService, caches 
 		}
 	}
 	if line := shellLine(cmd); line != "" {
-		services = append(services, declaredService{cmdService, line})
+		d.services = append(d.services, declaredService{cmdService, line})
+	}
+	if d.check != "" {
+		labels = append(labels, declaredService{checkService, d.check})
 	}
 	for _, l := range labels {
-		if i := indexService(services, l.Name); i >= 0 {
-			services[i] = l
+		if i := indexService(d.services, l.Name); i >= 0 {
+			d.services[i] = l
 		} else {
-			services = append(services, l)
+			d.services = append(d.services, l)
 		}
 	}
-	return services, caches, deploy
+	return d
 }
 
 func indexService(list []declaredService, name string) int {
@@ -440,7 +459,7 @@ func (t *Task) syncServicesL(logs bool) {
 	}
 	t.services = readServices(t.servicesDir(), t.declared)
 	for _, s := range t.services {
-		if s.Name == testService && !t.job() && s.Ended != 0 && (t.info.Tested == nil || t.info.Tested.At != s.Ended) {
+		if s.Name == checkService && !t.job() && s.Ended != 0 && (t.info.Tested == nil || t.info.Tested.At != s.Ended) {
 			t.info.Tested = &TestRun{At: s.Ended}
 			t.p.m.saveL()
 			go t.recordTest(s.Ended)

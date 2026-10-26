@@ -47,11 +47,11 @@ func (p *Project) jobTask(tid string) *Task {
 // declarations is what Containerfile.dev declares for this task: its services
 // and caches — and, in the deploy task alone, the deploy as a service.
 func (t *Task) declarations(cf string) ([]declaredService, []string) {
-	services, caches, deploy := containerfileDeclarations(cf)
-	if t.tid == deployTid && deploy != "" {
-		services = append(services, declaredService{deployService, deploy})
+	d := containerfileDeclarations(cf)
+	if t.tid == deployTid && d.deploy != "" {
+		d.services = append(d.services, declaredService{deployService, d.deploy})
 	}
-	return services, caches
+	return d.services, d.caches
 }
 
 // reset puts the job's workspace at a commit of the default branch — its tip,

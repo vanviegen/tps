@@ -129,9 +129,9 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # TPS publishes it on the host's loopback, so 0.0.0.0 here is not exposure.
 # A LABEL tps.cache="/path /other/path" line names directories TPS keeps per
 # project and mounts into every task's container, so package and build caches
-# (npm's, pip's, Go's, cargo's) carry over from one task to the next. The
-# service 'test' is the project's test suite, which merges are tested with, and
-# a LABEL tps.deploy="command" line says how the project is deployed.
+# (npm's, pip's, Go's, cargo's) carry over from one task to the next. A LABEL
+# tps.check="command" line declares what work must pass to be merged (the test
+# suite, say), and a LABEL tps.deploy="command" line how the project is deployed.
 
 FROM docker.io/library/debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8

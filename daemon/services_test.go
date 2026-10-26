@@ -25,14 +25,22 @@ func TestContainerfileServices(t *testing.T) {
 	if got := containerfileServices("FROM x\nCMD [\"node\", \"a b.js\", \"it's\"]\n"); !slices.Equal(got, []declaredService{{"app", `node 'a b.js' 'it'\''s'`}}) {
 		t.Errorf("exec form: %v", got)
 	}
-	if _, caches, _ := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a/b, /c\" tps.service.t=x\nLABEL tps.cache=\"rel /d\"\n"); !slices.Equal(caches, []string{"/a/b", "/c", "/d"}) {
+	if caches := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a/b, /c\" tps.service.t=x\nLABEL tps.cache=\"rel /d\"\n").caches; !slices.Equal(caches, []string{"/a/b", "/c", "/d"}) {
 		t.Errorf("caches: %v", caches)
 	}
-	if _, caches, _ := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a /b\"\nFROM y\n"); caches != nil {
+	if caches := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a /b\"\nFROM y\n").caches; caches != nil {
 		t.Errorf("caches of an earlier stage: %v", caches)
 	}
-	if services, _, deploy := containerfileDeclarations("FROM x\nLABEL tps.deploy=\"./ship.sh prod\"\n"); deploy != "./ship.sh prod" || services != nil {
-		t.Errorf("deploy: %q, services %v", deploy, services)
+	if d := containerfileDeclarations("FROM x\nLABEL tps.deploy=\"./ship.sh prod\"\n"); d.deploy != "./ship.sh prod" || d.services != nil {
+		t.Errorf("deploy: %q, services %v", d.deploy, d.services)
+	}
+	// The check is a label of its own, and the service 'check' in the tasks; a
+	// service of that name declared otherwise is a service like any other.
+	if d := containerfileDeclarations("FROM x\nLABEL tps.check=\"make test\" tps.service.check=old\n"); d.check != "make test" || !slices.Equal(d.services, []declaredService{{"check", "make test"}}) {
+		t.Errorf("check: %q, services %v", d.check, d.services)
+	}
+	if d := containerfileDeclarations("FROM x\nLABEL tps.service.check=\"make test\"\n"); d.check != "" {
+		t.Errorf("a service named check is no check: %q", d.check)
 	}
 	if containerfileServices(defaultContainerfile) != nil {
 		t.Error("no CMD")

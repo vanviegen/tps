@@ -84,7 +84,7 @@ func (t *Task) beginReview() {
 	// The user's own edits are the steps mark names "Human".
 	edited, _ := git(t.repoDir(), "log", "--format=%h", "--grep=^Human$", base+".."+stepsBranch)
 	tests := testsNone
-	if services, _ := t.declarations(t.containerfile()); indexService(services, testService) >= 0 {
+	if containerfileDeclarations(t.containerfile()).check != "" {
 		tests = testsNotPassed
 		if tree, err := writeTree(t.repoDir()); err == nil && t.tested(tree) {
 			tests = testsPassed

@@ -8,16 +8,16 @@ import (
 	"strings"
 )
 
-// The test record: what the last run of a task's test service passed on, so
-// that neither the review nor the merge runs it again for the same work. A run
-// counts for the tree it ended on, if the work did not change while it ran —
+// The test record: what the last run of a task's check (see checkLabel)
+// passed on, so that neither the review nor the merge runs it again for the
+// same work. A run counts for the tree it ended on, if the work did not change while it ran —
 // save while it waited on a human (see askHuman), whose answer may well be
 // files: accepted screenshots, say. The guest tool writes down the trees as it
 // goes, each line of the service's trees file an event and the tree of /work
 // at that moment: "start" as the service is launched, and "ask" and "answer"
 // around every question put to a human under it. The end is read here.
 
-// TestRun is the record of a task's last run of the test service.
+// TestRun is the record of a task's last run of the check.
 type TestRun struct {
 	At     int64  `json:"at"`               // ms epoch the run ended at, which tells one run from the next
 	Tree   string `json:"tree,omitempty"`   // the tree it ended on, once read
@@ -98,10 +98,10 @@ func testVerdict(dir, repo string) (tree string, passed, accepted bool, why stri
 	return tree, true, accepted, ""
 }
 
-// recordTest reads the run of the test service that ended at `at` into the
+// recordTest reads the run of the check that ended at `at` into the
 // task's record, and says how it went in the log.
 func (t *Task) recordTest(at int64) {
-	dir := filepath.Join(t.servicesDir(), testService)
+	dir := filepath.Join(t.servicesDir(), checkService)
 	tree, passed, _, why := testVerdict(dir, t.repoDir())
 	t.lock()
 	r := t.info.Tested
@@ -112,15 +112,15 @@ func (t *Task) recordTest(at int64) {
 	r.Tree, r.Passed = tree, passed
 	t.p.m.saveL()
 	t.unlock()
-	log := serviceLogTail(t.servicesDir(), testService)
+	log := serviceLogTail(t.servicesDir(), checkService)
 	if passed {
-		t.note("test passed ✔ on the work as it stands", log)
+		t.note("check passed ✔ on the work as it stands", log)
 	} else {
-		t.note("test did not pass: "+why, log)
+		t.note("check did not pass: "+why, log)
 	}
 }
 
-// tested: the test service passed on this tree, as far as the task's record
+// tested: the check passed on this tree, as far as the task's record
 // goes (see recordTest).
 func (t *Task) tested(tree string) bool {
 	t.lock()

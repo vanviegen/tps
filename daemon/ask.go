@@ -113,11 +113,11 @@ func (st *guestTool) askHuman(args []string) int {
 		cleanup()
 		os.Exit(130)
 	}()
-	// Under the test service, the work as it stands on either side of the wait
+	// Under the check, the work as it stands on either side of the wait
 	// is written down: what the human changes meanwhile is theirs (see tested.go).
 	var under string
-	if os.Getenv(serviceEnv) == testService {
-		under = filepath.Join(st.root, testService)
+	if os.Getenv(serviceEnv) == checkService {
+		under = filepath.Join(st.root, checkService)
 		noteTree(under, "ask")
 	}
 	data, _ := json.Marshal(req)

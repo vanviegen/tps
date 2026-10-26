@@ -43,13 +43,13 @@ func TestReviewPrompt(t *testing.T) {
 	if edited := reviewPrompt("abc123", nil, true, testsNone); !strings.Contains(edited, "--grep='^Human$' abc123.."+stepsBranch) {
 		t.Errorf("the user's own edits should be pointed out:\n%s", edited)
 	}
-	if strings.Contains(prompt, "service 'test'") {
+	if strings.Contains(prompt, "service 'check'") {
 		t.Errorf("a project without a test should not mention it:\n%s", prompt)
 	}
 	if passed := reviewPrompt("abc123", nil, false, testsPassed); !strings.Contains(passed, "do not run it again") {
 		t.Errorf("a test that passed should be taken as read:\n%s", passed)
 	}
-	if failed := reviewPrompt("abc123", nil, false, testsNotPassed); !strings.Contains(failed, "tps-guest-tool start test") {
+	if failed := reviewPrompt("abc123", nil, false, testsNotPassed); !strings.Contains(failed, "tps-guest-tool start check") {
 		t.Errorf("a test that has not passed should be run:\n%s", failed)
 	}
 }

@@ -39,9 +39,10 @@ yourself, run the tests.
 the default branch, authored by you, with a message proposed by the agent. If
 the branch moved on, it is merged into the work first, and a conflict is
 handed to the task's agent to resolve. Tasks can also be set to merge as soon
-as the agent is done. A merge train runs the project's `test` service on what
-lands, a batch of merges at a time, skipping work a passing run already
-covered; a merge that fails it goes back to its agent.
+as the agent is done. With a `LABEL tps.check="command"` in `Containerfile.dev`,
+a merge train runs that check on what lands, a batch of merges at a time,
+skipping work a passing run already covered; a merge that fails it goes back to
+its agent.
 
 </td></tr>
 <tr><td width="320"></td><td>

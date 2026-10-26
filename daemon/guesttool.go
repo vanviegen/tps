@@ -106,8 +106,8 @@ for anything that serves or takes a while: dev servers, test suites, builds.
                            user to that port of this container. It needs
                            something to answer with: an option, the field, or
                            a service. Changes made to /work while a run of the
-                           test service waits on a question are the human's,
-                           and do not void the run.
+                           'check' service waits on a question are the
+                           human's, and do not void the run.
 `
 
 // GuestToolInvoked tells whether this process is the guest tool: the binary
@@ -256,7 +256,7 @@ func (st *guestTool) launch(name string, argv []string) error {
 	}
 	resetService(dir)
 	_ = os.WriteFile(filepath.Join(dir, "argv"), []byte(strings.Join(argv, "\x00")+"\x00"), 0o644)
-	if name == testService {
+	if name == checkService {
 		noteTree(dir, "start")
 	}
 	log, err := os.OpenFile(filepath.Join(dir, "log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)

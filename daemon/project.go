@@ -300,7 +300,7 @@ func (p *Project) refreshMeta() {
 	// every workspace a little further behind; they count again (see refreshBehind).
 	head, _ := git(p.dir(), "rev-parse", p.defaultBranch)
 	cf, _ := git(p.dir(), "show", p.defaultBranch+":"+containerfile)
-	_, _, deploy := containerfileDeclarations(cf)
+	deploy := containerfileDeclarations(cf).deploy
 	p.m.mu.Lock()
 	moved := head != "" && head != p.head
 	p.head, p.deploy = head, deploy

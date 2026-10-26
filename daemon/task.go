@@ -1391,8 +1391,16 @@ func stageAll(repo string) (env []string, cleanup func(), err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if data, err := os.ReadFile(filepath.Join(repo, ".git", "index")); err == nil {
-		_ = os.WriteFile(strings.TrimPrefix(env[0], "GIT_INDEX_FILE="), data, 0o644)
+	index := filepath.Join(repo, ".git", "index")
+	if data, err := os.ReadFile(index); err == nil {
+		copied := strings.TrimPrefix(env[0], "GIT_INDEX_FILE=")
+		_ = os.WriteFile(copied, data, 0o644)
+		// With the original's time: git trusts what the index says of a file
+		// changed no later than the index itself, and a copy made now would
+		// pass off a same-size edit made in the second of the clone as none.
+		if st, err := os.Stat(index); err == nil {
+			_ = os.Chtimes(copied, st.ModTime(), st.ModTime())
+		}
 	}
 	if _, err := runCmd([]string{"git", "-C", repo, "add", "-A"}, RunOpts{Env: env}); err != nil {
 		cleanup()

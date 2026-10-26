@@ -72,12 +72,14 @@ Rules:
   over with a service to look at, say so and leave it running. Containerfile.dev
   declares the services a project comes with: its CMD line is the service 'app', and a
   LABEL tps.service.<name>="command" line declares another; both can then be started
-  by name alone. The service named 'test' is the project's test suite: TPS records the
-  work a run of it passed on, so neither the review nor the merge runs it again for that
-  same work — run it once the work is done, before writing .tps-commit-message. Merging
-  runs it on the work combined with the latest default branch, unless that is the very
-  work it passed on. A deploy script (see Deploying) may need a person's judgment or
-  input as much as a test (screenshots to accept, a one-time password):
+  by name alone. A LABEL tps.check="command" line declares the project's check, the
+  service 'check': what work has to pass to land — its test suite, as a rule, and a
+  command that ends by itself and needs nothing a clean checkout lacks (no watch mode,
+  no build output it does not make itself). TPS records the work a run of it passed on,
+  so neither the review nor the merge runs it again for that same work — run it once
+  the work is done, before writing .tps-commit-message. Merging runs it on the work
+  combined with the latest default branch, unless that is the very work it passed on. A
+  deploy script (see Deploying) may need a person's judgment or input as much as a test (screenshots to accept, a one-time password):
   'tps-guest-tool ask-human' puts a question to the user and waits for the answer (see
   its usage). You can use it yourself too, to have the user look at something (a service
   and its port) or decide between options; it blocks until they answer, so give the
@@ -272,10 +274,10 @@ func reviewPrompt(base string, said []string, edited bool, tests int) string {
 		"(LABEL tps.cache). Read what it adds as you would any other line, but writing/updating it is doing the task, not straying from it.\n")
 	switch tests {
 	case testsPassed:
-		b.WriteString("\nThe project's test suite (the service 'test') passed on the work exactly as it stands: do not run it again.\n")
+		b.WriteString("\nThe project's check (the service 'check') passed on the work exactly as it stands: do not run it again.\n")
 	case testsNotPassed:
-		b.WriteString("\nThe project's test suite (the service 'test') has not passed on the work as it stands. Run it — " +
-			"`/tps/bin/tps-guest-tool start test 600`, and `/tps/bin/tps-guest-tool await test 600` for as long as it takes — " +
+		b.WriteString("\nThe project's check (the service 'check') has not passed on the work as it stands. Run it — " +
+			"`/tps/bin/tps-guest-tool start check 600`, and `/tps/bin/tps-guest-tool await check 600` for as long as it takes — " +
 			"and if it fails, what makes it fail is something that must change.\n")
 	}
 	return b.String()
@@ -463,13 +465,13 @@ ends with that file in place. Delete it if this is not yours to sort out, and sa
 // mergeTestPrompt sends the agent in to fix what made the test of its merge
 // fail (see train.go).
 func mergeTestPrompt(defaultBranch, why, log string) string {
-	return fmt.Sprintf(`Merging this task: its work, put onto the latest '%[1]s', did not pass the project's test
-suite, the service 'test' (%[2]s). The end of its output:
+	return fmt.Sprintf(`Merging this task: its work, put onto the latest '%[1]s', did not pass the project's check,
+the service 'check' (%[2]s). The end of its output:
 
 %[3]s
 
 Your workspace holds this task's work, uncommitted, on top of %[1]s as the merge found it —
-what was tested, unless more landed on %[1]s since. Find out what fails and fix it — run the test service yourself until it passes —
+what was checked, unless more landed on %[1]s since. Find out what fails and fix it — run the check yourself until it passes —
 and amend .tps-commit-message if the fix changed what the task does: the merge goes on once
 your turn ends with that file in place. Delete it if the failure is not this task's to fix
 (it fails on %[1]s alone, say), and say why.`, defaultBranch, why, indent(log))

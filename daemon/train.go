@@ -12,14 +12,14 @@ import (
 // a time. A task being merged becomes a commit on the branch as its workspace
 // last saw it (see merge) and waits in the merge phase, its commit named in
 // Landing, until the train takes it: every task waiting when a round starts
-// is in it, so tasks merged while a test runs are tested together in the next
+// is in it, so tasks merged while a check runs are checked together in the next
 // one. A round puts the batch's commits on the tip of the branch in the train's
-// own workspace, runs the project's test service on the result, and moves the
-// branch there if it passes — skipping the test where the result is a tree a
-// task's own run passed on already (see tested.go), and where the project has
-// no test at all. A batch that fails is taken apart, its tasks tested one at a
-// time from then on; a task that fails alone gets its agent sent in, its
-// workspace already holding what was tested. Questions the test puts to a
+// own workspace, runs the project's check on the result (see checkLabel), and
+// moves the branch there if it passes — skipping the check where the result is
+// a tree a task's own run passed on already (see tested.go), and where the
+// project has none at all. A batch that fails is taken apart, its tasks
+// checked one at a time from then on; a task that fails alone gets its agent
+// sent in, its workspace already holding what was checked. Questions the check puts to a
 // human are the train task's (see ask.go), and what the human changed while
 // answering — accepted screenshots, say — lands as a commit of its own.
 
@@ -134,24 +134,23 @@ func (p *Project) trainRound(batch []*Task) {
 		return
 	}
 	names := taskNames(riders)
-	services, _ := jt.declarations(jt.containerfile())
 	switch {
-	case indexService(services, testService) < 0:
-		jt.note(fmt.Sprintf("%s: Containerfile.dev declares no test service; nothing to run", names))
+	case containerfileDeclarations(jt.containerfile()).check == "":
+		jt.note(fmt.Sprintf("%s: Containerfile.dev declares no check (LABEL %s); nothing to run", names, checkLabel))
 	case len(riders) == 1 && commits[0] == landings[0] && riders[0].tested(landings[0]+"^{tree}"):
-		jt.note(fmt.Sprintf("%s: its test passed on exactly this; not running it again", names))
+		jt.note(fmt.Sprintf("%s: its check passed on exactly this; not running it again", names))
 	default:
-		_, err := jt.runJob(testService, fmt.Sprintf("testing %s on the latest %s", names, branch))
+		_, err := jt.runJob(checkService, fmt.Sprintf("checking %s on the latest %s", names, branch))
 		passed, accepted, why := false, false, ""
 		if err != nil {
 			why = err.Error()
 		} else {
-			_, passed, accepted, why = testVerdict(filepath.Join(jt.servicesDir(), testService), repo)
+			_, passed, accepted, why = testVerdict(filepath.Join(jt.servicesDir(), checkService), repo)
 		}
-		log := serviceLogTail(jt.servicesDir(), testService)
+		log := serviceLogTail(jt.servicesDir(), checkService)
 		if !passed {
 			if len(riders) > 1 {
-				jt.note(fmt.Sprintf("the test of %s did not pass (%s); testing them one at a time", names, why), log)
+				jt.note(fmt.Sprintf("the check of %s did not pass (%s); checking them one at a time", names, why), log)
 				p.m.mu.Lock()
 				for _, t := range riders {
 					p.alone[t.tid] = true
@@ -159,14 +158,14 @@ func (p *Project) trainRound(batch []*Task) {
 				p.m.mu.Unlock()
 				return
 			}
-			jt.note(fmt.Sprintf("the test of %s did not pass (%s)", names, why), log)
+			jt.note(fmt.Sprintf("the check of %s did not pass (%s)", names, why), log)
 			p.m.mu.Lock()
 			delete(p.alone, riders[0].tid)
 			p.m.mu.Unlock()
 			riders[0].mergeTestFailed(why, log)
 			return
 		}
-		jt.note(fmt.Sprintf("the test of %s passed ✔", names), log)
+		jt.note(fmt.Sprintf("the check of %s passed ✔", names), log)
 		if accepted {
 			// Stamped as the last task's, so that it is part of that task's
 			// landing on the board, and deploying up to it deploys what was accepted.
@@ -182,12 +181,12 @@ func (p *Project) trainRound(batch []*Task) {
 			}
 		}
 	}
-	// Only the tasks the test was run for may land, as they were then.
+	// Only the tasks the check was run for may land, as they were then.
 	p.m.mu.Lock()
 	for i, t := range riders {
 		if t.info.Phase != PhaseMerge || t.info.Landing != landings[i] {
 			p.m.mu.Unlock()
-			jt.note(taskName(t) + " was taken back while it was tested; going again without it")
+			jt.note(taskName(t) + " was taken back while it was checked; going again without it")
 			return
 		}
 	}
@@ -227,12 +226,12 @@ func (p *Project) trainFailed(tasks []*Task, err error) {
 	}
 }
 
-// mergeTestFailed sends the task's agent in to fix what failed the test of
+// mergeTestFailed sends the task's agent in to fix what failed the check of
 // its merge; its workspace holds that very merge (see replant). The task
 // stays in the merge phase, so the agent's turn ends in another merge.
 func (t *Task) mergeTestFailed(why, log string) {
 	branch := t.p.defaultBranch
-	t.note("its merge into the latest "+branch+" did not pass the test ("+why+"); sending the agent in", log)
+	t.note("its merge into the latest "+branch+" did not pass the check ("+why+"); sending the agent in", log)
 	t.kick(mergeTestPrompt(branch, why, log))
 }
 

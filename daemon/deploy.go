@@ -94,7 +94,7 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	}
 	// The workspace's own Containerfile.dev, which may be newer than what the
 	// branch said when the deploy was asked for.
-	if _, _, deploy := containerfileDeclarations(jt.containerfile()); deploy == "" {
+	if containerfileDeclarations(jt.containerfile()).deploy == "" {
 		return fail("Containerfile.dev declares no deploy any more")
 	}
 	s, err := jt.runJob(deployService, "deploying "+p.defaultBranch+" at "+sha[:min(len(sha), 10)])
