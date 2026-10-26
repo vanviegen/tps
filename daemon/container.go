@@ -84,18 +84,120 @@ func seedVscodeDir(dir string) error {
 	return nil
 }
 
-// vscodeDefaults go into settings that don't set them: a dark theme, a terminal
-// instead of the welcome screen when nothing is left open, no secondary side bar,
-// no port-forward popups (the ports the Containerfile exposes are what TPS
-// forwards), and none of the editor's own AI features, as the task's agent is what
-// edits this checkout.
+// vscodeDefaults go into settings that don't set them: a dark theme in the
+// dashboard's colours, a terminal instead of the welcome screen when nothing is
+// left open, no secondary side bar, no port-forward popups (the ports the
+// Containerfile exposes are what TPS forwards), and none of the editor's own AI
+// features, as the task's agent is what edits this checkout.
 var vscodeDefaults = map[string]any{
-	"workbench.colorTheme":                         "Default Dark Modern",
+	"workbench.colorTheme":                         "Dark Modern",
+	"workbench.colorCustomizations":                map[string]any{"[Dark Modern]": tpsColors},
 	"workbench.startupEditor":                      "terminal",
 	"workbench.secondarySideBar.defaultVisibility": "hidden",
 	"remote.autoForwardPorts":                      false,
 	"chat.disableAIFeatures":                       true,
 }
+
+// tpsColors paint VS Code in the dashboard's dark palette (Staffa's neutral
+// surfaces and its brand green, see web/main.ts), and its terminals in the
+// ANSI colours the dashboard shows service logs in (web/ansi.ts). Scoped to
+// the default theme, so a theme of the user's own choosing is left alone.
+var tpsColors = func() map[string]string {
+	const (
+		page    = "#0e0f12"
+		surface = "#191b1f"
+		raised  = "#23262b"
+		text    = "#e9eaec"
+		muted   = "#929396"
+		faint   = "#3a3b3e"
+		primary = "#00a884"
+		chosen  = "#00a88433"
+		danger  = "#dc5b41"
+		warning = "#ef6b00"
+		link    = "#3f8cd8"
+	)
+	colors := map[string]string{
+		"focusBorder":                       "#00a88461",
+		"foreground":                        text,
+		"descriptionForeground":             muted,
+		"errorForeground":                   danger,
+		"textLink.foreground":               link,
+		"textLink.activeForeground":         link,
+		"widget.border":                     faint,
+		"sash.hoverBorder":                  primary,
+		"button.background":                 primary,
+		"button.foreground":                 "#ffffff",
+		"button.hoverBackground":            "#1fb893",
+		"badge.background":                  primary,
+		"badge.foreground":                  "#ffffff",
+		"progressBar.background":            primary,
+		"input.background":                  page,
+		"input.border":                      faint,
+		"dropdown.background":               raised,
+		"dropdown.border":                   faint,
+		"list.activeSelectionBackground":    chosen,
+		"list.inactiveSelectionBackground":  raised,
+		"list.hoverBackground":              raised,
+		"list.highlightForeground":          primary,
+		"quickInput.background":             raised,
+		"menu.background":                   raised,
+		"menu.selectionBackground":          chosen,
+		"titleBar.activeBackground":         surface,
+		"titleBar.inactiveBackground":       surface,
+		"titleBar.border":                   faint,
+		"activityBar.background":            surface,
+		"activityBar.foreground":            text,
+		"activityBar.inactiveForeground":    muted,
+		"activityBar.activeBorder":          primary,
+		"activityBar.border":                faint,
+		"activityBarBadge.background":       primary,
+		"activityBarBadge.foreground":       "#ffffff",
+		"sideBar.background":                surface,
+		"sideBar.border":                    faint,
+		"sideBarSectionHeader.background":   surface,
+		"sideBarSectionHeader.border":       faint,
+		"editorGroupHeader.tabsBackground":  surface,
+		"editorGroupHeader.tabsBorder":      faint,
+		"tab.activeBackground":              page,
+		"tab.inactiveBackground":            surface,
+		"tab.border":                        faint,
+		"tab.activeBorderTop":               primary,
+		"editor.background":                 page,
+		"editor.foreground":                 text,
+		"editor.lineHighlightBackground":    surface,
+		"editor.selectionBackground":        "#00a88440",
+		"editorCursor.foreground":           primary,
+		"editorLineNumber.foreground":       faint,
+		"editorLineNumber.activeForeground": muted,
+		"editorGutter.background":           page,
+		"editorWidget.background":           raised,
+		"editorWidget.border":               faint,
+		"editorSuggestWidget.background":    raised,
+		"editorError.foreground":            danger,
+		"editorWarning.foreground":          warning,
+		"panel.background":                  page,
+		"panel.border":                      faint,
+		"panelTitle.activeBorder":           primary,
+		"statusBar.background":              surface,
+		"statusBar.foreground":              muted,
+		"statusBar.border":                  faint,
+		"statusBar.noFolderBackground":      surface,
+		"statusBarItem.remoteBackground":    primary,
+		"statusBarItem.remoteForeground":    "#ffffff",
+		"terminal.background":               page,
+		"terminal.foreground":               text,
+		"terminalCursor.foreground":         primary,
+	}
+	ansi := []string{
+		"#5c6370", "#e06c75", "#98c379", "#d19a66", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+		"#7f848e", "#ff7b86", "#b5e08c", "#e5c07b", "#7fc6ff", "#d8a0e8", "#6fdbe8", "#ffffff",
+	}
+	for i, name := range []string{"Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"} {
+		colors["terminal.ansi"+name] = ansi[i]
+		colors["terminal.ansiBright"+name] = ansi[i+8]
+	}
+	return colors
+}()
 
 func home() string {
 	h, _ := os.UserHomeDir()
