@@ -45,8 +45,9 @@ type ChatEntry struct {
 	Run       int64      `json:"run,omitempty"`       // note: when that run started, which tells it from later ones
 	ResDetail string     `json:"resDetail,omitempty"` // full result text
 	Error     bool       `json:"error,omitempty"`
-	Rev       bool       `json:"rev,omitempty"`  // said by the reviewer rather than by the task's own agent (see review.go)
-	Mark      *Mark      `json:"mark,omitempty"` // mark: the save point this entry is (see mark.go)
+	Rev       bool       `json:"rev,omitempty"`   // said by the reviewer rather than by the task's own agent (see review.go)
+	Mark      *Mark      `json:"mark,omitempty"`  // mark: the save point this entry is (see mark.go)
+	Brief     *string    `json:"brief,omitempty"` // user: the brief this message told the agent of (see briefing)
 	T         int64      `json:"t"`
 }
 

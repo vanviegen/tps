@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { arrowDownToLine, check, circleSlash, circleStop, externalLink, folderGit2, gitMerge, menu, plus, refreshCw, rocket, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
-import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, drawRefs, removeRef, takeAttachments, uploadFiles, uploadPath } from './attach.ts';
+import { acceptFiles, addFiles, attachButton, attachments, dropAttachment, drawAttachments, removeRef, takeAttachments, uploadPath } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
@@ -15,28 +15,12 @@ import { asks, autoStarts, canMerge, chatDraft, cmd, contextSlices, debounce, dr
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
- * once it has a workspace, VS Code runs in it.
+ * VS Code runs in its workspace — which a task in Plan gets by being watched.
+ * Leaving one in Plan that nothing was ever written in throws it away (see
+ * leavePlan in daemon/task.go).
  */
-export function useTask(pid: string, tid: string, $t: any): void {
+export function useTask(pid: string, tid: string): void {
 	watch(pid, tid);
-	// Closing the page of a task that was never written down throws it away.
-	// This scope is also torn down and built up again while the page stays put
-	// (the task arriving anew from the server does that), so what is checked
-	// for is the page really being gone: something else is showing by then.
-	A.clean(() => { if (A.peek(selection).tid !== tid) dropBlankTask(pid, tid); });
-}
-
-/**
- * Delete a task nothing was ever said about: still in Plan, its description
- * empty and no title of its own — all that Start left behind (see addTask).
- * One that says anything at all, however little, stays.
- */
-function dropBlankTask(pid: string, tid: string): void {
-	const blank = A.peek(() => {
-		const $t = $state.projects[pid]?.tasks?.[tid];
-		return !!$t && $t.phase === 'plan' && !($t.description ?? '').trim() && !($t.title ?? '').trim();
-	});
-	if (blank) void cmd('deleteTask', { pid, tid });
 }
 
 /**
@@ -237,9 +221,9 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 
 /**
  * Start a task: no dialog, and no half-existing state either — the task is
- * created right away, in Plan and without a description, so the board and the
- * sidebar have it from the first moment. It goes by "New" until its
- * description's first line names it (see taskTitle). `partial` sets what
+ * created right away, in Plan and without a brief, so the board and the
+ * sidebar have it from the first moment. It goes by "New" until its brief's
+ * first line names it (see taskTitle). `partial` sets what
  * differs from the project's defaults, such as the tasks it starts after.
  */
 export async function addTask(pid: string, partial: object = {}): Promise<void> {
@@ -253,7 +237,7 @@ export async function addTask(pid: string, partial: object = {}): Promise<void> 
 }
 
 /**
- * Move a task in Plan to another project: its description is written down
+ * Move a task in Plan to another project: its brief is written down
  * there as a new task, and this one deleted. The rest it gets from the new
  * project's defaults — the tasks it followed are not that project's to follow.
  */
@@ -265,6 +249,9 @@ async function changeProject(pid: string, tid: string, $t: any, to: string): Pro
 	await cmd('deleteTask', { pid, tid });
 	route.go(pathTo(to, created.tid as string));
 }
+
+/** The file a task's brief is written in, in its workspace (see briefFile in daemon/task.go). */
+const BRIEF = '.tps-task.md';
 
 /** What the review model reads as when the task has none of its own. */
 const SAME_MODEL = 'Same as agent model';
@@ -472,109 +459,31 @@ export async function deleteTask(pid: string, tid: string, $t: any): Promise<voi
 }
 
 /**
- * Task settings behind a dialog: how every phase but Plan offers them. The
- * title leads, this being the only place one is ever typed by hand — claude
- * writes the first one as the task leaves Plan, and emptying the field hands
- * that job back to the description's first line.
+ * Task settings behind a dialog. The title leads, this being the only place
+ * one is ever typed by hand — claude writes the first one as the task leaves
+ * Plan, and until then the brief's first line stands in. A task still in Plan
+ * can move to another project as well.
  */
 export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
-	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: () => {
+	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: close => {
 		S.textline({
 			label: 'Title',
 			value: A.peek($t, 'title') ?? '',
 			input: debounce(600, (e: Event) => save({ title: (e.target as HTMLInputElement).value.trim() })),
 		});
+		A(() => {
+			if ($t.phase !== 'plan') return;
+			S.select({
+				label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: projectName($p) })),
+				bind: {
+					get value() { return pid; },
+					set value(to: string) { close(); void changeProject(pid, tid, $t, to); },
+				},
+			});
+		});
 		drawTaskFields(pid, tid, $t, save);
 	}});
-}
-
-/**
- * A task still in Plan, in the left column: its settings — laid out rather than
- * hidden behind an icon, there being nothing else to do with the space yet —
- * and the two ways out of Plan.
- */
-export function drawPlanSettings(pid: string, tid: string, $t: any): void {
-	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
-	A('div display:flex flex-direction:column gap:$2 flex:1 min-height:0 overflow-y:auto', () => {
-		A(() => S.select({
-			label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: projectName($p) })),
-			bind: {
-				get value() { return pid; },
-				set value(to: string) { void changeProject(pid, tid, $t, to); },
-			},
-		}));
-		drawTaskFields(pid, tid, $t, save);
-		A(() => {
-			const note = autoStartNote(pid, $t);
-			if (note) A('div.s-s.warning.tonal p:$2 font-size:0.9em text=', note);
-		});
-	});
-	// There is nothing to assign until something has been written. The emptiness
-	// is derived into a flag of its own, so the buttons are redrawn when it
-	// flips rather than on every keystroke.
-	const $ready = A.proxy({ value: false });
-	A(() => { $ready.value = !!($t.description ?? '').trim(); });
-	A('div display:flex gap:$2 justify-content:flex-end', () => {
-		const off = !$ready.value;
-		S.button({ content: 'Assign to human', icon: user, attrs: '.neutral', disabled: off, click: () => void assignTask(pid, tid, $t, 'human') });
-		S.button({ content: 'Assign to agent', icon: bot, key: 'mod+enter', disabled: off, click: () => void assignTask(pid, tid, $t, 'agent') });
-	});
-}
-
-/** What the task is waiting for, the open plan included — that holds it back too. */
-function autoStartNote(pid: string, $t: any): string | undefined {
-	if (!autoStarts($t)) return;
-	const also = waitingFor(pid, $t).length ? ', and once you close this plan' : '';
-	return `⏳ This task ${taskActivity(pid, $t).text}${also}.`;
-}
-
-/** Hand the task to the agent or a human, flushing what the editor still owes the server. */
-async function assignTask(pid: string, tid: string, $t: any, phase: Phase): Promise<void> {
-	if (!(A.peek($t, 'description') ?? '').trim()) return;
-	// The editor's debounce may still owe the server the last keystroke, and
-	// the agent is about to be handed whatever the server has.
-	if (!(await cmd('updateTask', { pid, tid, description: (A.peek($t, 'description') ?? '').trim() }))) return;
-	if (!(await moveTask(pid, tid, $t, phase))) return;
-	// Handed off to the agent, there is nothing left to do here: the board is
-	// more use than watching the workspace come up in the right column. Taken
-	// on yourself, the task's own page is, and that is where you already are.
-	if (phase === 'agent') route.go(pathTo(pid));
-}
-
-/**
- * A task still in Plan, in the right column: the description, with room to
- * write it. Every keystroke lands in the task right away, so its title, the
- * board and the Assign buttons keep up; only the server is spared the chatter.
- */
-export function drawPlanEditor(pid: string, tid: string, $t: any): void {
-	const store = debounce(600, (description: string) => void cmd('updateTask', { pid, tid, description }));
-	const area = () => box.querySelector('textarea') as HTMLTextAreaElement;
-	// A file dropped, pasted or picked here is stored with the task at once,
-	// the description being written long before it is handed over.
-	const take = (files: File[]) => uploadFiles(pid, tid, files);
-	const box = A('div display:flex flex-direction:column gap:$2 h:100%', () => {
-		S.textarea({
-			attrs: 'flex:1 min-height:0', inputAttrs: 'flex:1 min-height:0', autoGrow: false, resize: 'none',
-			placeholder: 'What should the agent do?', value: A.peek($t, 'description') ?? '',
-			suffix: () => attachButton(area, take),
-			input: (e: Event) => {
-				const description = (e.target as HTMLTextAreaElement).value;
-				$t.description = description;
-				store(description);
-			},
-		});
-		// Under the field, what the description points at: the strip takes the
-		// room it needs from the field, which has the rest.
-		drawRefs(pid, tid, () => $t.description ?? '', ref => removeRef(area(), ref));
-	}) as HTMLElement;
-	acceptFiles(box, area, take);
-	// A task with nothing written down yet has nothing on its page but this
-	// field, and writing is the whole of what there is to do: it takes the
-	// cursor. One that says something already is arrived at to be read as often
-	// as to be edited, so that one is left alone. (After the frame, or the
-	// field isn't there yet.)
-	if (!(A.peek($t, 'description') ?? '').trim()) requestAnimationFrame(() => (box.querySelector('textarea') as HTMLTextAreaElement | null)?.focus());
 }
 
 /**
@@ -685,6 +594,16 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				A('div.s-s.success.tonal p:$2 text=',
 					`✔ merged into ${branch}. Messaging the agent picks the task back up: it keeps everything it `
 					+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
+				return;
+			}
+			// What a plan is waiting for, its own page being open included — that
+			// holds it back too.
+			if (autoStarts($t)) {
+				const also = waitingFor(pid, $t).length ? ', and once you close this plan' : '';
+				A('div.s-s.warning.tonal p:$2 text=', `⏳ This task ${taskActivity(pid, $t).text}${also}.`);
+			}
+			if ($t.phase === 'plan') {
+				A('div.s-s.neutral.tonal p:$2 text=', `Write the brief in ${BRIEF} in VS Code, message the agent, or both: sending hands the task to the agent.`);
 				return;
 			}
 			if (!waitsForHuman($t)) return;
@@ -816,11 +735,13 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 	// Looked up rather than remembered: with a draft restored, the field is in
 	// use before it has seen a single keystroke.
 	const area = () => bar.querySelector('textarea') as HTMLTextAreaElement;
-	const sendMsg = () => {
+	const sendMsg = async () => {
 		const el = area();
+		if (!el.value.trim() && !A.peek($atts, 'length') && !A.peek(() => briefPending($t))) return;
+		// Sent from Plan, the task leaves it, and may overtake what it waits for.
+		if (A.peek($t, 'phase') === 'plan' && !(await confirmOvertake(pid, $t))) return;
 		const text = el.value.trim();
 		const files = takeAttachments(pid, tid);
-		if (!text && !files.length) return;
 		el.value = '';
 		el.dispatchEvent(new Event('input')); // shrink it back down, drop $has.text, and forget the draft
 		void cmd('chat', { pid, tid, text, files });
@@ -836,14 +757,17 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 			value: draft,
 			// The field's own bottom-right corner, beside the caret: the paperclip
 			// that attaches a file, and then — send while there is something to
-			// send, else stop while claude works. An inset sizes what it holds
-			// `.small`; sending is the one thing in the composer to aim at, so that
-			// button takes its size back.
+			// send (a brief the agent has yet to hear of is), else stop while
+			// claude works. An inset sizes what it holds `.small`; sending is the
+			// one thing in the composer to aim at, so that button takes its size
+			// back.
 			suffix: () => {
 				attachButton(area, files => addFiles(pid, tid, files));
 				A(() => {
 					const size = 'w:2.2rem h:2.2rem font-size:1.1rem ';
 					if ($has.text || $atts.length) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
+					else if (briefPending($t)) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send the brief', tooltip: `Send the agent in on ${BRIEF}`,
+						key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
 					else if ($t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
 						click: () => void cmd('stopAgent', { pid, tid }) });
 					// Nothing to send and nothing to stop: how full the agent's window is,
@@ -879,6 +803,14 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 }
 
 /**
+ * Whether sending with nothing typed has something to send: the brief of a
+ * task in Plan, or one the agent has not heard of as it now stands.
+ */
+function briefPending($t: any): boolean {
+	return $t.phase === 'plan' ? !!($t.description ?? '').trim() : !!$t.briefChanged;
+}
+
+/**
  * The right column for a task with a workspace: VS Code in its container,
  * once that is up and code-server runs in it — which the hold placed on
  * arrival (see useTask) asks the daemon for.
@@ -888,8 +820,11 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 		if ($t.codePort) {
 			// code-server's remote authority is the Host header, which the proxy
 			// passes on unchanged. A restarted code-server has a new start time,
-			// and the frame is reloaded for it.
-			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left);
+			// and the frame is reloaded for it. A frame opened on a plan opens on
+			// its brief, which is what there is to do in it.
+			const open = A.peek($t, 'phase') === 'plan'
+				? '&payload=' + encodeURIComponent(JSON.stringify([['openFile', `vscode-remote://${location.host}/work/${BRIEF}`]])) : '';
+			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work${open}`, `${$t.codePort}:${$t.codeStart}`, left);
 		} else if ($t.status === 'error' || $t.codeError) {
 			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
 				A('p fg:$s-danger text=', $t.status === 'error' ? `Workspace error: ${$t.statusDetail || 'unknown'}` : `VS Code failed to start: ${$t.codeError}`);

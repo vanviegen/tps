@@ -174,7 +174,8 @@ func TestRevert(t *testing.T) {
 func TestForkFull(t *testing.T) {
 	task, _ := markTask(t)
 	task.info.Title = "Do the thing"
-	task.info.Description = "the description"
+	write(t, filepath.Join(task.repoDir(), briefFile), "the description\n")
+	task.syncBrief()
 	transcript(t, task, "s.jsonl", "one", "two")
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "forked from here\n")
 	task.mark("Agent", "did the thing")
@@ -334,7 +335,8 @@ func atoi(t *testing.T, s string) int {
 func TestRewindTheConversationOnly(t *testing.T) {
 	task, _ := markTask(t)
 	task.info.Title = "Do the thing"
-	task.info.Description = "make the widget blue"
+	write(t, filepath.Join(task.repoDir(), briefFile), "make the widget blue\n")
+	task.syncBrief()
 	task.mark("Start", "")
 	start := lastMark(t, task)
 	path := transcript(t, task, "s.jsonl", "one", "two")

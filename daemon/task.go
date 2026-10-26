@@ -103,7 +103,8 @@ func parseAnswer(raw any, offered ...Answer) (Answer, bool) {
 // TaskInfo is the persisted part of a task (in projects.json).
 type TaskInfo struct {
 	Title         string         `json:"title"`
-	Description   string         `json:"description"`
+	Description   string         `json:"description"`       // the brief: what .tps-task.md says, as last read (see briefFile)
+	Briefed       string         `json:"briefed,omitempty"` // the brief as the agent was last given it (see briefing)
 	Model         string         `json:"model"`
 	OnReady       Answer         `json:"onReady,omitempty"`     // what becomes of work the agent reports ready (see review.go)
 	OnAccept      Answer         `json:"onAccept,omitempty"`    // and of work a review accepts
@@ -662,14 +663,8 @@ func (t *Task) applyL(partial map[string]any) {
 	if title, ok := partial["title"].(string); ok && strings.TrimSpace(title) != "" {
 		t.info.Title = strings.TrimSpace(title)
 	}
-	if desc, ok := partial["description"].(string); ok && t.info.Phase == PhasePlan { // what the agent was given stays
-		// Until the task is named for real — by claude once its plan is closed,
-		// or by hand — its title follows the description, so the board says what
-		// it is about from the first words written.
-		if t.info.Title == "" || t.info.Title == draftTitle(t.info.Description) {
-			t.info.Title = draftTitle(desc)
-		}
-		t.info.Description = desc
+	if desc, ok := partial["description"].(string); ok {
+		t.setDescriptionL(strings.TrimSpace(desc))
 	}
 	if model, ok := partial["model"].(string); ok {
 		t.info.Model = model
@@ -745,29 +740,29 @@ func (t *Task) noteBudgetL() {
 
 // --- phase transitions ---
 
-// ensureTitleL names a task once its plan is closed, or on its way out of Plan.
-// It has been calling itself after its description all along (see applyL),
+// ensureTitleL names a task once its plan is closed, or on its way out of Plan,
+// after what it was given: its brief, or the message it was sent in with. It
+// has been calling itself after its brief all along (see setDescriptionL),
 // which will do; the agent is asked for something better in the background, so
 // nothing waits on the naming. That happens once in a task's life, and the
 // answer is adopted only while the stand-in is still there — a rename meanwhile
 // wins.
-func (t *Task) ensureTitleL() error {
-	desc := t.info.Description
+func (t *Task) ensureTitleL(desc string) {
 	agent, _ := t.agentL()
 	if strings.TrimSpace(desc) == "" {
-		return errors.New("Give the task a description first")
+		return
 	}
 	stand := draftTitle(desc)
 	if t.info.Title == "" {
 		t.setTitleL(stand)
 	}
 	if t.info.TitleAsked {
-		return nil
+		return
 	}
 	t.info.TitleAsked = true
 	t.p.m.saveL()
 	if t.info.Title != stand {
-		return nil // named by hand already: leave it be
+		return // named by hand already: leave it be
 	}
 	go func() {
 		title := agent.Title(desc)
@@ -777,7 +772,6 @@ func (t *Task) ensureTitleL() error {
 			t.setTitleL(title)
 		}
 	}()
-	return nil
 }
 
 func (t *Task) setTitleL(title string) {
@@ -786,33 +780,51 @@ func (t *Task) setTitleL(title string) {
 	t.pubL("title", title)
 }
 
-// Assign leaves the plan phase: create the workspace and hand the task over.
-// A task set to follow others waits for them in Plan (see autoStartL), so its
-// clone is made once their work is merged and includes it; assigning it by
-// hand meanwhile is the way to start it anyway, without waiting.
-func (t *Task) Assign(to string) error {
-	t.lock()
-	if err := t.ensureTitleL(); err != nil {
-		t.unlock()
-		return err
+// setDescriptionL records the brief. Until the task is named for real — by
+// the agent once its plan is closed, or by hand — its title follows it, so the
+// board says what it is about from the first words written.
+func (t *Task) setDescriptionL(desc string) {
+	if desc == t.info.Description {
+		return
 	}
-	t.touchL()
-	desc := t.info.Description
-	t.unlock()
+	if t.info.Title == "" || t.info.Title == draftTitle(t.info.Description) {
+		t.info.Title = draftTitle(desc)
+		t.pubL("title", t.info.Title)
+	}
+	t.info.Description = desc
+	t.p.m.saveL()
+	t.pubL("description", desc)
+}
+
+// Assign leaves the plan phase: hand the task over, the agent with whatever
+// message it is sent in with (see SendChat). A task set to follow others
+// waits for them in Plan (see autoStartL), and starts from the branch with
+// their work in it (see freshen); assigning it by hand meanwhile is the way
+// to start it anyway, without waiting.
+func (t *Task) Assign(to, text string) error {
 	defer t.p.m.work()()
+	t.syncBrief() // the dashboard's last look at it may be seconds old
+	t.lock()
+	desc := cmp.Or(t.info.Description, text)
+	if desc == "" {
+		t.unlock()
+		return errors.New("Write the brief, or a message, first")
+	}
+	t.ensureTitleL(desc)
+	t.touchL()
+	t.unlock()
 	if err := t.ensureWorkspace(); err != nil {
 		return err
 	}
+	if err := t.freshen(); err != nil {
+		t.noteErr("bringing the workspace onto the latest "+t.p.defaultBranch+" failed", err)
+	}
 	// A point before the first word is said, so that the first word can be
 	// taken back like any other: rewinding to it empties the log and hands the
-	// description back to the composer, the description being a message like
-	// any other once the task has left Plan.
+	// message back to the composer, the brief staying in its file.
 	t.mark("Start", "")
 	if to == "agent" {
-		e := newEntry("user")
-		e.Text = desc
-		t.addEntry(e)
-		t.kick(desc)
+		t.sendIn(t.briefing(), text)
 	} else {
 		t.lock()
 		t.setPhaseL(PhaseHuman)
@@ -834,18 +846,17 @@ func isCompact(text string) bool {
 // SendChat: a user chat message, shown in the log, then fed to (or starting)
 // the agent. Files attached to it are written to the task's uploads directory
 // first, and the message refers to them by the path it reads them at (see
-// uploads.go).
+// uploads.go). A message to a task in Plan is what sends it to the agent; one
+// that says nothing sends the agent in on the brief, if it changed.
 func (t *Task) SendChat(text string, files []ChatFile) error {
 	text = strings.TrimSpace(text)
-	if text == "" && len(files) == 0 {
-		return nil
-	}
 	compact := isCompact(text)
 	t.lock()
+	plan := t.info.Phase == PhasePlan
 	switch {
-	case t.info.Phase == PhasePlan:
+	case compact && plan:
 		t.unlock()
-		return errors.New("Assign the task to the agent first")
+		return errors.New("The agent has not been sent in yet: there is nothing to compact")
 	// A message sent while the agent works steers the turn under way, and one
 	// sent while it compacts is queued behind that; a /compact is neither,
 	// and an agent sent one mid-turn drops it without a word.
@@ -875,6 +886,16 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 	if err != nil {
 		return err
 	}
+	if plan {
+		return t.Assign("agent", text)
+	}
+	var brief *ChatEntry
+	if !compact {
+		brief = t.briefing()
+	}
+	if text == "" && brief == nil {
+		return nil
+	}
 	t.lock()
 	t.touchL()
 	t.p.touchL()
@@ -893,11 +914,24 @@ func (t *Task) SendChat(text string, files []ChatFile) error {
 		t.setPhaseL(PhaseAgent)
 	}
 	t.unlock()
-	e := newEntry("user")
-	e.Text = text
-	t.addEntry(e)
-	t.kick(text)
+	t.sendIn(brief, text)
 	return nil
+}
+
+// sendIn puts what the user says into the log — what changed in the brief,
+// if anything, and their message, if any — and gives the agent both.
+func (t *Task) sendIn(brief *ChatEntry, text string) {
+	said := text
+	if brief != nil {
+		t.addEntry(brief)
+		said = strings.TrimSpace(brief.Text + "\n\n" + text)
+	}
+	if text != "" {
+		e := newEntry("user")
+		e.Text = text
+		t.addEntry(e)
+	}
+	t.kick(said)
 }
 
 func sameBudget(a, b *float64) bool {
@@ -1098,7 +1132,7 @@ func (t *Task) MoveTo(phase Phase) error {
 		return t.Discard()
 	case PhaseAgent:
 		if current == PhasePlan {
-			return t.Assign("agent")
+			return t.Assign("agent", "")
 		}
 		return t.SendChat("Please continue working on the task.", nil)
 	case PhaseReview:
@@ -1110,7 +1144,7 @@ func (t *Task) MoveTo(phase Phase) error {
 		// the end.
 		switch current {
 		case PhasePlan:
-			if err := t.Assign("human"); err != nil {
+			if err := t.Assign("human", ""); err != nil {
 				return err
 			}
 		case PhaseDone, PhaseClosed: // muted, it stays parked as it is
@@ -1179,6 +1213,175 @@ func (t *Task) commitMessage() string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// briefFile is where the user writes what the task is for: a file in the
+// workspace, opened in VS Code while the task is in Plan, so that the brief
+// is written, kept and edited like any other text of the task's. What it says
+// is the task's description (see syncBrief), which the board shows and which
+// writes the file back whenever the task gets a workspace anew; the agent is
+// told of it as it is sent in (see briefing). Merging leaves it out, like the
+// commit message.
+const briefFile = ".tps-task.md"
+
+// brief reads the workspace's brief, and whether the file is there at all.
+func (t *Task) brief() (string, bool) {
+	data, err := os.ReadFile(filepath.Join(t.repoDir(), briefFile))
+	return strings.TrimSpace(string(data)), err == nil
+}
+
+// syncBrief takes what the brief says into the description.
+func (t *Task) syncBrief() {
+	if !t.hasWorkspace() {
+		return
+	}
+	if brief, ok := t.brief(); ok {
+		t.lock()
+		t.setDescriptionL(brief)
+		t.unlock()
+	}
+}
+
+// writeBrief puts the description into a workspace just cloned: a plan's, or
+// that of a task picked up after its merge. An empty one is written too, so
+// that VS Code opens a file that is there, and saves it as it does any other.
+// The caller holds cloneMu.
+func (t *Task) writeBrief() error {
+	t.lock()
+	desc := t.info.Description
+	t.unlock()
+	if desc != "" {
+		desc += "\n"
+	}
+	return os.WriteFile(filepath.Join(t.repoDir(), briefFile), []byte(desc), 0o644)
+}
+
+// briefing is what the agent is told of the brief as it is sent in: the whole
+// of it the first time, how it changed every time after, and nothing while it
+// says what the agent was last given. It is a message of the user's, and goes
+// into the log as one, carrying the brief it tells of (see lastBrief).
+func (t *Task) briefing() *ChatEntry {
+	if !t.hasWorkspace() {
+		return nil
+	}
+	brief, ok := t.brief()
+	t.lock()
+	told := t.info.Briefed
+	t.unlock()
+	if !ok || brief == told {
+		return nil
+	}
+	e := newEntry("user")
+	e.Brief = &brief
+	if told == "" {
+		e.Text = "The brief, in /work/" + briefFile + ":\n\n" + brief
+	} else {
+		e.Text = "I changed the brief, /work/" + briefFile + ":\n\n```diff\n" + briefDiff(told, brief) + "```"
+	}
+	t.lock()
+	t.info.Briefed = brief
+	t.p.m.saveL()
+	t.pubL("briefChanged", nil)
+	t.unlock()
+	return e
+}
+
+// briefDiff is how the brief went from one text to the other, as the hunks of
+// a unified diff.
+func briefDiff(from, to string) string {
+	dir, err := os.MkdirTemp("", "tps-brief-*")
+	if err != nil {
+		return ""
+	}
+	defer os.RemoveAll(dir)
+	for name, text := range map[string]string{"a": from, "b": to} {
+		if text != "" {
+			text += "\n"
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			return ""
+		}
+	}
+	r, _ := runCmd([]string{"git", "diff", "--no-index", "--no-color", "a", "b"}, RunOpts{Dir: dir, NoCheck: true})
+	_, hunks, _ := strings.Cut(r.Out, "\n@@")
+	return "@@" + hunks
+}
+
+// freshen moves a workspace that holds no work but the brief onto the latest
+// default branch, so that a task that waited in Plan starts from the code as
+// it is now rather than as it was when it was first opened. Anything else in
+// it is work, which only a rebase moves (see Rebase).
+func (t *Task) freshen() error {
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
+	changes, err := t.changes()
+	if err != nil || len(changes) > 0 {
+		return err
+	}
+	repo := t.repoDir()
+	for _, args := range [][]string{
+		{"fetch", "--quiet", "origin"},
+		{"reset", "--quiet", "--hard", "origin/" + t.p.defaultBranch}, // the brief is untracked, and stays
+		{"update-ref", "refs/heads/" + stepsBranch, "HEAD"},
+	} {
+		if _, err := git(repo, args...); err != nil {
+			return err
+		}
+	}
+	fetchDeployed(repo)
+	return nil
+}
+
+// leavePlan is the last dashboard leaving a task in Plan. What the brief says
+// is read in, and the task named after it; a task with nothing in it at all —
+// no brief, no title, nothing changed — is thrown away, and one whose
+// workspace holds work besides the brief is the human's from here on.
+func (t *Task) leavePlan() {
+	t.syncBrief()
+	t.cloneMu.Lock()
+	changes, err := t.changes()
+	t.cloneMu.Unlock()
+	if err != nil {
+		logf("%s: changes: %v", t.key(), err)
+		return
+	}
+	t.lock()
+	if t.info.Phase != PhasePlan || t.viewers > 0 {
+		t.unlock()
+		return
+	}
+	if t.info.Description == "" && t.info.Title == "" && len(changes) == 0 {
+		t.unlock()
+		_ = t.Delete()
+		return
+	}
+	t.ensureTitleL(t.info.Description)
+	if len(changes) > 0 {
+		t.setPhaseL(PhaseHuman)
+	}
+	t.p.autoStartL() // closing a plan lets a task that was waiting for it go
+	t.unlock()
+}
+
+// shelve drops the workspace of a plan nobody looks at any longer, once its
+// container idles: what the brief says is kept in the description, and the
+// workspace is made afresh when the task is next opened. One that holds work
+// besides the brief is kept.
+func (t *Task) shelve() {
+	t.syncBrief()
+	t.cloneMu.Lock()
+	defer t.cloneMu.Unlock()
+	changes, err := t.changes()
+	t.lock()
+	idle := t.info.Phase == PhasePlan && t.viewers == 0
+	t.unlock()
+	if err != nil || !idle || len(changes) > 0 {
+		t.down()
+		return
+	}
+	if err := t.dropWorkspace(); err != nil {
+		logf("%s: dropping the workspace: %v", t.key(), err)
+	}
 }
 
 // Merge replays the workspace's work onto the latest default branch (see
@@ -1281,14 +1484,15 @@ func (t *Task) merge(repo, message string) error {
 const landingRef = "refs/tps/landing"
 
 // landingTree is the tree of the work as it would be committed: everything in
-// the workspace but the commit message (see commitMessageFile).
+// the workspace but the commit message and the brief (see commitMessageFile,
+// briefFile).
 func landingTree(repo string) (string, error) {
 	env, cleanup, err := stageAll(repo)
 	if err != nil {
 		return "", err
 	}
 	defer cleanup()
-	if _, err := runCmd([]string{"git", "-C", repo, "rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile}, RunOpts{Env: env}); err != nil {
+	if _, err := runCmd([]string{"git", "-C", repo, "rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile, briefFile}, RunOpts{Env: env}); err != nil {
 		return "", err
 	}
 	r, err := runCmd([]string{"git", "-C", repo, "write-tree"}, RunOpts{Env: env})
@@ -1619,7 +1823,7 @@ func (t *Task) bundleChanges() ([]change, error) {
 	if err != nil {
 		return nil, err
 	}
-	r, err := runCmd([]string{"git", "-C", tmp, "diff", "--numstat", "--no-renames", "-z", base, "FETCH_HEAD"}, RunOpts{})
+	r, err := runCmd([]string{"git", "-C", tmp, "diff", "--numstat", "--no-renames", "-z", base, "FETCH_HEAD", "--", ".", ":(exclude)" + briefFile}, RunOpts{})
 	if err != nil {
 		return nil, err
 	}
@@ -1761,22 +1965,27 @@ func (t *Task) unarchive() error {
 // ensureWorkspace gives the task a workspace with its work in it, if it has
 // none: a parked task's data comes out of its archive, the branch is cloned
 // afresh, and the bundle a closed or muted task kept puts its work back as it
-// was (see unbundle).
+// was (see unbundle) — or, where there is none, the brief is written.
 func (t *Task) ensureWorkspace() error {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
 	if err := t.unarchive(); err != nil {
 		return err
 	}
+	fresh := !t.hasWorkspace()
 	if err := t.clone(); err != nil {
 		return err
 	}
 	if exists(t.bundleFile()) {
+		fresh = false // the work comes back as it was, the brief with it
 		if err := t.unbundle(t.repoDir()); err != nil {
 			return err
 		}
 		t.note("the task's work was put back as it was, save points and all")
 		t.queue("reopened", reopenedPrompt(t.p.defaultBranch))
+	}
+	if fresh {
+		return t.writeBrief()
 	}
 	return nil
 }
@@ -1839,7 +2048,7 @@ func (t *Task) containerfile() string {
 // it matches what would be started now. A job's is not: what it was running
 // went with the daemon (see jobs.go).
 func (t *Task) adoptL() {
-	if t.info.Phase == PhasePlan || !t.hasWorkspace() || t.job() {
+	if !t.hasWorkspace() || t.job() {
 		return
 	}
 	cf := t.containerfile()
@@ -1876,6 +2085,7 @@ func (t *Task) Discard() error {
 	t.lock()
 	defer t.unlock()
 	t.info.Started = false
+	t.info.Briefed = ""
 	t.info.CommitMessage = ""
 	t.info.ReviewLoop = 0
 	t.setReviewL("")
@@ -1920,7 +2130,8 @@ type change struct {
 
 // changes lists what the working tree changed since the commit the task
 // started from, untracked files included (see stageAll) — or, for a parked
-// task, what its bundle holds.
+// task, what its bundle holds. The brief is no part of it: it is what the
+// work is for (see briefFile).
 func (t *Task) changes() ([]change, error) {
 	repo := t.repoDir()
 	if !t.hasWorkspace() {
@@ -1938,7 +2149,7 @@ func (t *Task) changes() ([]change, error) {
 		return nil, err
 	}
 	defer cleanup()
-	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--numstat", "--no-renames", "-z", base}, RunOpts{Env: env})
+	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--numstat", "--no-renames", "-z", base, "--", ".", ":(exclude)" + briefFile}, RunOpts{Env: env})
 	if err != nil {
 		return nil, err
 	}
@@ -1978,14 +2189,25 @@ func (t *Task) refreshChanges() {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
 	changes, err := t.changes()
-	message := ""
+	message, brief, briefed := "", "", false
 	if t.hasWorkspace() {
 		message = t.commitMessage()
+		brief, briefed = t.brief()
 	}
 	t.lock()
 	defer t.unlock()
 	t.refreshing = false
 	t.setCommitMessageL(message)
+	if briefed {
+		t.setDescriptionL(brief)
+	}
+	// Whether the agent has a brief to hear of: what sends it in with an empty
+	// message (see SendChat).
+	if briefed && brief != t.info.Briefed {
+		t.pubL("briefChanged", true)
+	} else {
+		t.pubL("briefChanged", nil)
+	}
 	if err != nil {
 		logf("%s: changes: %v", t.key(), err)
 		return
@@ -2096,17 +2318,16 @@ func (t *Task) setIdentity(repo string) error {
 }
 
 // Open is a dashboard's retry after a workspace failure: bring the workspace
-// up, if there is one — a task in Plan has none yet, a finished one no longer —
-// and VS Code with it, if a dashboard shows the task.
+// up, if there is one — a plan gets one from syncCode, a finished task has
+// none any longer — and VS Code with it, if a dashboard shows the task.
 func (t *Task) Open() {
 	t.lock()
 	t.touchL()
-	phase := t.info.Phase
 	t.unlock()
-	if phase != PhasePlan && t.hasWorkspace() {
+	if t.hasWorkspace() {
 		t.bgUp()
-		go t.syncCode()
 	}
+	go t.syncCode()
 }
 
 // --- VS Code: brought up by a dashboard showing the task, and down with the container ---
@@ -2132,13 +2353,25 @@ func (t *Task) syncCode() {
 	}()
 	for {
 		t.lock()
-		// A plan has no workspace yet, a finished task no longer.
-		wanted := t.viewers > 0 && !t.codeUp && t.info.Phase != PhasePlan
+		wanted := t.viewers > 0 && !t.codeUp
+		plan := t.info.Phase == PhasePlan
 		t.unlock()
-		if !wanted || !t.hasWorkspace() {
+		if !wanted {
 			return
 		}
-		if err := t.startCode(); err != nil {
+		// A plan gets its workspace the first time it is looked at, its brief
+		// in it (see briefFile); a finished task has none any longer.
+		var err error
+		if plan {
+			err = t.ensureWorkspace()
+		}
+		if err == nil && !t.hasWorkspace() {
+			return
+		}
+		if err == nil {
+			err = t.startCode()
+		}
+		if err != nil {
 			t.lock()
 			t.codeError = err.Error()
 			t.publishL()
@@ -2397,7 +2630,7 @@ func (t *Task) down() {
 // who edited the file themselves. A live agent turn is left alone.
 func (t *Task) Reload() error {
 	t.lock()
-	noWorkspace := t.info.Phase == PhasePlan || !t.hasWorkspace()
+	noWorkspace := !t.hasWorkspace()
 	working := t.workingL()
 	t.unlock()
 	if noWorkspace {

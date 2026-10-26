@@ -29,8 +29,10 @@ done, at a glance.
 <tr><td width="320"><img src="doc/features/vscode.png" width="320" alt=""></td><td>
 
 **VS Code on every task.** In the browser, running in the task's container on
-the task's files, with a terminal. Read what the agent did, fix a thing
-yourself, run the tests.
+the task's files, with a terminal. A new task opens on its brief,
+`.tps-task.md`: write it there, message the agent, or both, and whatever you
+change in it later reaches the agent as a diff. Read what the agent did, fix a
+thing yourself, run the tests.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/merge.png" width="320" alt=""></td><td>

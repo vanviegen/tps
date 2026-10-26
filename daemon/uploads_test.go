@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -118,39 +117,3 @@ func TestSaveUploads(t *testing.T) {
 	}
 }
 
-// What a description attaches has no text to correct: the paths the files
-// ended up at are the answer.
-func TestAttach(t *testing.T) {
-	task := uploadsTask(t)
-	paths, err := task.Attach([]ChatFile{file("Screen shot.png", "first"), file("Screen shot.png", "second")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"/uploads/Screen-shot.png", "/uploads/Screen-shot-2.png"}
-	if !slices.Equal(paths, want) {
-		t.Errorf("attached at %v, want %v", paths, want)
-	}
-	for i, path := range paths {
-		if body, _ := os.ReadFile(filepath.Join(task.uploadsDir(), filepath.Base(path))); string(body) != []string{"first", "second"}[i] {
-			t.Errorf("%s holds %q", path, body)
-		}
-	}
-}
-
-// A thumbnail is the stored file as a data URL, and nothing outside the
-// uploads directory can be asked for.
-func TestPreview(t *testing.T) {
-	task := uploadsTask(t)
-	if _, err := task.Attach([]ChatFile{file("shot.png", "bytes")}); err != nil {
-		t.Fatal(err)
-	}
-	if want := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("bytes")); task.Preview("shot.png") != want {
-		t.Errorf("preview is %q, want %q", task.Preview("shot.png"), want)
-	}
-	if err := os.WriteFile(filepath.Join(task.dir(), "secret.png"), []byte("no"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if url := task.Preview("../secret.png"); url != "" {
-		t.Errorf("a file outside the uploads directory was handed over: %q", url)
-	}
-}

@@ -8,7 +8,7 @@ import { drawHostPage } from './hosts.ts';
 import { drawDashboard, drawProjectCode, drawProjectPage } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
-import { drawAgent, drawDonePanel, drawPlanEditor, drawPlanSettings, drawTaskCode, useTask } from './task.ts';
+import { drawAgent, drawDonePanel, drawTaskCode, useTask } from './task.ts';
 import { hasWorkspace, isFinished, isJob, projectName, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
@@ -113,22 +113,18 @@ function drawWide(content: () => void): void {
 }
 
 /**
- * A task. Its settings and its description while it is in Plan; its chat
- * beside VS Code once it has a workspace; its chat beside a note of the merge
- * once it is Done, the workspace being gone then.
+ * A task: its chat beside VS Code — which has the brief open while the task is
+ * in Plan — and beside a note of the merge once it is Done, the workspace
+ * being gone then.
  */
 function drawTaskView(pid: string, tid: string, $t: any): void {
 	// Its own scope: watching restarts the chat stream, so it must not be torn
 	// down and set up again every time the task changes phase.
-	A(() => useTask(pid, tid, $t));
+	A(() => useTask(pid, tid));
 	drawSplit(() => {
-		A(() => {
-			if ($t.phase === 'plan') return drawPlanSettings(pid, tid, $t);
-			drawAgent(pid, tid, $t);
-		});
+		drawAgent(pid, tid, $t);
 	}, () => {
 		A(() => {
-			if ($t.phase === 'plan') return drawPlanEditor(pid, tid, $t);
 			// A job's workspace is made when it runs (see isJob).
 			if (isJob($t) && !hasWorkspace($t)) return S.box({ header: taskTitle($t), content: 'Nothing to show: its workspace is made afresh whenever it runs.' });
 			// Finished or kept in Plan, there is nothing left to open — once the

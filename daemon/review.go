@@ -170,23 +170,34 @@ func reviewMissing(end TurnEnd, text string) string {
 	return ""
 }
 
-// userSaid is everything the user themselves said, in order: the description
-// the task was handed over with, and every message they sent after it. What
-// TPS told the agent in between, and what the agent answered, is not in here —
-// the reviewer is told that much in so many words (see reviewPrompt).
+// userSaid is everything the user themselves said, in order: the brief the
+// task was handed over with and how they changed it later (see briefing), and
+// every message they sent. What is said with no word of the agent's in
+// between is one thing said. What TPS told the agent in between, and what the
+// agent answered, is not in here — the reviewer is told that much in so many
+// words (see reviewPrompt).
 func (t *Task) userSaid() []string {
 	var said []string
+	joined := false // the user had the last word: what they say next goes with it
 	for _, entry := range t.readChat() {
 		raw, ok := entry.V.(json.RawMessage)
 		if !ok {
 			continue
 		}
 		var e ChatEntry
-		if json.Unmarshal(raw, &e) != nil || e.K != "user" {
+		if json.Unmarshal(raw, &e) != nil {
 			continue
 		}
-		if text := strings.TrimSpace(e.Text); text != "" {
+		switch text := strings.TrimSpace(e.Text); {
+		case e.K == "note" || e.K == "mark":
+		case e.K != "user":
+			joined = false
+		case text == "":
+		case joined:
+			said[len(said)-1] += "\n\n" + text
+		default:
 			said = append(said, text)
+			joined = true
 		}
 	}
 	return said

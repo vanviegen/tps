@@ -58,6 +58,12 @@ Rules:
   changed and why, in the tone of the project's own messages (git log), the gist rather
   than an inventory of every file touched or step taken. The user and the reviewing agent
   read and edit it like any other file of your work.
+- The brief: /work/.tps-task.md is the task as the user wrote it down, in their own words,
+  which they keep up to date as they see fit. You are told of it in the conversation: in
+  full when you are sent in with it, and as a diff whenever they change it. Read a change
+  as a message of theirs: whatever was said last, in the chat or in the brief, is what
+  holds. Leave the file alone unless they ask you to write in it; like .tps-commit-message,
+  it is never merged.
 - Services: run anything that serves or takes a while (a dev server, the test suite, a
   review app) as a named service with /tps/bin/tps-guest-tool rather than in the
   background of your shell: 'tps-guest-tool start test 120 npm test' starts it detached,
@@ -265,7 +271,9 @@ func reviewPrompt(base string, said []string, edited bool, tests int) string {
 	}
 	b.WriteString("One file of the change is not the project's: .tps-commit-message, the message the " +
 		"agent proposes to commit the work as, which merging writes into the commit and takes back out of the tree. It has to say briefly what " +
-		"the whole change does: correct it in place where it does not, as you would any other small fix.\n\n" +
+		"the whole change does: correct it in place where it does not, as you would any other small fix. Nor is " +
+		".tps-task.md, the user's brief: what it says is in what they asked for above, and it is theirs, not yours to judge or change; " +
+		"merging leaves it out too.\n\n" +
 		"Where the project keeps a version number or a changelog, the work bumps the one and extends the other as far as what it changes calls " +
 		"for, folding into a release that has not gone out yet (refs/tps/deployed is the commit deployed last) rather than adding one.\n\n" +
 		"Containerfile.dev is the project's image definition, and the only place a tool the work needs can be installed to stay: the " +

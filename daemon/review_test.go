@@ -75,6 +75,13 @@ func TestUserSaid(t *testing.T) {
 	if got := task.userSaid(); len(got) != 2 || got[0] != "make it tidy" || got[1] != "and quick, too" {
 		t.Errorf("the user's own messages, in order: %q", got)
 	}
+	// Said with no word of the agent's in between, it is one thing said.
+	more := newEntry("user")
+	more.Text = "and blue"
+	task.appendChat(more)
+	if got := task.userSaid(); len(got) != 2 || got[1] != "and quick, too\n\nand blue" {
+		t.Errorf("messages in a row were not taken together: %q", got)
+	}
 }
 
 // The loops are a budget: spent, the review's feedback goes to the user, and a

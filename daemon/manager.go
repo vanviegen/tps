@@ -217,11 +217,8 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 			t.viewers = count
 			t.touchL()
 			go t.syncCode()
-			if count == 0 {
-				if t.info.Phase == PhasePlan {
-					t.ensureTitleL() // an empty plan stays unnamed until it has a description
-				}
-				p.autoStartL() // closing a plan lets a task that was waiting for it go
+			if count == 0 && t.info.Phase == PhasePlan {
+				go t.leavePlan()
 			}
 		}
 		m.mu.Unlock()
@@ -684,6 +681,13 @@ func (m *Manager) sweep() {
 			t.unlock()
 			continue
 		}
+		t.lock()
+		plan := t.info.Phase == PhasePlan
+		t.unlock()
+		if plan { // no agent to tell: there has been none yet
+			t.shelve()
+			continue
+		}
 		// A task only looked at since the last time says nothing new.
 		if t.lastNote() != idleNote {
 			t.note(idleNote)
@@ -767,12 +771,13 @@ func answersHTTP(port int) bool {
 }
 
 // refreshWatched keeps what the dashboard has open current: the changed files,
-// and the services Containerfile.dev declares, which an agent may just have written.
+// the brief, and the services Containerfile.dev declares, which an agent may
+// just have written.
 func (m *Manager) refreshWatched() {
 	m.mu.Lock()
 	var watched []*Task
 	for _, t := range m.allTasksL() {
-		if t.viewers > 0 && t.info.Phase != PhasePlan {
+		if t.viewers > 0 {
 			watched = append(watched, t)
 		}
 	}
@@ -841,7 +846,7 @@ type ref struct {
 	Fork  bool   `json:"fork"`
 	Chat  bool   `json:"chat"`
 	Work  bool   `json:"work"`
-	// What a dashboard attached to a message, or to a description (see uploads.go).
+	// What a dashboard attached to a message (see uploads.go).
 	Files []ChatFile `json:"files"`
 	// answerAsk: the question answered, the option picked, and what was typed (see ask.go).
 	ID     string `json:"id"`
@@ -957,8 +962,6 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"rejectOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RejectOpenRouter() }),
 		"openTask":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
 		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text, r.Files) }),
-		"attach":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
-		"preview":          withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
 		"chatTurn":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
 		"stopAgent":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
 		"mergeTask":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),

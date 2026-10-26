@@ -300,14 +300,28 @@ func (t *Task) chatUpTo(id string) (log []byte, at int, point *ChatEntry, err er
 // set off the run being undone. Reverting and forking both hand it back to
 // the composer, where it can be sent again as it is or said differently —
 // having to retype it would be the one thing lost that nobody meant to lose.
+// What it told of the brief is not in it: the brief is in its file, and is
+// told again from there (see briefing).
 func nextPrompt(rest []byte) string {
 	for _, line := range bytes.Split(rest, []byte("\n")) {
 		var e ChatEntry
-		if json.Unmarshal(line, &e) == nil && e.K == "user" {
+		if json.Unmarshal(line, &e) == nil && e.K == "user" && e.Brief == nil {
 			return e.Text
 		}
 	}
 	return ""
+}
+
+// lastBrief is the brief as the log last told the agent of it.
+func lastBrief(log []byte) string {
+	brief := ""
+	for _, line := range bytes.Split(log, []byte("\n")) {
+		var e ChatEntry
+		if json.Unmarshal(line, &e) == nil && e.Brief != nil {
+			brief = *e.Brief
+		}
+	}
+	return brief
 }
 
 // --- using a point ---
@@ -402,6 +416,7 @@ func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
 		// A point from before the agent ever ran leaves no session to resume.
 		t.info.Started = len(point.Mark.Sessions) > 0
 		t.info.Context = 0 // the conversation is another length now; the next turn measures it
+		t.info.Briefed = lastBrief(upTo)
 	}
 	if use.explains() {
 		t.queueL("point", pointPrompt(use))
@@ -521,6 +536,7 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	}
 	f.lock()
 	f.info.Started = len(f.transcripts(agent)) > 0
+	f.info.Briefed = lastBrief(log[:at])
 	f.p.m.saveL()
 	f.unlock()
 	f.note(fmt.Sprintf("forked from %q, at its save point %q", src.Title, oneLine(point.Text, 60)))

@@ -248,7 +248,7 @@ func (p *Project) autoStartL() {
 		}
 		t.autoStarting = true
 		go func() {
-			err := t.Assign("agent")
+			err := t.Assign("agent", "")
 			t.lock()
 			t.autoStarting = false
 			t.unlock()

@@ -209,7 +209,7 @@ export function shortDir(hid: string, dir: string): string {
 
 /**
  * What to call a task. A task gets its title when it leaves Plan (claude is
- * asked for one), so until then its description's first line stands in for it
+ * asked for one), so until then its brief's first line stands in for it
  * — and a task with nothing written down yet is simply "New".
  */
 export function taskTitle($t: any, fallback = 'New'): string {

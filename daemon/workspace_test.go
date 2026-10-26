@@ -495,7 +495,7 @@ func TestCloseKeepsABundle(t *testing.T) {
 	if !gitOK(repo, "merge-base", "--is-ancestor", step, stepsBranch) {
 		t.Error("the save point's step is not among the steps")
 	}
-	if got := gitRun(t, repo, "status", "--porcelain"); got != " M a.txt\n?? new.txt" {
+	if got := gitRun(t, repo, "status", "--porcelain"); got != " M a.txt\n?? "+briefFile+"\n?? new.txt" {
 		t.Errorf("uncommitted: %q", got)
 	}
 	if exists(filepath.Join(repo, "b.txt")) {
