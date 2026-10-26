@@ -492,22 +492,23 @@ once it is ready, as the rules say. The container is a new one: anything install
 hand rather than through Containerfile.dev is gone.`, name, dir)
 }
 
-// pointPrompt is what an agent is told when a save point left it out of step
-// with the tree in front of it: one of the two was put back and the other was
-// not, so what it remembers and what /work holds no longer agree. Rewind both
-// and they agree as they did at the point, which needs no saying at all.
+// pointPrompt is what an agent is told when save points left it out of step
+// with the tree in front of it: the conversation and the code went back to
+// different points (or the code was left be), so what it remembers and what
+// /work holds no longer agree, the tree being ahead of it or behind. Put both
+// back to one point and they agree as they did there, which needs no saying.
 //
 // Neither message says whose hands the work came through — the agent's, an
 // earlier agent's, the user's all read the same from here, and guessing at
 // that is exactly the wrong instinct to plant.
-func pointPrompt(use Use) string {
-	if use.Chat {
+func pointPrompt(ahead bool) string {
+	if ahead {
 		return `This conversation has been put back to an earlier point, deliberately: what came after it
-is no longer yours to remember. The working tree was left as it stands, so /work holds work
-from beyond that point. Read it — git diff, git log tps-steps — before you build on or change any of
-it, and take it as given rather than as something to redo or to explain.`
+is no longer yours to remember. /work holds work from beyond that point. Read it — git diff,
+git log tps-steps — before you build on or change any of it, and take it as given rather than
+as something to redo or to explain.`
 	}
-	return `The working tree has been put back to an earlier point, deliberately: /work no longer holds
-the work this conversation has been about. Do not put it back unless you are asked to. What
-you know about the task otherwise still holds.`
+	return `The working tree has been put back to a point earlier than this conversation, deliberately:
+/work no longer holds all the work this conversation has been about. Do not put it back unless
+you are asked to. What you know about the task otherwise still holds.`
 }

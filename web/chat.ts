@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import { Marked } from 'marked';
 import * as S from 'staffa';
-import { copy, copyCheck, gitFork, undo2 } from 'staffa/icons.js';
+import { copy, copyCheck, gitFork, pencil, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
 import { serviceDialog } from './services.ts';
 import { formatShell } from './shell.ts';
@@ -93,7 +93,7 @@ function drawTurn($chat: any[][], $turn: any[], i: number, $foldBelow: { value: 
 	};
 	const $folded = A.derive(() => i > 0 && i < $foldBelow.value && !$open[i]);
 	A(() => {
-		if (!$folded.value) return void A.onEach($turn, ($e: any) => $e.k === 'gap' ? drawHidden($e.n, load) : drawEntry($e, pid, tid, $t));
+		if (!$folded.value) return void A.onEach($turn, ($e: any) => $e.k === 'gap' ? drawHidden($e.n, load) : drawEntry($e, pid, tid, $t, i));
 		let hidden = 0;
 		const flush = () => {
 			if (hidden) drawHidden(hidden, open);
@@ -102,7 +102,7 @@ function drawTurn($chat: any[][], $turn: any[], i: number, $foldBelow: { value: 
 		for (const e of $turn) {
 			if (e.k === 'user' || e.k === 'mark') {
 				flush();
-				drawEntry(e, pid, tid, $t);
+				drawEntry(e, pid, tid, $t, i);
 			} else hidden += e.k === 'gap' ? e.n : 1;
 		}
 		flush();
@@ -141,32 +141,39 @@ const markdown = A.insertCss({
 });
 
 /**
- * A message hides its copy button until it is hovered. The button has a
- * column of its own, so it neither covers the text nor makes it wrap.
+ * A message hides its buttons until it is hovered. They have a column of
+ * their own, so they neither cover the text nor make it wrap.
  */
 const copyable = A.insertCss({
 	'&': 'min-width:0 display:grid grid-template-columns: minmax(0,1fr) auto; gap:$1',
-	'& > .copy': 'align-self:start opacity:0 transition: opacity 0.15s;',
-	'&:hover > .copy, & > .copy:focus-visible': 'opacity:1',
+	'& > .tools': 'align-self:start display:flex opacity:0 transition: opacity 0.15s;',
+	'&:hover > .tools, & > .tools:focus-within': 'opacity:1',
 });
 
-/** A message as markdown, with a button in its corner that copies its source. */
-function drawMessage(attrs: string, text: string): void {
+/**
+ * A message as markdown, with a button in its corner that copies its source,
+ * and one that edits it where it can be.
+ */
+function drawMessage(attrs: string, text: string, edit?: () => void): void {
 	A(`div ${attrs}`, copyable, () => {
 		A('div', markdown, 'html=', md.parse(text) as string);
-		const $done = A.proxy(false);
-		A(() => S.iconButton({
-			icon: $done.value ? copyCheck : copy, tooltip: 'Copy as markdown', attrs: '.small .copy fg:$s-muted',
-			click: async () => {
-				await navigator.clipboard.writeText(text);
-				$done.value = true;
-				setTimeout(() => { $done.value = false; }, 1500);
-			},
-		}));
+		A('div.tools', () => {
+			if (edit) S.iconButton({ icon: pencil, tooltip: 'Edit', attrs: '.small fg:$s-muted', click: edit });
+			const $done = A.proxy(false);
+			A(() => S.iconButton({
+				icon: $done.value ? copyCheck : copy, tooltip: 'Copy as markdown', attrs: '.small fg:$s-muted',
+				click: async () => {
+					await navigator.clipboard.writeText(text);
+					$done.value = true;
+					setTimeout(() => { $done.value = false; }, 1500);
+				},
+			}));
+		});
 	});
 }
 
-function drawEntry($e: any, pid: string, tid: string, $t: any): void {
+/** An entry of the log, in the turn it is in: the rules above the log have none. */
+function drawEntry($e: any, pid: string, tid: string, $t: any, turn?: number): void {
 	// A note about a run of a service opens that service's console instead,
 	// which holds the output of its latest run alone.
 	const open = () => !$e.service ? detailDialog($e, pid, tid, $t)
@@ -180,7 +187,13 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
 	const prefix = (text: string) => A(`b fg:${$e.rev ? '$s-link' : '$s-accent'} text=`, text);
 	switch ($e.k) {
 		case 'user':
-			drawMessage('.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', $e.text);
+			// Editing a message is reverting to the point just above it, which
+			// hands the message back to the composer; what a user message heads
+			// is a turn of its own, so that point ends one of the turns before.
+			A(() => drawMessage('.s-s.primary.outlined pv:$1 ph:$3 justify-self:start', $e.text, hasWorkspace($t) && turn ? () => {
+				const point = chatLog(pid, tid).slice(0, turn).flat().findLast(e => e.k === 'mark');
+				if (point) pointDialog(pid, tid, point, true);
+			} : undefined));
 			break;
 		case 'text':
 			// The reviewer's messages stand among the agent's own, so they are
@@ -227,72 +240,76 @@ function drawEntry($e: any, pid: string, tid: string, $t: any): void {
  * whose workspace is gone (merged, or closed) has no point to use.
  */
 function drawMark($e: any, pid: string, tid: string, $t: any): void {
-	const row = (rule: boolean) => (): void => {
+	const row = (): void => {
 		A('span flex:none display:flex', () => gitFork({ size: '1em' }));
 		A('small flex:none #Save point');
 		A('small flex:none', () => A('code text=', shortSha($e)));
 		A(`small ${ELLIPSIS} min-width:0 text=`, $e.text);
-		if (rule) A('div flex:1 min-width:$3 h:1px bg:$s-faint');
+		A('div flex:1 min-width:$3 h:1px bg:$s-faint');
 	};
 	const attrs = 'div display:flex align-items:center gap:$2 mt:$1 fg:$s-muted';
 	A(() => {
 		// Nothing to put back or to fork from once the workspace is gone
 		// (merged, or closed): the line stays, as the record of the run.
-		if (!hasWorkspace($t)) return void A(attrs, row(true));
-		A(attrs, openable, 'click=', () => pointDialog(pid, tid, $e, row(false)), row(true));
+		if (!hasWorkspace($t)) return void A(attrs, row);
+		A(attrs, openable, 'click=', () => pointDialog(pid, tid, $e, false), row);
 	});
 }
 
 const shortSha = ($e: any) => ($e.mark?.commit ?? '').slice(0, 7);
 
+/** The code choices that name no point of their own (see pointDialog). */
+const SAME_POINT = '';
+const CODE_NOW = 'now';
+
 /**
- * What to do with a save point. Two things can be put back to it and they are
- * separate: the conversation — the log and what claude remembers — and the
- * working tree. Both is the plain undo; either alone is the interesting half,
- * a new mind on today's code or the whole discussion of code that is gone.
- * Forking does the same to a copy and leaves this task be, which is the only
- * difference between the two buttons.
+ * What to do with save points. Two things can be put back and each goes to a
+ * point of its own: the conversation — the log and what the agent remembers —
+ * and the working tree. The same point is the plain undo; two apart are the
+ * interesting cases, a new mind on newer code or the whole discussion of code
+ * that is gone. Forking does it to a copy and leaves this task be, and is
+ * where the dialog starts unless asked otherwise, being the safe one.
  *
  * This is also the confirmation a revert needs: what it costs is written where
  * it is chosen, and the button that does it is red.
  */
-function pointDialog(pid: string, tid: string, $e: any, title: () => void): void {
-	const $use = A.proxy({ chat: true, work: true, fork: false });
-	const nothing = () => !$use.chat && !$use.work;
-	const box = (bind: 'chat' | 'work', label: string, help: string) => S.checkbox({
-		label, help, checked: A.peek($use, bind),
-		change: (e: Event) => { $use[bind] = (e.target as HTMLInputElement).checked; },
-	});
+function pointDialog(pid: string, tid: string, $e: any, revert: boolean): void {
+	const points = A.peek(() => chatLog(pid, tid).flat().filter(e => e.k === 'mark').map(e => ({ value: e.id as string, label: `${shortSha(e)} · ${e.text}` })));
+	const $use = A.proxy({ chat: $e.id as string, work: SAME_POINT, how: revert ? 'revert' : 'fork' });
+	const $revert = A.derive(() => $use.how === 'revert');
 	void S.dialog({
+		header: 'Save point',
 		attrs: 'w:34rem',
-		header: () => A('div display:flex align-items:center gap:$2 min-width:0', title),
 		content: close => S.form({
 			submit: async () => {
-				const landed = await cmd('usePoint', { pid, tid, entry: $e.id, fork: $use.fork, chat: $use.chat, work: $use.work });
+				const { chat, work, how } = $use;
+				const landed = await cmd('usePoint', { pid, tid, entry: chat, work: work === SAME_POINT ? chat : work === CODE_NOW ? '' : work, fork: how === 'fork' });
 				close();
 				if (landed && landed !== tid) route.go(pathTo(pid, landed as string));
 			},
 			content: () => {
-				box('chat', 'Rewind the conversation',
-					'The chat log and what the agent remembers both end here. Whatever you said after it comes back to the message box.');
-				box('work', 'Revert the code',
-					'The working tree goes back to the files exactly as they were at this point.');
+				S.select({
+					label: 'Conversation', options: points, bind: A.ref($use, 'chat'),
+					help: 'The chat log and what the agent remembers end at this point. Whatever you said after it comes back to the message box.',
+				});
+				S.select({
+					label: 'Code',
+					options: [{ value: SAME_POINT, label: 'Same as conversation' }, { value: CODE_NOW, label: 'As it is now' }, ...points],
+					bind: A.ref($use, 'work'),
+					help: 'The working tree goes back to the files exactly as they were at this point.',
+				});
+				A('div.s-field', () => {
+					S.buttonChooser({ attrs: 'align-self:flex-start', options: { fork: 'Fork', revert: 'Revert' }, bind: A.ref($use, 'how') });
+					A(() => A('small fg:$s-muted text=', $revert.value
+						? 'Do it to this task. What it undoes is gone for good.'
+						: 'Do it to a second task in this project, and leave this one exactly as it is.'));
+				});
 			},
 			actions: () => {
-				const go = (fork: boolean) => { $use.fork = fork; };
-				// Quietest of the three, and first, so the two that do something
-				// sit together against the corner.
 				S.button({ content: 'Cancel', attrs: '.neutral fg:$s-muted', click: close });
-				A(() => S.button({
-					content: 'Fork', icon: gitFork, type: 'submit', attrs: '.outlined', disabled: nothing(),
-					tooltip: nothing() ? 'Pick at least one of the two' : 'Do it to a second task in this project, and leave this one exactly as it is',
-					click: () => go(true),
-				}));
-				A(() => S.button({
-					content: 'Revert', icon: undo2, type: 'submit', attrs: '.danger', disabled: nothing(),
-					tooltip: nothing() ? 'Pick at least one of the two' : 'Do it to this task. What it undoes is gone for good',
-					click: () => go(false),
-				}));
+				A(() => $revert.value
+					? S.button({ content: 'Revert', icon: undo2, type: 'submit', attrs: '.danger' })
+					: S.button({ content: 'Fork', icon: gitFork, type: 'submit' }));
 			},
 		}),
 	});

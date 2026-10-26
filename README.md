@@ -92,7 +92,8 @@ opens the app the agent is working on.
 
 **Revert and fork conversations.** Every Kanban state transition creates a
 savepoint. You can reset a task or create a duplicate task at such savepoints,
-specifying if you'd like to reset the conversation, the code, or both.
+taking the conversation and the code each back to a savepoint of their own. Edit
+a message you sent to take the task back to just before it.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/followup.png" width="320" alt=""></td><td>

@@ -837,14 +837,13 @@ type ref struct {
 	Text    string `json:"text"`
 	Phase   Phase  `json:"phase"`
 	Message string `json:"message"`
-	// What a use of a save point acts on: the point in the chat log, whether it
-	// is a fork rather than this task put back, and how much to bring along
-	// (see mark.go).
+	// What a use of a save point acts on: the point the conversation goes back
+	// to, the one the code does (none to leave it be), and whether it is a fork
+	// rather than this task put back (see mark.go).
 	Entry string `json:"entry"`
-	Turn  int    `json:"turn"` // chatTurn: which, counting what the user said
+	Work  string `json:"work"`
 	Fork  bool   `json:"fork"`
-	Chat  bool   `json:"chat"`
-	Work  bool   `json:"work"`
+	Turn  int    `json:"turn"` // chatTurn: which, counting what the user said
 	// What a dashboard attaches to a message (see uploads.go).
 	Files []ChatFile `json:"files"`
 	// answerAsk: the question answered, the option picked, and what was typed (see ask.go).
@@ -982,7 +981,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		// somewhere, and only differ in where (see UsePoint). The reply names
 		// the task it landed in, so the dashboard can go there.
 		"usePoint": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
-			return t.UsePoint(r.Entry, Use{Fork: r.Fork, Chat: r.Chat, Work: r.Work})
+			return t.UsePoint(Use{Fork: r.Fork, Chat: r.Entry, Work: r.Work})
 		}),
 		// Exit once idle and let the UI start the binary it wants; containers stay up and are reused.
 		"restart": func(raw json.RawMessage) (any, error) {

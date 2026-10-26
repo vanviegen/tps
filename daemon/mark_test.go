@@ -136,7 +136,7 @@ func TestRevert(t *testing.T) {
 	task.note("something the agent said")
 	task.mark("Agent", "second")
 
-	_, err := task.UsePoint(id, Use{Chat: true, Work: true})
+	_, err := task.UsePoint(Use{Chat: id, Work: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestForkFull(t *testing.T) {
 	// Work after the point, which the fork must not have.
 	write(t, filepath.Join(task.repoDir(), "c.txt"), "later\n")
 
-	tid, err := task.UsePoint(id, Use{Fork: true, Chat: true, Work: true})
+	tid, err := task.UsePoint(Use{Fork: true, Chat: id, Work: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestForkFromTheStart(t *testing.T) {
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "work\n")
 	task.mark("Agent", "did it")
 
-	tid, err := task.UsePoint(start, Use{Fork: true, Chat: true, Work: true})
+	tid, err := task.UsePoint(Use{Fork: true, Chat: start, Work: start})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestRewindTheConversationOnly(t *testing.T) {
 	write(t, filepath.Join(task.repoDir(), "a.txt"), "the work\n")
 	task.mark("Agent", "did it")
 
-	if _, err := task.UsePoint(start, Use{Chat: true}); err != nil {
+	if _, err := task.UsePoint(Use{Chat: start}); err != nil {
 		t.Fatal(err)
 	}
 	if body := readFile(filepath.Join(task.repoDir(), "a.txt")); body != "the work\n" {
@@ -381,10 +381,10 @@ func TestRewindTheConversationPastAMerge(t *testing.T) {
 	gone := strings.Repeat("0", 40)
 	write(t, task.chatFile(), strings.ReplaceAll(readFile(task.chatFile()), point.Mark.Commit, gone))
 
-	if _, err := task.UsePoint(point.ID, Use{Work: true}); err == nil {
+	if _, err := task.UsePoint(Use{Chat: point.ID, Work: point.ID}); err == nil {
 		t.Error("the tree went back to a commit that is not there")
 	}
-	if _, err := task.UsePoint(point.ID, Use{Chat: true}); err != nil {
+	if _, err := task.UsePoint(Use{Chat: point.ID}); err != nil {
 		t.Errorf("the conversation could not go back for want of a commit it does not need: %v", err)
 	}
 }
@@ -403,7 +403,7 @@ func TestRevertTheCodeOnly(t *testing.T) {
 	task.addEntry(asked)
 	task.mark("Agent", "second")
 
-	if _, err := task.UsePoint(id, Use{Work: true}); err != nil {
+	if _, err := task.UsePoint(Use{Chat: lastMark(t, task), Work: id}); err != nil {
 		t.Fatal(err)
 	}
 	if body := readFile(filepath.Join(task.repoDir(), "a.txt")); body != "first\n" {
@@ -435,7 +435,7 @@ func TestPointWithoutASession(t *testing.T) {
 		t.Fatalf("the point should hold no transcripts: %+v", points)
 	}
 
-	tid, err := task.UsePoint(points[0].ID, Use{Fork: true, Chat: true, Work: true})
+	tid, err := task.UsePoint(Use{Fork: true, Chat: points[0].ID, Work: points[0].ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,5 +450,38 @@ func TestPointWithoutASession(t *testing.T) {
 	}
 	if body := readFile(filepath.Join(fork.repoDir(), "a.txt")); body != "what the human wrote\n" {
 		t.Errorf("the fork's a.txt is %q; the work was to come along", body)
+	}
+}
+
+// The conversation and the code each go back to a point of their own: here
+// the code to a later one than the conversation, which the agent is told.
+func TestRevertToTwoPoints(t *testing.T) {
+	task, _ := markTask(t)
+	task.mark("Start", "")
+	start := lastMark(t, task)
+	asked := newEntry("user")
+	asked.Text = "do the first thing"
+	task.addEntry(asked)
+	write(t, filepath.Join(task.repoDir(), "a.txt"), "first\n")
+	task.mark("Agent", "first")
+	first := lastMark(t, task)
+	write(t, filepath.Join(task.repoDir(), "a.txt"), "second\n")
+	task.mark("Agent", "second")
+
+	_, err := task.UsePoint(Use{Chat: start, Work: first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := readFile(filepath.Join(task.repoDir(), "a.txt")); body != "first\n" {
+		t.Errorf("a.txt is %q; the code was to go back to the first run", body)
+	}
+	if points := marks(t, task); len(points) != 1 || points[0].ID != start {
+		t.Errorf("the log was not cut back to the start: %d points left", len(points))
+	}
+	if task.info.Draft != "do the first thing" {
+		t.Errorf("the message after the conversation's point came back as %q", task.info.Draft)
+	}
+	if len(task.info.Pending) != 1 || !strings.Contains(task.info.Pending[0].Text, "/work holds work") {
+		t.Errorf("the agent was not told the tree is ahead of it: %+v", task.info.Pending)
 	}
 }

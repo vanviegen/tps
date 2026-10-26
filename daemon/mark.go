@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -273,27 +274,33 @@ func (t *Task) mark(by, summary string) error {
 
 // --- finding a point back in the log ---
 
-// chatUpTo reads the chat log up to and including the entry that holds the
-// named save point, and that entry. The bytes are what a revert leaves of
+// chatPoint is a save point found in the chat log: its entry, and where in
+// the log that entry ends. The bytes before that are what a revert leaves of
 // the log and what a fork copies of it, and the rest is what either leaves
 // behind (see nextPrompt).
-func (t *Task) chatUpTo(id string) (log []byte, at int, point *ChatEntry, err error) {
+type chatPoint struct {
+	*ChatEntry
+	at int
+}
+
+// chatPoints reads the chat log and the save points in it, oldest first.
+func (t *Task) chatPoints() (log []byte, points []chatPoint, err error) {
 	t.chatMu.Lock()
 	defer t.chatMu.Unlock()
-	data, err := os.ReadFile(t.chatFile())
+	log, err = os.ReadFile(t.chatFile())
 	if err != nil {
-		return nil, 0, nil, errors.New("this task's chat log is not there to work back through")
+		return nil, nil, errors.New("this task's chat log is not there to work back through")
 	}
-	// SplitAfter keeps the newlines, so the lines up to and including the
-	// point's join back into exactly the bytes the log is to be left with.
-	lines := bytes.SplitAfter(data, []byte("\n"))
-	for i, line := range lines {
+	at := 0
+	// SplitAfter keeps the newlines, so the lengths add up to positions in the log.
+	for _, line := range bytes.SplitAfter(log, []byte("\n")) {
+		at += len(line)
 		var e ChatEntry
-		if json.Unmarshal(line, &e) == nil && e.ID == id && e.Mark != nil {
-			return data, len(bytes.Join(lines[:i+1], nil)), &e, nil
+		if json.Unmarshal(line, &e) == nil && e.Mark != nil {
+			points = append(points, chatPoint{&e, at})
 		}
 	}
-	return nil, 0, nil, errors.New("that save point is no longer in the chat log")
+	return log, points, nil
 }
 
 // nextPrompt is the first thing the user said after a point: the message that
@@ -312,30 +319,22 @@ func nextPrompt(rest []byte) string {
 
 // --- using a point ---
 
-// Use is what is asked of a save point. The two rewinds are separate things
-// and either can be had alone: put the conversation back to the point and the
-// agent works on today's tree with an older mind, put the tree back and it
-// keeps the whole discussion of work that is no longer there. Both together
-// is the plain undo. Forking does the same to a copy and leaves this task be.
+// Use is what is asked of save points. The conversation and the code each go
+// back to a point of their own: the same one is the plain undo, and two apart
+// are the interesting cases — an older mind on newer code, or the whole
+// discussion of code that is gone. Forking does the same to a copy and leaves
+// this task be.
 type Use struct {
-	Fork bool // to a second task, rather than to this one
-	Chat bool // the chat log and the agent's memory end at the point
-	Work bool // the working tree and the steps are back at the point's step
+	Fork bool   // to a second task, rather than to this one
+	Chat string // the point the chat log and the agent's memory end at
+	Work string // the point whose step the working tree and the steps go back to; none leaves them be
 }
-
-// explains: exactly one of the two was rewound, so the agent's memory and the
-// tree in front of it no longer agree and it has to be told which way. Rewind
-// both and they agree as they did at the point: there is nothing to say.
-func (u Use) explains() bool { return u.Chat != u.Work }
 
 // UsePoint is the one way a save point is acted on. It answers with the task
 // the state landed in (this one, or the fork it made), whose composer is
 // offered the message that set the undone run off (see nextPrompt).
-func (t *Task) UsePoint(id string, use Use) (tid string, err error) {
+func (t *Task) UsePoint(use Use) (tid string, err error) {
 	defer t.p.m.work()()
-	if !use.Chat && !use.Work {
-		return "", errors.New("Nothing to do: rewind the conversation, the code, or both")
-	}
 	if !t.hasWorkspace() {
 		return "", errors.New("This task has no workspace to work from; pick it up first")
 	}
@@ -344,79 +343,93 @@ func (t *Task) UsePoint(id string, use Use) (tid string, err error) {
 	if err := t.unarchive(); err != nil {
 		return "", err
 	}
-	log, at, point, err := t.chatUpTo(id)
+	log, points, err := t.chatPoints()
 	if err != nil {
 		return "", err
 	}
-	if use.Work && !gitOK(t.repoDir(), "cat-file", "-e", point.Mark.Commit+"^{commit}") {
-		return "", errors.New("the commit this point was made at is no longer in the workspace")
+	find := func(id string) int { return slices.IndexFunc(points, func(p chatPoint) bool { return p.ID == id }) }
+	// Code left be is the newest point's, as far as the agent can tell.
+	c, w := find(use.Chat), len(points)-1
+	if use.Work != "" {
+		w = find(use.Work)
+	}
+	if c < 0 || w < 0 {
+		return "", errors.New("that save point is no longer in the chat log")
+	}
+	chat, work := points[c], &points[w]
+	if use.Work == "" {
+		work = nil
+	} else if !gitOK(t.repoDir(), "cat-file", "-e", work.Mark.Commit+"^{commit}") {
+		return "", errors.New("the commit that point was made at is no longer in the workspace")
+	}
+	// Two points apart, the agent's memory and the tree in front of it no
+	// longer agree, and it has to be told which way.
+	prompt := ""
+	if c != w {
+		prompt = pointPrompt(w > c)
 	}
 	if use.Fork {
-		return t.fork(point, log, at, use)
+		return t.fork(chat, work, log, prompt)
 	}
-	if err := t.revert(point, log[:at], use); err != nil {
+	if err := t.revert(chat, work, log[:chat.at], prompt); err != nil {
 		return t.tid, err
 	}
 	t.lock()
-	t.offerDraftL(nextPrompt(log[at:]))
+	t.offerDraftL(nextPrompt(log[chat.at:]))
 	t.unlock()
 	return t.tid, nil
 }
 
-// revert puts this task back to the point: the working tree and the steps to
-// the step it holds and HEAD to that step's base, the agent's memory to the
-// length it had, and the log to the entry itself — whichever of those was
-// asked for. What it undoes is gone: this is the dashboard's one destructive
-// action that no bundle or archive keeps a copy of.
+// revert puts this task back: the agent's memory to the length it had at the
+// chat point and the log to that entry itself, and the working tree and the
+// steps to the step the work point holds and HEAD to that step's base. What
+// it undoes is gone: this is the dashboard's one destructive action that no
+// bundle or archive keeps a copy of.
 //
 // The workspace is moved rather than made anew, so what is in it but not in
 // git — an ignored build directory, installed dependencies — is still there
 // afterwards, which is most of why reverting is quick.
-func (t *Task) revert(point *ChatEntry, upTo []byte, use Use) error {
+func (t *Task) revert(chat chatPoint, work *chatPoint, upTo []byte, prompt string) error {
 	// Before anything is cut: an agent still running would write on past the
 	// truncation, and would keep the memory this is undoing besides.
 	t.stopAgent()
-	if use.Work {
-		if err := t.checkoutStep(t.repoDir(), point.Mark.Commit); err != nil {
+	if work != nil {
+		if err := t.checkoutStep(t.repoDir(), work.Mark.Commit); err != nil {
 			return err
 		}
 	}
-	if use.Chat {
-		agent, _ := t.agent()
-		if err := rewindTranscripts(agent, t.agentDir(agent), point.Mark.Sessions); err != nil {
-			return err
-		}
-		t.chatMu.Lock()
-		err := os.WriteFile(t.chatFile(), upTo, 0o644)
-		t.chatMu.Unlock()
-		if err != nil {
-			return err
-		}
-		t.loadChat()
+	agent, _ := t.agent()
+	if err := rewindTranscripts(agent, t.agentDir(agent), chat.Mark.Sessions); err != nil {
+		return err
 	}
+	t.chatMu.Lock()
+	err := os.WriteFile(t.chatFile(), upTo, 0o644)
+	t.chatMu.Unlock()
+	if err != nil {
+		return err
+	}
+	t.loadChat()
 	t.lock()
 	// The commit message is not put back here: it is a file of the tree the
 	// point holds, and the refresh below reads and publishes it (see
 	// commitMessageFile) — and with it whether the work is ready.
 	t.info.Pending = nil // what was waiting was waiting for a turn that is now undone
-	if use.Chat {
-		// A point from before the agent ever ran leaves no session to resume.
-		t.info.Started = len(point.Mark.Sessions) > 0
-		t.info.Context = 0 // the conversation is another length now; the next turn measures it
-	}
-	if use.explains() {
-		t.queueL("point", pointPrompt(use))
+	// A point from before the agent ever ran leaves no session to resume.
+	t.info.Started = len(chat.Mark.Sessions) > 0
+	t.info.Context = 0 // the conversation is another length now; the next turn measures it
+	if prompt != "" {
+		t.queueL("point", prompt)
 	}
 	t.setPhaseL(PhaseHuman)
 	t.unlock()
 	// The one record of a revert there is, the rest having just been cut away.
-	what := "the conversation and the working tree are"
-	if !use.Work {
-		what = "the conversation is"
-	} else if !use.Chat {
-		what = "the working tree is"
+	tree := "the working tree as it stood"
+	if work != nil && work.ID == chat.ID {
+		tree = "the working tree too"
+	} else if work != nil {
+		tree = fmt.Sprintf("the working tree to %q", work.Text)
 	}
-	t.note(fmt.Sprintf("put back to %q: %s as at that point, and what came after is gone", point.Text, what))
+	t.note(fmt.Sprintf("put back to %q, %s; what came after is gone", chat.Text, tree))
 	go t.refreshChanges()
 	return nil
 }
@@ -465,11 +478,9 @@ func (p *Project) newForkL(src *TaskInfo, title string) *Task {
 }
 
 // fork is the same rewind, done to a copy: a new task in the same project that
-// starts where this one is, with whichever of the two put back to the point.
-// This task is left exactly as it is — a fork is the answer to "what if",
-// where reverting is "no".
-func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, error) {
-	mark := point.Mark
+// starts where this one is, put back to the points. This task is left exactly
+// as it is — a fork is the answer to "what if", where reverting is "no".
+func (t *Task) fork(chat chatPoint, work *chatPoint, log []byte, prompt string) (string, error) {
 	t.lock()
 	src := *t.info
 	title := t.p.forkTitleL(src.Title)
@@ -483,8 +494,10 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	// the fork's log keeps are ones it can go back to. The tree left alone is
 	// this task's as it stands, made a step of the fork's own on top of the
 	// last one; the point's step is what rewinding it means.
-	repo, tip := t.repoDir(), mark.Commit
-	if !use.Work {
+	repo, tip := t.repoDir(), ""
+	if work != nil {
+		tip = work.Mark.Commit
+	} else {
 		tree, err := writeTree(repo)
 		if err != nil {
 			return f.tid, err
@@ -502,10 +515,7 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	}
 	// The log the fork opens on, and what the user attached, which it refers to
 	// by the path those files are read at.
-	if !use.Chat {
-		at = len(log)
-	}
-	if err := os.WriteFile(f.chatFile(), log[:at], 0o644); err != nil {
+	if err := os.WriteFile(f.chatFile(), log[:chat.at], 0o644); err != nil {
 		return f.tid, err
 	}
 	if err := copyTree(t.uploadsDir(), f.uploadsDir()); err != nil {
@@ -515,16 +525,14 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	if err := copyTree(t.agentDir(agent), f.agentDir(agent)); err != nil {
 		return f.tid, err
 	}
-	if use.Chat {
-		if err := rewindTranscripts(agent, f.agentDir(agent), mark.Sessions); err != nil {
-			return f.tid, err
-		}
+	if err := rewindTranscripts(agent, f.agentDir(agent), chat.Mark.Sessions); err != nil {
+		return f.tid, err
 	}
 	f.lock()
 	f.info.Started = len(f.transcripts(agent)) > 0
 	f.p.m.saveL()
 	f.unlock()
-	f.note(fmt.Sprintf("forked from %q, at its save point %q", src.Title, oneLine(point.Text, 60)))
+	f.note(fmt.Sprintf("forked from %q, at its save point %q", src.Title, oneLine(chat.Text, 60)))
 	if err := f.ensureWorkspace(); err != nil {
 		return f.tid, err
 	}
@@ -532,10 +540,10 @@ func (t *Task) fork(point *ChatEntry, log []byte, at int, use Use) (string, erro
 	// Unbundling left the note a parked task gets when it is picked back up;
 	// this is a fork, and what it is comes from pointPrompt instead.
 	f.dropPendingL("reopened")
-	if use.explains() {
-		f.queueL("point", pointPrompt(use))
+	if prompt != "" {
+		f.queueL("point", prompt)
 	}
-	f.offerDraftL(nextPrompt(log[at:]))
+	f.offerDraftL(nextPrompt(log[chat.at:]))
 	f.unlock()
 	f.loadChat()
 	t.note(fmt.Sprintf("forked from this point into %q", title))
