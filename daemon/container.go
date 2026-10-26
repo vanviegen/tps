@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -392,14 +393,22 @@ func podmanRun(args []string) error {
 // asked rather than the host searched for a package, and only a podman that
 // answers and names no server counts as a no — the `podman` a TPS running in a
 // TPS task has is the docker CLI in disguise (see Containerfile.dev) and knows
-// nothing of this, which is not the host's failing.
+// nothing of this, which is not the host's failing. A pass is remembered, as
+// `podman info` takes a while and the server does not go away; a failure is
+// asked again, so installing the package is all it takes.
 func checkNetworkDNS() error {
+	if networkDNSFound.Load() {
+		return nil
+	}
 	r, err := runCmd([]string{"podman", "info", "--format", "{{.Host.NetworkBackendInfo.DNS.Path}}"}, RunOpts{Timeout: 30 * time.Second})
 	if err != nil || strings.TrimSpace(r.Out) != "" {
+		networkDNSFound.Store(true)
 		return nil
 	}
 	return errors.New("this host's podman has no DNS server for container networks: install the aardvark-dns package")
 }
+
+var networkDNSFound atomic.Bool
 
 // nameTaken reports whether podman refused to start the container because
 // another one has its name.
@@ -554,11 +563,12 @@ func (c *Container) StartCode() error {
 	if _, err := runCmd([]string{"podman", "exec", "-d", c.Name, "sh", "-c", codeScript}, RunOpts{}); err != nil {
 		return err
 	}
-	for i := 0; i < 120; i++ {
+	// It answers within a second or so: asked often, so VS Code shows as soon as it can.
+	for i := 0; i < 600; i++ {
 		if codeAlive(c.CodePort) {
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("code-server in %s did not come up", c.Name)
 }
