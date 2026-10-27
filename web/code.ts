@@ -134,13 +134,19 @@ document.addEventListener('focusin', e => {
 /**
  * VS Code puts the focus in itself as it starts, its editor or its terminal,
  * which would take it from wherever on the page it was — the composer, most
- * often. Only the user moves it into the frame: anything else has it handed
- * straight back.
+ * often. Only the user moves it into the frame: until they do, its elements'
+ * focus() does nothing, which VS Code only calls once the frame has loaded.
+ * Focus getting in some other way is handed straight back, though keystrokes
+ * typed meanwhile are lost to it.
  */
 function keepFocus(el: HTMLIFrameElement): void {
 	try {
-		const win = el.contentWindow!;
+		const win = el.contentWindow as any;
 		win.addEventListener('pointerdown', () => { reached = true; }, true);
+		const focus = win.HTMLElement.prototype.focus;
+		win.HTMLElement.prototype.focus = function (this: HTMLElement, ...args: unknown[]) {
+			if (reached) focus.apply(this, args);
+		};
 		win.addEventListener('focus', () => {
 			// Not from within the focus event, which the focus is still moving in.
 			if (!reached) setTimeout(() => { if (pageFocus?.isConnected) pageFocus.focus(); });
