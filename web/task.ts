@@ -85,7 +85,7 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 		// workspace yet, or a scratch task — has no choice to ask about: it is
 		// closed.
 		const mergeable = hasWorkspace($t) && !$state.projects[pid]?.scratch;
-		if (mergeable && $t.phase !== 'plan' && $t.changes?.length !== 0) {
+		if (mergeable && $t.changes?.length !== 0) {
 			doneDialog(pid, tid, $t);
 			return false;
 		}
