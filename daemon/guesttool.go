@@ -91,11 +91,11 @@ for anything that serves or takes a while: dev servers, test suites, builds.
   ask-human <question> [--option <label>]... [--input] [--secret]
             [--service <name>] [--port <port>]
                            Not a service: put a question to the user in the
-                           dashboard, and wait for the answer — to have them
-                           look at something or decide, or for a script that
-                           needs a human's judgment or input, such as a test
-                           whose screenshots someone has to accept, or a
-                           deploy that wants a one-time password. Each option
+                           dashboard, and wait for the answer: for a script
+                           that needs a human's judgment or input, such as a
+                           test whose screenshots someone has to accept, or a
+                           deploy that wants a one-time password. An agent
+                           asks its questions in the chat instead. Each option
                            is a button; the exit code is the index of the one
                            pressed (so the first means yes), and its label is
                            printed. --input adds a text field, whose text is
