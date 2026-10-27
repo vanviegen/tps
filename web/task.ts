@@ -659,7 +659,9 @@ function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
 	const options = ask.options?.length ? ask.options : ask.input ? ['Send'] : [];
 	A('div.s-s.warning.tonal p:$2 display:flex flex-direction:column gap:$2', () => {
 		A('div font-weight:600 white-space:pre-wrap text=', ask.question);
-		if (ask.input) S.textline({ type: ask.secret ? 'password' : 'text', placeholder: 'Your answer', bind: A.ref($form, 'text') });
+		if (ask.input) S.textline({ type: ask.secret ? 'password' : 'text', placeholder: 'Your answer', bind: A.ref($form, 'text'),
+			// The field would fill with the strip's colour: let the tint show through.
+			inputAttrs: 'background:transparent' });
 		A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
 			if (ask.port) A(() => {
 				const p = ($t.ports ?? []).find((p: any) => p.port === ask.port);
@@ -667,7 +669,7 @@ function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
 					tooltip: p ? undefined : `Port ${ask.port} is not forwarded: Containerfile.dev needs an EXPOSE line for it`,
 					click: () => window.open(portUrl(p), '_blank') });
 			});
-			options.forEach((label, i) => S.button({ content: label, attrs: i ? '.small .neutral' : '.small', click: () => answer(i) }));
+			options.forEach((label, i) => S.button({ content: label, attrs: (i ? '.small .neutral' : '.small') + ' white-space:normal text-align:left', click: () => answer(i) }));
 			if (ask.service) A('span fg:$s-muted font-size:0.9em text=', `${options.length ? 'Or answered' : 'Answered'} by the service ${ask.service} when it exits`);
 		});
 	});
