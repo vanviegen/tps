@@ -74,7 +74,7 @@ func (t *Task) StartReview() error {
 func (t *Task) beginReview() {
 	base, err := t.base(t.repoDir(), "HEAD")
 	if err != nil {
-		t.noteErr("the automated review needs the commit this task grew from, and could not read it", err)
+		t.noteErr("The automated review needs the commit this task grew from, and could not read it", err)
 		t.lock()
 		t.setPhaseL(PhaseHuman)
 		t.unlock()
@@ -98,7 +98,7 @@ func (t *Task) beginReview() {
 	// The note carries the whole of what the reviewer is given, so that the
 	// one thing in the log with no conversation behind it can still be read in
 	// full: opening it is how you see what this verdict was formed on.
-	t.note("reading the work over: automated review", reviewSystem+"\n\n"+prompt)
+	t.note("Reading the work over: automated review", reviewSystem+"\n\n"+prompt)
 	t.kick(prompt)
 }
 
@@ -111,7 +111,7 @@ func (t *Task) finishReview(end TurnEnd) {
 		// strength of a review that never ran is the one thing this must not
 		// do: the task goes to the user, who can send it back in, merge it
 		// anyway, or see to what stopped the reviewer.
-		t.note("the automated review did not run (" + why + "); the task is yours")
+		t.note("The automated review did not run (" + why + "); the task is yours")
 		t.mark("Review", "did not run")
 		t.lock()
 		t.setPhaseL(PhaseHuman)
@@ -131,13 +131,13 @@ func (t *Task) finishReview(end TurnEnd) {
 			loop, loops := t.info.ReviewLoop, reviewLoops(t.info.ReviewLoops)
 			t.setPhaseL(PhaseAgent) // the work is the agent's again, so the kick below sends it in
 			t.unlock()
-			t.note(fmt.Sprintf("the review asks for changes; sending the agent back in (%d of %d)", loop, loops))
+			t.note(fmt.Sprintf("The review asks for changes; sending the agent back in (%d of %d)", loop, loops))
 			t.kick(reviewFeedbackPrompt(text))
 			return
 		}
 		t.setReviewL(reviewFeedbackPrompt(text))
 		t.offerDraftL(t.info.Review)
-		t.note("the review asks for changes; they are waiting in the message box")
+		t.note("The review asks for changes; they are waiting in the message box")
 		if t.overBudgetL() {
 			t.noteBudgetL()
 		}
@@ -147,11 +147,11 @@ func (t *Task) finishReview(end TurnEnd) {
 	}
 	if t.onAcceptL() == AnswerMerge {
 		t.unlock()
-		t.note("the review accepts the work; merging")
+		t.note("The review accepts the work; merging")
 		_ = t.Merge("")
 		return
 	}
-	t.note("the review accepts the work")
+	t.note("The review accepts the work")
 	t.setPhaseL(PhaseHuman)
 	t.unlock()
 }

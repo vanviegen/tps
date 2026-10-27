@@ -43,7 +43,7 @@ func credentialsFile() string { return filepath.Join(authDir(), ".credentials.js
 // noLogin is what is said wherever a missing or rejected login stops claude:
 // the host's state, a task's chat, a review that did not run. The dashboard
 // puts the button that signs in beside it.
-const noLogin = "claude needs signing in on this host"
+const noLogin = "Claude needs signing in on this host"
 
 // publishLogin tells the dashboards whether this host has a login to run on.
 // A login that is there but no longer accepted counts as none: the dashboards

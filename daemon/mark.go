@@ -252,7 +252,7 @@ func (t *Task) mark(by, summary string) error {
 	}
 	head, made, err := t.step(t.repoDir(), message)
 	if err != nil {
-		t.noteErr("committing the work so far failed, so no save point was made", err)
+		t.noteErr("Committing the work so far failed, so no save point was made", err)
 		return err
 	}
 	if !made && (by == "Human" || by == "Rebase") {
@@ -429,7 +429,7 @@ func (t *Task) revert(chat chatPoint, work *chatPoint, upTo []byte, prompt strin
 	} else if work != nil {
 		tree = fmt.Sprintf("the working tree to %q", work.Text)
 	}
-	t.note(fmt.Sprintf("put back to %q, %s; what came after is gone", chat.Text, tree))
+	t.note(fmt.Sprintf("Put back to %q, %s; what came after is gone", chat.Text, tree))
 	go t.refreshChanges()
 	return nil
 }
@@ -532,7 +532,7 @@ func (t *Task) fork(chat chatPoint, work *chatPoint, log []byte, prompt string) 
 	f.info.Started = len(f.transcripts(agent)) > 0
 	f.p.m.saveL()
 	f.unlock()
-	f.note(fmt.Sprintf("forked from %q, at its save point %q", src.Title, oneLine(chat.Text, 60)))
+	f.note(fmt.Sprintf("Forked from %q, at its save point %q", src.Title, oneLine(chat.Text, 60)))
 	if err := f.ensureWorkspace(); err != nil {
 		return f.tid, err
 	}
@@ -546,7 +546,7 @@ func (t *Task) fork(chat chatPoint, work *chatPoint, log []byte, prompt string) 
 	f.offerDraftL(nextPrompt(log[chat.at:]))
 	f.unlock()
 	f.loadChat()
-	t.note(fmt.Sprintf("forked from this point into %q", title))
+	t.note(fmt.Sprintf("Forked from this point into %q", title))
 	go f.refreshChanges()
 	return f.tid, nil
 }

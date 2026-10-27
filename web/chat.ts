@@ -123,7 +123,7 @@ function drawHidden(n: number, show: () => void): void {
 function drawRules(pid: string, tid: string, $t: any): void {
 	const prompt = $state.projects[pid]?.agentPrompt ?? $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
 	if (!prompt || isJob($t)) return; // no agent works in a job
-	drawEntry({ k: 'note', text: 'the rules the agent works under, above this whole conversation', detail: prompt }, pid, tid, $t);
+	drawEntry({ k: 'note', text: 'System message', detail: prompt }, pid, tid, $t);
 }
 
 /** A one-liner with more behind it: the whole row opens the detail dialog. */
@@ -367,7 +367,7 @@ function detailDialog($e: any, pid: string, tid: string, $t: any): void {
 		if ($e.k === 'tool') {
 			const fields = $e.req ?? ($e.detail ? oldFields($e.detail) : []);
 			section('Request', () => {
-				if (!fields.length) return void A('p p:$3 fg:$s-muted #(no input)');
+				if (!fields.length) return void A('p p:$3 fg:$s-muted #(No input)');
 				A('table', reqTable, () => {
 					for (const f of fields) A('tr', () => {
 						A('td text=', f.k);

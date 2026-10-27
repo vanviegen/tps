@@ -51,7 +51,7 @@ const (
 const (
 	idleShutdown  = 15 * time.Minute
 	containerfile = "Containerfile.dev"
-	idleNote      = "workspace idle, shutting down (your work is untouched)"
+	idleNote      = "Workspace idle, shutting down (your work is untouched)"
 )
 
 // Waiting out one of claude's usage limits (see armLimitL): the agent goes
@@ -735,7 +735,7 @@ func (t *Task) overBudgetL() bool {
 }
 
 func (t *Task) noteBudgetL() {
-	t.note(fmt.Sprintf("the task budget ($%g) is used up (spent $%.2f); raise it in the task settings to continue", *t.info.Budget, t.info.Spent))
+	t.note(fmt.Sprintf("The task budget ($%g) is used up (spent $%.2f); raise it in the task settings to continue", *t.info.Budget, t.info.Spent))
 	t.queueL("budget", budgetPrompt(*t.info.Budget, t.info.Spent))
 }
 
@@ -845,7 +845,7 @@ func (t *Task) Assign(to, text string) error {
 		return err
 	}
 	if err := t.freshen(); err != nil {
-		t.noteErr("bringing the workspace onto the latest "+t.p.defaultBranch+" failed", err)
+		t.noteErr("Bringing the workspace onto the latest "+t.p.defaultBranch+" failed", err)
 	}
 	// A point before the first word is said, so that the first word can be
 	// taken back like any other: rewinding to it empties the log and hands the
@@ -996,7 +996,7 @@ func (t *Task) kick(text string) {
 			t.stopSession(old)
 		}
 		if pickedUp {
-			t.note("picked up again: the workspace is a fresh clone of " + branch)
+			t.note("Picked up again: the workspace is a fresh clone of " + branch)
 		}
 		// The workspace is made before the container comes up on it. Anywhere
 		// but out of a finished task there is one already, and this is a
@@ -1332,7 +1332,7 @@ func (t *Task) Merge(message string) error {
 	t.unlock()
 	err := t.merge(repo, message)
 	if err != nil {
-		t.noteErr("merge failed", err)
+		t.noteErr("Merge failed", err)
 		t.lock()
 		if t.info.Phase == PhaseMerge {
 			t.setPhaseL(PhaseHuman)
@@ -1350,7 +1350,7 @@ func (t *Task) merge(repo, message string) error {
 		return err
 	}
 	if len(conflicts) > 0 || len(doubled) > 0 {
-		t.note(fmt.Sprintf("merging onto the latest %s needs a look at %s; sending the agent in", branch, strings.Join(append(conflicts, doubled...), ", ")))
+		t.note(fmt.Sprintf("Merging onto the latest %s needs a look at %s; sending the agent in", branch, strings.Join(append(conflicts, doubled...), ", ")))
 		t.kick(conflictPrompt(branch, conflicts, doubled)) // it comes back through onTurnEnd
 		return nil
 	}
@@ -1369,7 +1369,7 @@ func (t *Task) merge(repo, message string) error {
 		return err
 	}
 	if base, _ := git(repo, "rev-parse", "HEAD^{tree}"); base == tree {
-		t.landed("nothing to merge; task closed")
+		t.landed("Nothing to merge; task closed")
 		return nil
 	}
 	message, err = t.stamped(message)
@@ -1456,12 +1456,12 @@ func (t *Task) Rebase() error {
 	branch := t.p.defaultBranch
 	conflicts, doubled, err := t.replant(repo)
 	if err != nil {
-		t.noteErr("rebase failed", err)
+		t.noteErr("Rebase failed", err)
 		return err
 	}
 	t.queue("rebase", replantedPrompt(branch, doubled))
 	if len(conflicts) > 0 {
-		t.note(fmt.Sprintf("rebased onto the latest %s; conflicts in %s, sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
+		t.note(fmt.Sprintf("Rebased onto the latest %s; conflicts in %s, sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
 		t.lock()
 		// The agent's already, so that the merge is not made a step of the
 		// user's on the way in (see kick): its resolution is the step.
@@ -1470,7 +1470,7 @@ func (t *Task) Rebase() error {
 		t.kick(conflictsPrompt(conflicts))
 	} else {
 		t.mark("Rebase", "onto the latest "+branch)
-		t.note("rebased onto the latest " + branch + " ✔")
+		t.note("Rebased onto the latest " + branch + " ✔")
 	}
 	go t.refreshChanges()
 	return nil
@@ -1791,14 +1791,14 @@ func (t *Task) park() {
 				err = t.saveBundle(repo, tip, t.bundleFile())
 			}
 			if err != nil {
-				t.noteErr("keeping the work as a bundle failed", err) // the workspace stays: it is all there is of the work
+				t.noteErr("Keeping the work as a bundle failed", err) // the workspace stays: it is all there is of the work
 				return
 			}
 			if phase == PhaseClosed {
 				// A scratch task has no branch to be off of, and closing is the only way it ends.
-				closed, off := "closed without merging", ", off "+t.p.defaultBranch+","
+				closed, off := "Closed without merging", ", off "+t.p.defaultBranch+","
 				if t.p.info.Scratch {
-					closed, off = "closed", ""
+					closed, off = "Closed", ""
 				}
 				if exists(t.bundleFile()) {
 					t.note(closed + ": the work is kept" + off + " and comes back as it was when the task is picked up")
@@ -1894,7 +1894,7 @@ func (t *Task) ensureWorkspace() error {
 		if err := t.unbundle(t.repoDir()); err != nil {
 			return err
 		}
-		t.note("the task's work was put back as it was, save points and all")
+		t.note("The task's work was put back as it was, save points and all")
 		t.queue("reopened", reopenedPrompt(t.p.defaultBranch))
 	}
 	return nil
@@ -1913,7 +1913,7 @@ func (t *Task) dropWorkspace() error {
 	if err := rmTree(t.repoDir()); err != nil {
 		// The clone is out of the way regardless, so the task goes on: what could
 		// not be unlinked costs disk, which only the human can free.
-		t.note("workspace not fully removed: " + err.Error())
+		t.note("Workspace not fully removed: " + err.Error())
 	}
 	t.lock()
 	defer t.unlock()
@@ -1932,9 +1932,9 @@ func (t *Task) reopen() error {
 	from := t.info.Phase
 	t.setPhaseL(PhaseHuman) // first, so that park (which runs at startup too) leaves the task alone
 	t.unlock()
-	t.note("picked up again: the workspace is a fresh clone of " + t.p.defaultBranch)
+	t.note("Picked up again: the workspace is a fresh clone of " + t.p.defaultBranch)
 	if err := t.ensureWorkspace(); err != nil {
-		t.noteErr("workspace failed", err)
+		t.noteErr("Workspace failed", err)
 		t.lock()
 		t.setPhaseL(from)
 		t.unlock()
@@ -2158,7 +2158,7 @@ func (t *Task) clone() error {
 	// Something is in its place that is not a clone (see hasWorkspace): it is
 	// no workspace to anyone, and the path has to be free for git.
 	if exists(t.repoDir()) {
-		t.note("the workspace was not a git clone; making a fresh one")
+		t.note("The workspace was not a git clone; making a fresh one")
 		if err := rmTree(t.repoDir()); err != nil {
 			return err
 		}
@@ -2319,7 +2319,7 @@ func (t *Task) OpenInCode(path string) error {
 func (t *Task) bgUp() {
 	go func() {
 		if _, err := t.up(); err != nil {
-			t.noteErr("workspace failed", err)
+			t.noteErr("Workspace failed", err)
 		}
 	}()
 }
@@ -2365,10 +2365,10 @@ func (t *Task) doUp() (*Container, error) {
 		t.unlock()
 		return c, nil
 	}
-	t.setStatusL(StatusBuilding, "building container image")
+	t.setStatusL(StatusBuilding, "Building container image")
 	t.unlock()
 	if !toolboxInstalled() {
-		t.note("downloading code-server and claude for this host (once per TPS version)…")
+		t.note("Downloading code-server and claude for this host (once per TPS version)…")
 	}
 	toolbox, err := ensureToolbox()
 	if err != nil {
@@ -2386,7 +2386,7 @@ func (t *Task) doUp() (*Container, error) {
 		// cannot publish — is the host's, and another image would fail the same
 		// way, so the agent is not sent to fix a file that is fine. A job does
 		// not: it runs the branch's image or fails, and nobody fixes it in there.
-		t.note("building the image from Containerfile.dev failed; using the default image until it is fixed", err.Error())
+		t.note("Building the image from Containerfile.dev failed; using the default image until it is fixed", err.Error())
 		imageErr = err.Error()
 		cf = defaultContainerfile
 		c, err = t.start(cf, toolbox)
@@ -2435,7 +2435,7 @@ func (t *Task) fixImageL() {
 		return
 	}
 	go func() {
-		t.note("sending in the agent to fix Containerfile.dev")
+		t.note("Sending in the agent to fix Containerfile.dev")
 		t.kick(fixImagePrompt)
 	}()
 }
@@ -2453,7 +2453,7 @@ func isBuildErr(err error) bool {
 func (t *Task) start(cf, toolbox string) (*Container, error) {
 	tag := imageTag(cf)
 	if !imageExists(tag) {
-		t.note("building the dev container image; the first build takes a few minutes…")
+		t.note("Building the dev container image; the first build takes a few minutes…")
 	}
 	// The build's output tail, shown in place of VS Code while it runs; published
 	// a few times a second rather than per write, as every write resends it all.
@@ -2489,7 +2489,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 		return nil, buildErr{err}
 	}
 	t.lock()
-	t.setStatusL(StatusStarting, "starting container")
+	t.setStatusL(StatusStarting, "Starting container")
 	t.unlock()
 	_, caches := t.declarations(cf)
 	mounts, err := t.mounts(tag)
@@ -2537,10 +2537,10 @@ func (t *Task) Reload() error {
 		return errors.New("The agent is working; stop it before rebuilding the container")
 	}
 	go func() {
-		t.note("recreating the workspace container")
+		t.note("Recreating the workspace container")
 		t.down()
 		if _, err := t.up(); err != nil {
-			t.noteErr("workspace failed", err)
+			t.noteErr("Workspace failed", err)
 			return
 		}
 		t.queue("container", rebuiltPrompt)
@@ -2684,7 +2684,7 @@ func limitNote(until time.Time) string {
 	if time.Until(until) > 12*time.Hour {
 		when = until.Local().Format("Jan 2, 15:04 MST")
 	}
-	return "claude's usage limit is reached, so this turn did not run. The task stays with the " +
+	return "Claude's usage limit is reached, so this turn did not run. The task stays with the " +
 		"agent and goes back in by itself at " + when + "; until the limit resets, a message of " +
 		"your own would only run into it too."
 }
@@ -2699,7 +2699,7 @@ func (t *Task) resumeAfterLimit() {
 	}
 	t.clearLimitL()
 	t.unlock()
-	t.note("the usage limit should have reset; sending the agent back in")
+	t.note("The usage limit should have reset; sending the agent back in")
 	t.kick(limitPrompt)
 }
 
@@ -2831,7 +2831,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			t.unlock()
 			return
 		}
-		t.note("claude reports a usage limit that is not one to wait out here; the task is yours")
+		t.note("Claude reports a usage limit that is not one to wait out here; the task is yours")
 	}
 	t.limitWaits = 0
 	// No summary: send the agent back in for one, unless the turn failed on its
@@ -2839,7 +2839,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	if summary == "" && !end.Failed && !t.overBudgetL() && t.summaryNudges < maxSummaryNudges {
 		t.summaryNudges++
 		t.unlock()
-		t.note("the agent's turn ended without a summary; asking for one")
+		t.note("The agent's turn ended without a summary; asking for one")
 		t.kick(summaryPrompt)
 		return
 	}
@@ -2849,13 +2849,13 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			if t.overBudgetL() {
 				t.noteBudgetL()
 			}
-			t.note("merge paused: the agent took back its commit message")
+			t.note("Merge paused: the agent took back its commit message")
 			t.endRunL(summary)
 			return
 		}
 		t.unlock()
 		t.mark("Agent", summary) // the resolution is its step, not the user's (see replant)
-		t.note("the agent is done; merging")
+		t.note("The agent is done; merging")
 		_ = t.Merge("")
 		return
 	}
@@ -2876,7 +2876,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		case t.onReadyL() == AnswerMerge:
 			t.unlock()
 			t.mark("Agent", summary) // its step, not the user's (see replant)
-			t.note("the agent reports the task is ready; merging")
+			t.note("The agent reports the task is ready; merging")
 			_ = t.Merge("")
 			return
 		}
@@ -2919,7 +2919,7 @@ func (t *Task) onSessionExit(s Session, code int, errTail string) {
 			t.p.m.loginExpired()
 			t.note(loginNote)
 		} else if code != 0 {
-			t.note(fmt.Sprintf("the agent exited unexpectedly (%d)", code), errTail)
+			t.note(fmt.Sprintf("The agent exited unexpectedly (%d)", code), errTail)
 			// Whatever it had got to is in the tree and nowhere else; a point
 			// of its own is what makes it something to come back to.
 			go t.mark("Agent", "the agent exited part-way")

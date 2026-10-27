@@ -150,7 +150,7 @@ func (p *Project) trainRound(batch []*Task) {
 		log := serviceLogTail(jt.servicesDir(), checkService)
 		if !passed {
 			if len(riders) > 1 {
-				jt.note(fmt.Sprintf("the check of %s did not pass (%s); checking them one at a time", names, why), log)
+				jt.note(fmt.Sprintf("The check of %s did not pass (%s); checking them one at a time", names, why), log)
 				p.m.mu.Lock()
 				for _, t := range riders {
 					p.alone[t.tid] = true
@@ -158,14 +158,14 @@ func (p *Project) trainRound(batch []*Task) {
 				p.m.mu.Unlock()
 				return
 			}
-			jt.note(fmt.Sprintf("the check of %s did not pass (%s)", names, why), log)
+			jt.note(fmt.Sprintf("The check of %s did not pass (%s)", names, why), log)
 			p.m.mu.Lock()
 			delete(p.alone, riders[0].tid)
 			p.m.mu.Unlock()
 			riders[0].mergeTestFailed(why, log)
 			return
 		}
-		jt.note(fmt.Sprintf("the check of %s passed ✔", names), log)
+		jt.note(fmt.Sprintf("The check of %s passed ✔", names), log)
 		if accepted {
 			// Stamped as the last task's, so that it is part of that task's
 			// landing on the board, and deploying up to it deploys what was accepted.
@@ -177,7 +177,7 @@ func (p *Project) trainRound(batch []*Task) {
 				_, err = git(repo, "commit", "--quiet", "--no-verify", "-m", message)
 			}
 			if err != nil {
-				jt.noteErr("committing what was accepted failed", err)
+				jt.noteErr("Committing what was accepted failed", err)
 			}
 		}
 	}
@@ -206,7 +206,7 @@ func (p *Project) trainRound(batch []*Task) {
 	}
 	p.m.mu.Unlock()
 	for _, t := range riders {
-		t.landed("merged into " + branch + " ✔")
+		t.landed("Merged into " + branch + " ✔")
 	}
 	jt.note(fmt.Sprintf("%s merged into %s ✔", names, branch))
 	p.deployAfterMerge()
@@ -215,9 +215,9 @@ func (p *Project) trainRound(batch []*Task) {
 // trainFailed hands the tasks back to their humans: the train cannot take
 // them, for reasons of its own rather than theirs.
 func (p *Project) trainFailed(tasks []*Task, err error) {
-	p.jobTask(trainTid).noteErr("the merge train failed", err)
+	p.jobTask(trainTid).noteErr("The merge train failed", err)
 	for _, t := range tasks {
-		t.noteErr("the merge train failed; the task is yours", err)
+		t.noteErr("The merge train failed; the task is yours", err)
 		t.lock()
 		if t.info.Phase == PhaseMerge {
 			t.setPhaseL(PhaseHuman)
@@ -231,7 +231,7 @@ func (p *Project) trainFailed(tasks []*Task, err error) {
 // stays in the merge phase, so the agent's turn ends in another merge.
 func (t *Task) mergeTestFailed(why, log string) {
 	branch := t.p.defaultBranch
-	t.note("its merge into the latest "+branch+" did not pass the check ("+why+"); sending the agent in", log)
+	t.note("Its merge into the latest "+branch+" did not pass the check ("+why+"); sending the agent in", log)
 	t.kick(mergeTestPrompt(branch, why, log))
 }
 

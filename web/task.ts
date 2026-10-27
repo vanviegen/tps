@@ -591,14 +591,14 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				if ($state.projects[pid]?.scratch) return; // there was nothing to merge it into
 				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 				A('div.s-s.warning.tonal p:$2 text=', $t.changes?.length
-					? `⚠ closed without merging: nothing of this task is on ${branch}; its work is kept.`
-					: `⚠ closed without merging: nothing of this task is on ${branch}.`);
+					? `⚠ Closed without merging: nothing of this task is on ${branch}; its work is kept.`
+					: `⚠ Closed without merging: nothing of this task is on ${branch}.`);
 				return;
 			}
 			if ($t.phase === 'done') {
 				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 				A('div.s-s.success.tonal p:$2 text=',
-					`✔ merged into ${branch}. Messaging the agent picks the task back up: it keeps everything it `
+					`✔ Merged into ${branch}. Messaging the agent picks the task back up: it keeps everything it `
 					+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
 				return;
 			}
@@ -606,7 +606,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			// holds it back too.
 			if (autoStarts($t)) {
 				const also = waitingFor(pid, $t).length ? ', and once you close this plan' : '';
-				A('div.s-s.warning.tonal p:$2 text=', `⏳ This task ${taskActivity(pid, $t).text}${also}.`);
+				A('div.s-s.warning.tonal p:$2 text=', `⏳ ${taskActivity(pid, $t).text}${also}.`);
 			}
 			if ($t.phase === 'plan') {
 				A('div.s-s.neutral.tonal p:$2 #Write the plan below, kept as you type it: sending it hands the task to the agent.');
@@ -619,13 +619,13 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			// any other. A message half written wins (see offerDraftL in
 			// daemon/task.go).
 			if ($t.review) {
-				A('div.s-s.warning.tonal p:$2 #⚠ the automated review asks for changes; they are in the message box below, to send on, reword or clear');
+				A('div.s-s.warning.tonal p:$2 #⚠ The automated review asks for changes; they are in the message box below, to send on, reword or clear');
 			}
 		});
 		// Asked mid-turn: the agent waits on the answer, whatever the phase says.
 		A(() => {
 			if (!$t.openrouterAsk) return;
-			drawStrip('warning', `⚠ the agent asks for $${$t.openrouterAsk} of OpenRouter spending, beyond the task’s OpenRouter budget`,
+			drawStrip('warning', `⚠ The agent asks for $${$t.openrouterAsk} of OpenRouter spending, beyond the task’s OpenRouter budget`,
 				() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
@@ -836,7 +836,7 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
 			}});
 		} else {
 			S.box({ attrs: 'max-height:100%', contentAttrs: 'display:flex flex-direction:column flex:1 min-height:0', content: () => {
-				A('p m:0 text=', `${$t.status === 'up' ? 'starting VS Code' : taskActivity(pid, $t).text}…`);
+				A('p m:0 text=', `${$t.status === 'up' ? 'Starting VS Code' : taskActivity(pid, $t).text}…`);
 				drawLog(() => $t.buildLog || '');
 			}});
 		}

@@ -117,10 +117,10 @@ func (t *Task) checkORRequestL() {
 	case err != nil || amount <= 0:
 		writeORAnswer(dir, orAnswer{Error: "the request names no amount of USD"})
 	case t.p.m.orKey == "":
-		t.note("the agent asked for OpenRouter access, which this host has no management key for")
+		t.note("The agent asked for OpenRouter access, which this host has no management key for")
 		writeORAnswer(dir, orAnswer{Error: "this host has no OpenRouter management key, so TPS cannot make keys here"})
 	case amount > t.orRoomL()+0.005:
-		t.note(fmt.Sprintf("the agent asks for $%g of OpenRouter spending, more than the task's OpenRouter budget has left", amount))
+		t.note(fmt.Sprintf("The agent asks for $%g of OpenRouter spending, more than the task's OpenRouter budget has left", amount))
 		t.info.ORAsk = amount
 		t.p.m.saveL()
 		t.publishL()
@@ -195,7 +195,7 @@ func (t *Task) grantOpenRouter(amount float64) {
 	defer t.unlock()
 	t.orBusy = false
 	if err != nil {
-		t.noteErr("making or raising the OpenRouter key failed", err)
+		t.noteErr("Making or raising the OpenRouter key failed", err)
 		writeORAnswer(t.servicesDir(), orAnswer{Error: err.Error()})
 		return
 	}
@@ -204,7 +204,7 @@ func (t *Task) grantOpenRouter(amount float64) {
 	t.p.m.saveL()
 	t.publishL()
 	writeORAnswer(t.servicesDir(), orAnswer{Key: k.Key, Limit: k.Limit})
-	t.note(fmt.Sprintf("the agent's OpenRouter key allows $%g more, $%g in all", amount, k.Limit))
+	t.note(fmt.Sprintf("The agent's OpenRouter key allows $%g more, $%g in all", amount, k.Limit))
 }
 
 // openRouter is the tool's side: ask for a key and wait for the answer. A

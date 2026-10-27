@@ -52,21 +52,21 @@ export function hostState(hid: string, $h: any): HostState {
 	}
 	switch ($h?.status ?? 'connecting') {
 		case 'connected': break;
-		case 'connecting': return { color: 'neutral', icon: plug, text: 'connecting…', ok: false };
-		case 'updating': return { color: 'neutral', icon: download, text: 'updating the daemon…', ok: false };
-		case 'stopped': return { color: 'neutral', icon: serverOff, text: 'the daemon is stopped', ok: false, action: connect };
+		case 'connecting': return { color: 'neutral', icon: plug, text: 'Connecting…', ok: false };
+		case 'updating': return { color: 'neutral', icon: download, text: 'Updating the daemon…', ok: false };
+		case 'stopped': return { color: 'neutral', icon: serverOff, text: 'The daemon is stopped', ok: false, action: connect };
 		default: return { color: 'danger', icon: serverCrash, text: `${$h.status}${$h.error ? ' · ' + $h.error : ''}`, ok: false, action: connect };
 	}
 	// Connected: whatever the daemon there has to say for itself.
 	if ($h.signingIn) return { color: 'warning', icon: keyRound, text: $h.signin, ok: false, action: { label: 'Sign in', run: () => signInDialog(hid) } };
 	if ($h.signin || $h.login) return { color: 'warning', icon: keyRound, text: $h.signin || $h.login, ok: false, action: { label: 'Sign in', run: () => void signIn(hid) } };
 	if ($h.warning) return { color: 'warning', icon: triangleAlert, text: $h.warning, ok: false };
-	if ($h.restarting) return { color: 'neutral', icon: refreshCw, text: 'the daemon restarts into this build once nothing is running', ok: false };
+	if ($h.restarting) return { color: 'neutral', icon: refreshCw, text: 'The daemon restarts into this build once nothing is running', ok: false };
 	if ($h.updatable) {
-		return { color: 'neutral', icon: download, text: 'the daemon runs another build of TPS', ok: false,
+		return { color: 'neutral', icon: download, text: 'The daemon runs another build of TPS', ok: false,
 			action: { label: 'Update daemon', run: () => void cmd('updateDaemon', { hid }) } };
 	}
-	return { color: 'success', icon: hostIcon(hid), text: 'connected', ok: true };
+	return { color: 'success', icon: hostIcon(hid), text: 'Connected', ok: true };
 }
 
 /** The ink a state's colour is written in: there is no $s-neutral, and none is wanted. */
@@ -95,7 +95,7 @@ export function drawHostPage(hid: string): void {
 						// Where it is, unless its name says that already.
 						const where = hid === 'local' ? 'This machine' : $h.dest ?? hid;
 						if (where !== hostName(hid)) A('text=', where + ' · ');
-						A(`span fg:${hostInk(state.color)} text=`, state.ok ? 'connected' : state.color === 'neutral' ? state.text : 'needs attention');
+						A(`span fg:${hostInk(state.color)} text=`, state.ok ? 'Connected' : state.color === 'neutral' ? state.text : 'Needs attention');
 					});
 				});
 				const scratch = scratchOf(hid);

@@ -235,20 +235,20 @@ function limitTime(ms: number): string {
 
 /** What the workspace is up to (or what the task waits for), as text plus a color role. */
 export function taskActivity(pid: string, $t: any): { text: string; color: string } {
-	if ($t.limitUntil) return { text: `waits for claude's usage limit, back at ${limitTime($t.limitUntil)}`, color: 'warning' };
+	if ($t.limitUntil) return { text: `Waits for claude's usage limit, back at ${limitTime($t.limitUntil)}`, color: 'warning' };
 	if (autoStarts($t)) {
 		const pending = waitingFor(pid, $t);
-		if (!pending.length) return { text: 'starts once its plan is closed', color: 'warning' };
+		if (!pending.length) return { text: 'Starts once its plan is closed', color: 'warning' };
 		const what = pending.length > 1 ? `${pending.length} tasks` : taskName(pid, pending[0]);
-		return { text: `starts after ${what}`, color: 'warning' };
+		return { text: `Starts after ${what}`, color: 'warning' };
 	}
 	switch ($t.status) {
-		case 'building': return { text: 'building the container image', color: 'warning' };
-		case 'starting': return { text: 'starting the container', color: 'warning' };
-		case 'stopping': return { text: 'shutting down', color: 'warning' };
-		case 'up': return { text: 'container up', color: 'success' };
-		case 'error': return { text: `workspace error${$t.statusDetail ? ': ' + $t.statusDetail : ''}`, color: 'danger' };
-		default: return { text: 'container down', color: 'muted' };
+		case 'building': return { text: 'Building the container image', color: 'warning' };
+		case 'starting': return { text: 'Starting the container', color: 'warning' };
+		case 'stopping': return { text: 'Shutting down', color: 'warning' };
+		case 'up': return { text: 'Container up', color: 'success' };
+		case 'error': return { text: `Workspace error${$t.statusDetail ? ': ' + $t.statusDetail : ''}`, color: 'danger' };
+		default: return { text: 'Container down', color: 'muted' };
 	}
 }
 
@@ -416,7 +416,8 @@ export async function cmd(name: string, args?: object): Promise<any> {
 	try {
 		return await send(name, args) ?? true;
 	} catch (e) {
-		S.toast({ title: name, message: (e as Error).message, type: 'danger', duration: 10_000 });
+		const { message } = e as Error; // Go's errors start in lower case
+		S.toast({ title: name, message: message.charAt(0).toUpperCase() + message.slice(1), type: 'danger', duration: 10_000 });
 		return undefined;
 	}
 }

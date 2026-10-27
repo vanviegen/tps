@@ -114,9 +114,9 @@ func (t *Task) recordTest(at int64) {
 	t.unlock()
 	log := serviceLogTail(t.servicesDir(), checkService)
 	if passed {
-		t.note("check passed ✔ on the work as it stands", log)
+		t.note("Check passed ✔ on the work as it stands", log)
 	} else {
-		t.note("check did not pass: "+why, log)
+		t.note("Check did not pass: "+why, log)
 	}
 }
 

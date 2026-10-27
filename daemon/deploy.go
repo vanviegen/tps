@@ -84,7 +84,7 @@ func (p *Project) runDeploy() {
 // whether that went through.
 func (p *Project) deployOnce(jt *Task, commit string) bool {
 	fail := func(what string, detail ...string) bool {
-		jt.note("deploy failed: "+what, detail...)
+		jt.note("Deploy failed: "+what, detail...)
 		jt.setJobPhase(PhaseHuman)
 		return false
 	}
@@ -109,7 +109,7 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	case *s.Code != 0:
 		return fail(fmt.Sprintf("exit code %d", *s.Code), log)
 	}
-	jt.note("deployed ✔", log)
+	jt.note("Deployed ✔", log)
 	p.deployed(sha)
 	jt.setJobPhase(PhaseDone)
 	return true

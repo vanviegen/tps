@@ -191,7 +191,7 @@ func (t *Task) syncAsksL() {
 	}
 	for _, a := range asks {
 		if !known[a.ID] {
-			t.note("asks you: " + a.Question)
+			t.note("Asks you: " + a.Question)
 		}
 	}
 	t.asks = asks
@@ -215,7 +215,7 @@ func (t *Task) AnswerAsk(id string, option int, text string) error {
 		t.unlock()
 		return errors.New("That question is not open any more")
 	}
-	said := "answered"
+	said := "Answered"
 	if option >= 0 && option < len(req.Options) {
 		said += ": " + req.Options[option]
 	}
