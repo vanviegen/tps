@@ -608,10 +608,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				const also = waitingFor(pid, $t).length ? ', and once you close this plan' : '';
 				A('div.s-s.warning.tonal p:$2 text=', `⏳ ${taskActivity(pid, $t).text}${also}.`);
 			}
-			if ($t.phase === 'plan') {
-				A('div.s-s.neutral.tonal p:$2 #Write the plan below, kept as you type it: sending it hands the task to the agent.');
-				return;
-			}
+			if ($t.phase === 'plan') return;
 			if (!waitsForHuman($t)) return;
 			// The last review's feedback is put in the message box, to send on as it
 			// stands, to word differently, or to clear: what the reviewer asks for is
