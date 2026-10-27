@@ -809,6 +809,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		});
 	}) as HTMLElement;
 	A(() => {
+		if ($t.phase !== 'plan') planSent = false; // a plan back in Plan (its workspace failed) is in the composer again
 		const kept = ($t.phase === 'plan' ? (planSent ? '' : $t.description) : $t.draft) ?? '';
 		if (kept.trim() === stored.trim() || A.peek($text, 'value') !== stored) return;
 		stored = kept;

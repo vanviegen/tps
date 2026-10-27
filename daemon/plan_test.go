@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -64,5 +66,34 @@ func TestLeavePlan(t *testing.T) {
 	blank.leavePlan()
 	if blank.p.tasks[blank.tid] != nil {
 		t.Error("a plan with nothing in it was kept")
+	}
+}
+
+// A plan sent to the agent leaves Plan at once, its workspace made after; one
+// whose workspace cannot be made is a plan again.
+func TestAssignFailsBackToPlan(t *testing.T) {
+	task, origin := testTask(t)
+	task.info.Phase = PhasePlan
+	task.p.info.Tasks[task.tid] = task.info
+	task.p.m.hub.SetChat(task.key(), nil)
+	if err := os.RemoveAll(origin); err != nil {
+		t.Fatal(err)
+	}
+	if err := task.Assign("agent", "make the widget blue"); err != nil {
+		t.Fatal(err)
+	}
+	task.lock()
+	phase := task.info.Phase
+	task.unlock()
+	if phase != PhaseAgent {
+		t.Errorf("a plan sent in is in %q", phase)
+	}
+	task.starting.Lock() // the workspace was tried
+	task.starting.Unlock()
+	if task.info.Phase != PhasePlan || task.info.Description != "make the widget blue" {
+		t.Errorf("a plan whose workspace failed is in %q, described as %q", task.info.Phase, task.info.Description)
+	}
+	if !strings.HasPrefix(task.lastNote(), "Preparing the workspace failed") {
+		t.Errorf("the failure was not noted: %q", task.lastNote())
 	}
 }

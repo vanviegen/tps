@@ -194,6 +194,7 @@ type Task struct {
 	limitWaits    int         // waits in a row that ran straight into the limit again
 	chatMu        sync.Mutex
 	cloneMu       sync.Mutex // one workspace at a time — two messages can want one at once — and none dropped while it is read (see refreshChanges)
+	starting      sync.Mutex // held while a task sent in from Plan has its workspace made, until the plan is in the log (see Assign)
 
 	declared      []declaredService // the services Containerfile.dev names, known along with the container
 	services      []serviceState    // their state and that of the ad hoc ones, as last read (see services.go)
@@ -827,8 +828,11 @@ func (t *Task) offerDraftL(text string) {
 // set to follow others waits for them in Plan (see autoStartL), and starts
 // from the branch with their work in it (see freshen); assigning it by hand
 // meanwhile is the way to start it anyway, without waiting.
+//
+// The agent's task leaves Plan at once, and its workspace is made in the
+// background: a clone and a fetch can take a while, and the plan only shows
+// in the log behind the save point made on that workspace (see prepare).
 func (t *Task) Assign(to, text string) error {
-	defer t.p.m.work()()
 	t.lock()
 	if text != "" {
 		t.setDescriptionL(text) // the composer's debounce may owe the server the last keystroke
@@ -840,7 +844,38 @@ func (t *Task) Assign(to, text string) error {
 	}
 	t.ensureTitleL(desc)
 	t.touchL()
+	if to == "agent" {
+		t.setPhaseL(PhaseAgent)
+		t.starting.Lock() // before the unlock, so that a message sent next waits for the plan (see SendChat)
+		t.unlock()
+		go func() {
+			defer t.starting.Unlock()
+			defer t.p.m.work()()
+			if err := t.prepare(); err != nil {
+				t.noteErr("Preparing the workspace failed", err)
+				t.lock()
+				t.setPhaseL(PhasePlan)
+				t.unlock()
+				return
+			}
+			t.say(desc)
+		}()
+		return nil
+	}
 	t.unlock()
+	defer t.p.m.work()()
+	if err := t.prepare(); err != nil {
+		return err
+	}
+	t.lock()
+	t.setPhaseL(PhaseHuman)
+	t.unlock()
+	t.bgUp()
+	return nil
+}
+
+// prepare gives a task leaving Plan its workspace, on the latest default branch.
+func (t *Task) prepare() error {
 	if err := t.ensureWorkspace(); err != nil {
 		return err
 	}
@@ -851,14 +886,6 @@ func (t *Task) Assign(to, text string) error {
 	// taken back like any other: rewinding to it empties the log and hands the
 	// message back to the composer.
 	t.mark("Start", "")
-	if to == "agent" {
-		t.say(desc)
-	} else {
-		t.lock()
-		t.setPhaseL(PhaseHuman)
-		t.unlock()
-		t.bgUp()
-	}
 	return nil
 }
 
@@ -933,6 +960,8 @@ func (t *Task) SendChat(text string) error {
 		t.setPhaseL(PhaseAgent)
 	}
 	t.unlock()
+	t.starting.Lock() // the plan goes first
+	t.starting.Unlock()
 	t.say(text)
 	return nil
 }
