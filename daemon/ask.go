@@ -39,10 +39,12 @@ type askRequest struct {
 	Port     int      `json:"port,omitempty"`    // of the container, for the dashboard to link to
 }
 
-// askAnswer is what the user answered: the option pressed, and what they typed.
+// askAnswer is what the user answered: the option pressed, and what they typed
+// — or that nobody is there to answer, in a scheduled run (see schedule.go).
 type askAnswer struct {
-	Option int    `json:"option"`
-	Text   string `json:"text,omitempty"`
+	Option  int    `json:"option"`
+	Text    string `json:"text,omitempty"`
+	Refused bool   `json:"refused,omitempty"`
 }
 
 // --- the tool's side ---
@@ -140,6 +142,9 @@ func (st *guestTool) askHuman(args []string) int {
 	if under != "" {
 		noteTree(under, "answer")
 	}
+	if ans.Refused {
+		return st.fail(errors.New("ask-human: nobody is there to answer: this is a scheduled run"))
+	}
 	switch {
 	case answered && req.Input:
 		fmt.Println(ans.Text)
@@ -182,9 +187,17 @@ func readAsks(servicesDir string) []askRequest {
 }
 
 // syncAsksL reads the task's open questions, says in the log which are new,
-// and publishes them.
+// and publishes them. A scheduled run's are refused instead.
 func (t *Task) syncAsksL() {
 	asks := readAsks(t.servicesDir())
+	if t.info.Scheduled != "" {
+		for _, a := range asks {
+			data, _ := json.Marshal(askAnswer{Refused: true})
+			_ = writeAtomic(filepath.Join(t.servicesDir(), askDir, a.ID+".answer"), data)
+			t.note("Refused a question, nobody being there to answer it: " + a.Question)
+		}
+		asks = nil
+	}
 	known := map[string]bool{}
 	for _, a := range t.asks {
 		known[a.ID] = true

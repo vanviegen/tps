@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, check, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
+import { arrowDown, arrowUp, calendarClock, check, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
@@ -108,6 +108,7 @@ export function scratchOf(hid: string): string | undefined {
 export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 	return [
 		{ label: 'Create task', icon: plus, click: () => addTask(pid) },
+		{ label: 'Create scheduled task', icon: calendarClock, click: () => addTask(pid, { schedule: {} }) },
 		{ label: 'Open project directory', icon: folder, click: () => void route.go(pathTo(pid, 'base')) },
 		{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
 		{ separator: true },

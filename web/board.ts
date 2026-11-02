@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { deployProject, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, scheduleText, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -18,8 +18,9 @@ import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing
  *
  * Two columns hold more than their own phase, the extra cards wearing the icon
  * that tells them apart. Plan has the started (muted) tasks at its top: put
- * away with their work kept, to be taken up again. Done has the ones closed
- * without merging mixed in with the merged ones. Merging is a moment on the
+ * away with their work kept, to be taken up again, and at its bottom a section
+ * of scheduled tasks: they never leave Plan, and are no cards to drag. Done
+ * has the ones closed without merging mixed in with the merged ones. Merging is a moment on the
  * way to Done rather than a place of its own, so those cards simply sit at the
  * top of the Done column, wearing the merge icon until it is over.
  *
@@ -187,7 +188,11 @@ function drawColumn(pid: string | undefined, $cards: Record<string, Card>, phase
 			// The ones on their way to Done go above the ones that got there, and
 			// the started ones above the ones never begun.
 			if (phase === 'done') drawCards($cards, ['merge'], key);
-			if (phase === 'plan') drawCards($cards, ['muted'], key);
+			if (phase === 'plan') {
+				drawCards($cards, ['muted'], key);
+				drawCards($cards, ['plan'], key, $t => !isSchedule($t));
+				return drawSchedules($cards, key);
+			}
 			if (phase !== 'done') return drawCards($cards, [phase], key);
 			A(() => {
 				const $p = pid ? $state.projects[pid] : undefined;
@@ -201,6 +206,14 @@ function drawColumn(pid: string | undefined, $cards: Record<string, Card>, phase
 				drawCards($cards, ['done', 'closed'], key, (_$t, tid) => !onBranch.has(tid));
 			});
 		});
+}
+
+/** Plan's Scheduled section: the scheduled tasks, under a label of their own. */
+function drawSchedules($cards: Record<string, Card>, key: string): void {
+	A(() => {
+		if (Object.values($cards).some(({ pid, tid }) => isSchedule($state.projects[pid]?.tasks?.[tid] ?? {}))) A('div font-size:0.85em fg:$s-muted mt:$2 #Scheduled');
+	});
+	drawCards($cards, ['plan'], key, isSchedule);
 }
 
 /** A branch commit as the daemon sends it: its task, where it is a task's landing. */
@@ -331,7 +344,7 @@ function saysMore(pid: string, $t: any): boolean {
 let dragged = false;
 
 function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
-	A('div draggable=true', deploy ? deployHere : '',
+	A(`div draggable=${!isSchedule($t)}`, deploy ? deployHere : '',
 		'pointerdown=', () => { dragged = false; },
 		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', `${pid}/${tid}`); },
 		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
@@ -359,7 +372,8 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 						});
 					});
 					A(() => {
-						if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
+						if (isSchedule($t)) A('small fg:$s-muted text=', scheduleText($t));
+						else if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
 						else if ($t.openrouterAsk) A('small fg:$s-warning #⚠ Asks for OpenRouter budget');
 						else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
 						else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');

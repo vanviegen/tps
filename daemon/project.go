@@ -426,25 +426,40 @@ func (p *Project) pubDefault(field string, value any) {
 
 // CreateTask writes a task down, description and settings and all. The
 // dashboard creates one the moment it is started, empty and in Plan, so it is
-// on the board and in the sidebar while its description is being written.
+// on the board and in the sidebar while its description is being written. A
+// partial naming a schedule makes a scheduled task (see schedule.go), whose
+// runs nobody watches: they have their work reviewed again and again, and
+// merged once a review accepts it.
 func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	p.m.mu.Lock()
 	defer p.m.mu.Unlock()
-	tid := strconv.Itoa(p.info.NextTask)
-	p.info.NextTask++
 	// The project's defaults are what a task starts out with; whatever the
 	// partial names wins.
 	d := p.info.Defaults // a copy, so the task's settings are its own
 	info := &TaskInfo{Model: d.Model, ReviewModel: d.ReviewModel, OnReady: d.OnReady, OnAccept: d.OnAccept,
 		ReviewLoops: copyPtr(d.ReviewLoops), Budget: copyPtr(d.Budget), ORBudget: copyPtr(d.ORBudget), Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
+	if _, ok := partial["schedule"]; ok {
+		loops := maxReviewLoops
+		info.Schedule, info.OnReady, info.OnAccept, info.ReviewLoops = newSchedule(), AnswerReview, AnswerMerge, &loops
+	}
+	t := p.addTaskL(info)
+	t.applyL(partial)
+	p.m.saveL()
+	t.publishL()
+	return t.tid, nil
+}
+
+// addTaskL writes a new task down under the project's next tid, and shows it.
+func (p *Project) addTaskL(info *TaskInfo) *Task {
+	tid := strconv.Itoa(p.info.NextTask)
+	p.info.NextTask++
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t
-	t.applyL(partial)
 	p.touchL()
 	p.m.saveL()
 	t.publishL()
-	return tid, nil
+	return t
 }
 
 // fastForward moves the project repo's default branch to the task clone's HEAD.

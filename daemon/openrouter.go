@@ -119,6 +119,9 @@ func (t *Task) checkORRequestL() {
 	case t.p.m.orKey == "":
 		t.note("The agent asked for OpenRouter access, which this host has no management key for")
 		writeORAnswer(dir, orAnswer{Error: "this host has no OpenRouter management key, so TPS cannot make keys here"})
+	case amount > t.orRoomL()+0.005 && t.info.Scheduled != "":
+		t.note(fmt.Sprintf("The agent asked for $%g of OpenRouter spending, more than this scheduled run's OpenRouter budget has left; refused, nobody being there to raise it", amount))
+		writeORAnswer(dir, orAnswer{Error: "that is more than this scheduled run's OpenRouter budget has left, and nobody is there to raise it"})
 	case amount > t.orRoomL()+0.005:
 		t.note(fmt.Sprintf("The agent asks for $%g of OpenRouter spending, more than the task's OpenRouter budget has left", amount))
 		t.info.ORAsk = amount

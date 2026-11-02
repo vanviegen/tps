@@ -174,6 +174,25 @@ export function autoStarts($t: any): boolean {
 	return $t.phase === 'plan' && !!$t.startAfter?.length;
 }
 
+/**
+ * Whether the task is a scheduled one (see schedule.go): it stays in Plan, in
+ * a section of its own, and at its times starts a run that is a task of its own.
+ */
+export function isSchedule($t: any): boolean {
+	return !!$t.schedule;
+}
+
+/** The days of the week by the daemon's index into a schedule's days, in the order a week is read. */
+export const WEEKDAYS: [number, string][] = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+
+/** When a scheduled task runs, in a few words: "09:00, Mon Wed Fri". */
+export function scheduleText($t: any): string {
+	const { enabled, time, days } = $t.schedule;
+	const on = WEEKDAYS.filter(([i]) => days[i]);
+	if (!enabled || !on.length) return 'Disabled';
+	return `${time}, ${on.length === 7 ? 'every day' : on.map(([, name]) => name).join(' ')}`;
+}
+
 /** The tasks `$t` follows that are not there yet: existing tasks not yet done. */
 export function waitingFor(pid: string, $t: any): string[] {
 	const $tasks = $state.projects[pid]?.tasks ?? {};

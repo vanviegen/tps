@@ -11,7 +11,7 @@ import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { asks, autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, pathTo, portUrl, projectName, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, type Phase } from './util.ts';
+import { asks, autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, portUrl, projectName, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -50,15 +50,17 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
  * The task's whole menu: where it can go, and how it ends — plus what is not
  * a phase but belongs with them: starting a task that follows this one, and
  * throwing it away. `extra` slots in between, for the callers that have more
- * to offer.
+ * to offer. A scheduled task goes nowhere, and has nothing to follow.
  */
 export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
+	const remove: S.MenuEntry = { label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) };
+	if (isSchedule($t)) return [...extra, remove];
 	return [
 		...phaseItems(pid, tid, $t),
 		{ separator: true },
 		{ label: 'Create dependent task', icon: plus, disabled: isFinished($t), click: () => void addTask(pid, { startAfter: [tid] }) },
 		...extra,
-		{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) },
+		remove,
 	];
 }
 
@@ -317,9 +319,10 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		},
 	}));
 	// Only while the task is in Plan: following others is how it leaves Plan,
-	// so once it has, there is nothing left to set here.
+	// so once it has, there is nothing left to set here — nor for a scheduled
+	// task, which never does.
 	A(() => {
-		if ($t.phase !== 'plan') return;
+		if ($t.phase !== 'plan' || isSchedule($t)) return;
 		S.autocomplete({
 			label: 'Start after', multi: true, allowCustom: false,
 			placeholder: 'Tasks to wait for…',
@@ -480,7 +483,7 @@ export function drawTaskSettings(pid: string, tid: string, $t: any, close?: () =
 		if (document.activeElement !== el) el.value = title;
 	});
 	A(() => {
-		if ($t.phase !== 'plan') return;
+		if ($t.phase !== 'plan' || isSchedule($t)) return;
 		S.select({
 			label: 'Project', options: () => sortedProjects().map(([p, $p]) => ({ value: p, label: projectName($p) })),
 			bind: {
@@ -489,7 +492,35 @@ export function drawTaskSettings(pid: string, tid: string, $t: any, close?: () =
 			},
 		});
 	});
+	if (A.peek(() => isSchedule($t))) drawScheduleFields($t, save);
 	drawTaskFields(pid, tid, $t, save);
+}
+
+/** When a scheduled task runs, and what each run is sent off with. */
+function drawScheduleFields($t: any, save: (patch: object) => void): void {
+	const saveSchedule = (patch: object) => save({ schedule: patch });
+	const checked = (e: Event) => (e.target as HTMLInputElement).checked;
+	A(() => S.checkbox({ label: 'Enabled', checked: !!$t.schedule.enabled, change: e => saveSchedule({ enabled: checked(e) }) }));
+	S.textline({
+		label: 'Time of day', type: 'time', value: A.peek(() => $t.schedule.time),
+		help: 'The host’s local time. Each run is a task of its own, titled after this one and the day.',
+		change: (e: Event) => { const time = (e.target as HTMLInputElement).value; if (time) saveSchedule({ time }); },
+	});
+	A('div.s-field', () => {
+		A('label #Days');
+		A('div display:flex flex-wrap:wrap gap:$3', () => {
+			const days: boolean[] = $t.schedule.days;
+			for (const [day, name] of WEEKDAYS) S.checkbox({ label: name, checked: !!days[day],
+				change: e => saveSchedule({ days: days.map((on, i) => i === day ? checked(e) : on) }) });
+		});
+	});
+	A(() => S.checkbox({ label: 'Skip a run while the previous one is still at work', checked: !$t.schedule.parallel,
+		change: e => saveSchedule({ parallel: !checked(e) }) }));
+	S.textarea({
+		label: 'Prompt', rows: 8, value: A.peek($t, 'description') ?? '',
+		help: 'What each run’s agent is sent off with. Nobody watches a run: its agent is told so, and cannot ask you anything.',
+		input: debounce(600, (e: Event) => save({ draft: (e.target as HTMLTextAreaElement).value })),
+	});
 }
 
 /**
@@ -633,7 +664,8 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			const { text, color } = taskActivity(pid, $t);
 			A(`div.s-s.${color}.tonal p:$2 text=`, text);
 		});
-		drawInputBar(pid, tid, $t);
+		// A scheduled task's prompt is one of its settings: there is no one to message.
+		if (!A.peek(() => isSchedule($t))) drawInputBar(pid, tid, $t);
 	}) as HTMLElement;
 	acceptFiles(zone, area, files => uploadFiles(pid, tid, files));
 }

@@ -130,6 +130,9 @@ type TaskInfo struct {
 	Tested        *TestRun       `json:"tested,omitempty"`            // the last run of the test service (see tested.go)
 	Landing       string         `json:"landing,omitempty"`           // the commit the task is to become, while it waits for the merge train (see train.go)
 	Stamp         string         `json:"stamp,omitempty"`             // what the commits it lands carry as their TPS-Task trailer (see branch.go)
+	Schedule      *Schedule      `json:"schedule,omitempty"`          // a scheduled task: it stays in Plan, and runs as tasks of its own (see schedule.go)
+	Scheduled     string         `json:"scheduled,omitempty"`         // the scheduled task this one is a run of, which nobody watches
+	Overruns      int            `json:"overruns,omitempty"`          // how often such a run had its budget raised to wrap up in (see overrunL)
 
 	// Pending is what the agent is told the next time it is sent in: things
 	// that happened to its workspace while it wasn't running.
@@ -190,6 +193,7 @@ type Task struct {
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
 	summaryNudges int         // turns in a row the agent was sent back in for the summary its turn left out
+	readyNudges   int         // turns in a row a scheduled run's agent was sent back in for leaving its work not ready (see schedule.go)
 	limitTimer    *time.Timer // running while the task waits out a usage limit (see armLimitL)
 	limitWaits    int         // waits in a row that ran straight into the limit again
 	chatMu        sync.Mutex
@@ -289,8 +293,11 @@ func (t *Task) agentPhaseL() bool {
 
 // systemPromptL is what the task's own agent is told above its conversation.
 func (t *Task) systemPromptL() string {
-	if t.p.info.Scratch {
+	switch {
+	case t.p.info.Scratch:
 		return scratchPrompt
+	case t.info.Scheduled != "":
+		return scheduledPrompt
 	}
 	return systemPrompt
 }
@@ -331,6 +338,7 @@ func (t *Task) publishL() {
 	t.pubL("openrouterGranted", nonZero(t.info.ORGranted))
 	t.pubL("openrouterAsk", nonZero(t.info.ORAsk))
 	t.pubL("context", t.contextL())
+	t.pubL("schedule", optional(t.info.Schedule))
 	if len(t.info.StartAfter) > 0 {
 		t.pubL("startAfter", t.info.StartAfter)
 	} else {
@@ -689,6 +697,9 @@ func (t *Task) applyL(partial map[string]any) {
 	if raw, ok := partial["openrouterBudget"]; ok {
 		t.info.ORBudget = parseBudget(raw)
 	}
+	if raw, ok := partial["schedule"].(map[string]any); ok && t.info.Schedule != nil {
+		t.info.Schedule.apply(raw)
+	}
 	if raw, ok := partial["startAfter"].([]any); ok {
 		var after []string
 		seen := map[string]bool{}
@@ -834,6 +845,10 @@ func (t *Task) offerDraftL(text string) {
 // in the log behind the save point made on that workspace (see prepare).
 func (t *Task) Assign(to, text string) error {
 	t.lock()
+	if t.info.Schedule != nil {
+		t.unlock()
+		return errScheduled
+	}
 	if text != "" {
 		t.setDescriptionL(text) // the composer's debounce may owe the server the last keystroke
 	}
@@ -950,7 +965,7 @@ func (t *Task) SendChat(text string) error {
 	// here has been answered, ignored, or sent back in — either way it is said.
 	// A /compact says nothing to anyone, and leaves it all standing.
 	if !compact {
-		t.summaryNudges = 0
+		t.summaryNudges, t.readyNudges = 0, 0
 		t.info.ReviewLoop = 0
 		t.setReviewL("")
 	}
@@ -990,7 +1005,7 @@ func (t *Task) kick(text string) {
 	t.lock()
 	t.clearLimitL()     // a turn now is what the wait was for, or what replaces it
 	t.info.Landing = "" // the work is about to change: off the merge train, until the turn ends in a merge again
-	if t.overBudgetL() {
+	if t.overBudgetL() && !t.overrunL() {
 		t.noteBudgetL()
 		if t.agentPhaseL() {
 			t.setPhaseL(PhaseHuman)
@@ -1151,8 +1166,11 @@ func (t *Task) stopAgent() bool {
 // merged; Closed is where it goes when it should not be (see Close).
 func (t *Task) MoveTo(phase Phase) error {
 	t.lock()
-	current := t.info.Phase
+	current, scheduled := t.info.Phase, t.info.Schedule != nil
 	t.unlock()
+	if scheduled {
+		return errScheduled
+	}
 	valid := false
 	for _, p := range phases {
 		valid = valid || p == phase
@@ -2280,13 +2298,13 @@ func (t *Task) syncCode() {
 	for {
 		t.lock()
 		wanted := t.viewers > 0 && !t.codeUp
-		plan := t.info.Phase == PhasePlan
+		plan := t.info.Phase == PhasePlan && t.info.Schedule == nil
 		t.unlock()
 		if !wanted {
 			return
 		}
 		// A plan gets its workspace the first time it is looked at; a finished
-		// task has none any longer.
+		// task has none any longer, and a scheduled one none ever: its runs do.
 		var err error
 		if plan {
 			err = t.ensureWorkspace()
@@ -2824,8 +2842,9 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// Whether the turn left anything behind, for the save point it is about
 	// to become, whether it left the work ready to merge, and whether the
 	// container still is what Containerfile.dev says it should be.
-	dirty, message, cf := false, "", ""
+	dirty, message, cf, human := false, "", "", false
 	if t.hasWorkspace() {
+		human = t.humanRequired()
 		dirty, _ = t.dirtyTree(t.repoDir())
 		message = t.commitMessage()
 		cf = t.containerfile()
@@ -2873,6 +2892,12 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		return
 	}
 	t.summaryNudges = 0
+	if human {
+		os.Remove(filepath.Join(t.repoDir(), humanRequiredFile))
+		t.note("The agent of this scheduled run asks for a person to take over; its last message says why")
+		t.endRunL(summary)
+		return
+	}
 	if t.info.Phase == PhaseMerge { // the agent was resolving conflicts, or fixing what failed the merge test
 		if message == "" {
 			if t.overBudgetL() {
@@ -2892,8 +2917,11 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// review.go) — once, for the turn that made it so: a turn that changed
 	// nothing, say an answer to a question, leaves the work where it was, and
 	// so does one that failed. A review costs a turn of its own, so a task with
-	// no room left for one goes to the user; a merge costs nothing.
-	if message != "" && dirty && !end.Failed {
+	// no room left for one goes to the user; a merge costs nothing. A scheduled
+	// run has no user to leave the work with, so its work is passed on as
+	// ready whenever its agent says so.
+	if message != "" && (dirty || t.info.Scheduled != "") && !end.Failed {
+		t.readyNudges = 0
 		switch {
 		case t.onReadyL() == AnswerReview && !t.overBudgetL():
 			// The run's save point is made here as for any other run; the
@@ -2911,7 +2939,18 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		}
 	}
 	if t.overBudgetL() {
+		if t.overrunL() {
+			t.unlock()
+			t.mark("Agent", summary)
+			t.kick("") // the wrap-up prompt overrunL queued is the message
+			return
+		}
 		t.noteBudgetL()
+	} else if message == "" && !end.Failed && t.readyNudgeL() {
+		t.unlock()
+		t.mark("Agent", summary)
+		t.kick(unattendedPrompt)
+		return
 	}
 	t.endRunL(summary)
 }

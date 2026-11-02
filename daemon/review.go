@@ -31,9 +31,10 @@ import (
 
 // loopBackWantedL: a review asking for changes may send the work back to the
 // agent once more. The loops are counted per thing the user asked for (see
-// SendChat), and a task that has spent its budget has no turn left to send.
+// SendChat), and a task that has spent its budget has no turn left to send —
+// unless it is a scheduled run that may overrun it (see overrunL).
 func (t *Task) loopBackWantedL() bool {
-	return t.info.ReviewLoop < reviewLoops(t.info.ReviewLoops) && !t.overBudgetL()
+	return t.info.ReviewLoop < reviewLoops(t.info.ReviewLoops) && (!t.overBudgetL() || t.canOverrunL())
 }
 
 // setReviewL records the feedback that is waiting for the user, which the

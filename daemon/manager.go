@@ -639,8 +639,9 @@ func (m *Manager) parkAll() {
 }
 
 // sweep is the minute's housekeeping: the 'dirty' flags, the auto-starts no
-// event announced (a daemon that restarted with tasks already waiting), and
-// the workspaces and VS Codes nobody is using.
+// event announced (a daemon that restarted with tasks already waiting), the
+// scheduled runs whose time has come, and the workspaces and VS Codes nobody
+// is using.
 func (m *Manager) sweep() {
 	m.mu.Lock()
 	projects := m.sortedProjectsL()
@@ -652,6 +653,7 @@ func (m *Manager) sweep() {
 	m.mu.Lock()
 	for _, p := range m.projects {
 		p.autoStartL()
+		p.runSchedulesL(time.Now())
 	}
 	now := time.Now().UnixMilli()
 	var idle, overdue []*Task
