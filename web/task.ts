@@ -115,7 +115,8 @@ export async function deployProject(pid: string, commit?: string): Promise<void>
 	const goes = commits.slice(to, at), back = commits.slice(at, to);
 	const what = [goes.length && `deploys ${names(goes)}`, back.length && `takes back ${names(back)}`].filter(Boolean).join(', and ');
 	const where = commit ? `up to ${name(commits[to] ?? { subject: commit.slice(0, 10) })}` : `at the tip of ${$p.defaultBranch ?? 'main'}`;
-	if (await S.confirm(`Deploy ${projectName($p)} ${where}? That ${what || 'deploys it again as it is'}. The Deploy task in the sidebar shows how it goes.`)) void cmd('deploy', { pid, commit });
+	const that = commit && goes.length === 1 && !back.length ? '' : ` That ${what || 'deploys it again as it is'}.`; // not the one `where` names already
+	if (await S.confirm(`Deploy ${projectName($p)} ${where}?${that} The Deploy task in the sidebar shows how it goes.`)) void cmd('deploy', { pid, commit });
 }
 
 /**

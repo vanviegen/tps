@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { deployProject, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, scheduleText, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, scheduleText, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -99,17 +99,25 @@ export function drawBoard(pid: string | undefined, create: () => void): void {
 
 /**
  * Done's rocket, where the project deploys: deploy the tip of the branch. It
- * lights up while the branch holds work not deployed yet.
+ * lights up while the branch holds work not deployed yet, and breathes while a
+ * deploy runs, when it opens the Deploy task instead.
  */
 function drawDeployButton(pid: string): void {
 	A(() => {
 		const $p = $state.projects[pid];
 		if (!$p?.deploy) return;
+		if (deploying($p)) return void S.iconButton({ icon: rocket, ariaLabel: 'Deploying', attrs: `.small fg:$s-success ${busyAttrs(rocket)}`,
+			tooltip: 'Deploying: the Deploy task shows how it goes', click: () => void route.go(pathTo(pid, 'deploy')) });
 		const branch = $p.defaultBranch ?? 'main';
 		S.iconButton({ icon: rocket, ariaLabel: 'Deploy', attrs: $p.deploy.pending ? '.small fg:$s-success' : '.small',
 			tooltip: $p.deploy.pending ? `Deploy: ${branch} holds work not deployed yet` : `Deploy ${branch} again: it is deployed as it is`,
 			click: () => void deployProject(pid) });
 	});
+}
+
+/** Whether the project's Deploy task (see isJob) is running a deploy. */
+function deploying($p: any): boolean {
+	return $p.tasks?.deploy?.phase === 'merge';
 }
 
 /**
@@ -227,7 +235,7 @@ type DeployTo = { sha: string; back: boolean };
  * task's as its card, the user's own as a line each, more than three of those
  * in a row folded into one — cut by the line where the last deploy is. Each
  * wears the rocket that deploys the branch up to it, but the one the deploy is
- * at already. Answers the tasks it drew.
+ * at already, and none while a deploy runs. Answers the tasks it drew.
  */
 function drawBranch(pid: string, $p: any, key: string): Set<string> {
 	const commits: Commit[] = $p.commits ?? [];
@@ -235,7 +243,8 @@ function drawBranch(pid: string, $p: any, key: string): Set<string> {
 	if (line < 0) line = commits.length;
 	const drawn = new Set<string>();
 	let run: Commit[] = [];
-	const to = (c: Commit, n: number): DeployTo | undefined => n === line ? undefined : { sha: c.sha, back: n > line };
+	const busy = deploying($p);
+	const to = (c: Commit, n: number): DeployTo | undefined => busy || n === line ? undefined : { sha: c.sha, back: n > line };
 	const flush = (upTo: number) => {
 		if (run.length) drawCommits(pid, run, upTo - run.length, to);
 		run = [];
