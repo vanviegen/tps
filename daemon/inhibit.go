@@ -68,6 +68,38 @@ func (m *Manager) inhibitLoop() {
 	}
 }
 
+// wakeLead is how early a machine is woken for a scheduled run, and from when
+// it is kept awake for it.
+const wakeLead = 2 * time.Minute
+
+// wakeLoop sets the RTC alarm for the next scheduled run, so that a suspended
+// machine wakes up for it. That takes root, which `sudo -n rtcwake` gets only
+// where a sudoers rule allows it (see the README); without one, the first try
+// is logged and there is no other.
+func (m *Manager) wakeLoop() {
+	var set time.Time
+	for range time.Tick(time.Minute) {
+		m.mu.Lock()
+		at := m.nextRunL()
+		m.mu.Unlock()
+		args := []string{"-n", "rtcwake", "-m", "disable"}
+		if !at.IsZero() {
+			if at = at.Add(-wakeLead); !at.After(time.Now()) {
+				continue // the machine is up for this one already
+			}
+			args = []string{"-n", "rtcwake", "-m", "no", "-t", strconv.FormatInt(at.Unix(), 10)}
+		}
+		if at.Equal(set) {
+			continue
+		}
+		if out, err := exec.Command("sudo", args...).CombinedOutput(); err != nil {
+			logf("scheduled runs will not wake the machine: rtcwake: %v %s", err, strings.TrimSpace(string(out)))
+			return
+		}
+		set = at
+	}
+}
+
 // Daemons before this one left their helper running when they died, so a
 // machine that restarts the daemon often collects a row of "TPS" entries in
 // the desktop's power dialog. Take out whatever is still holding one of ours,

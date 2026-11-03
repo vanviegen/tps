@@ -46,6 +46,22 @@ func (s *Schedule) due(now time.Time) bool {
 	return s.Enabled && s.Days[now.Weekday()] && s.passed(now) && s.LastRun != now.Format(time.DateOnly)
 }
 
+// next is when the schedule comes up next: a time already past when it is due
+// now, the zero time when it never comes up.
+func (s *Schedule) next(now time.Time) time.Time {
+	if !s.Enabled {
+		return time.Time{}
+	}
+	hm, _ := time.Parse("15:04", s.Time)
+	for d := range 8 {
+		day := now.AddDate(0, 0, d)
+		if s.Days[day.Weekday()] && (d > 0 || s.LastRun != day.Format(time.DateOnly)) {
+			return time.Date(day.Year(), day.Month(), day.Day(), hm.Hour(), hm.Minute(), 0, 0, now.Location())
+		}
+	}
+	return time.Time{}
+}
+
 // apply sets whatever the dashboard's partial names. A schedule takes effect
 // from the next time it comes up: one set to a time already past today first
 // runs tomorrow.

@@ -159,6 +159,14 @@ enable-linger`): its daemon and containers then carry on with the work they
 have while your laptop sleeps and the connection is gone. TPS points it out
 when it is off.
 
+A machine with scheduled tasks stays up from shortly before each run until it
+is done, and can wake from suspend for it: setting the wake alarm takes root,
+so allow your user `rtcwake` without a password, once:
+
+```sh
+echo "$USER ALL=(root) NOPASSWD: $(command -v rtcwake)" | sudo tee /etc/sudoers.d/tps-rtcwake
+```
+
 Download a release into a bin directory of your own and start it:
 
 ```sh

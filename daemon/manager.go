@@ -118,13 +118,20 @@ const unusedExit = 2 * time.Minute
 // holds the whole board in memory (and would write that back over a config
 // edited underneath it) and keeps every workspace container up. Work is what
 // keeps it: a command in flight, an agent mid-turn, a task waiting out a usage
-// limit. Nothing else does, a daemon no dashboard ever reached included.
+// limit, a scheduled run still to come. Nothing else does, a daemon no
+// dashboard ever reached included.
 func (m *Manager) quitIfUnused() {
 	if m.hub.ClientCount() > 0 {
 		m.usedAt = time.Now()
 		return
 	}
 	if time.Since(m.usedAt) < unusedExit || m.anyAwake() {
+		return
+	}
+	m.mu.Lock()
+	scheduled := !m.nextRunL().IsZero()
+	m.mu.Unlock()
+	if scheduled {
 		return
 	}
 	m.stop("no dashboard connected and nothing running")
@@ -256,6 +263,7 @@ func (m *Manager) Start() error {
 	go m.ticker(5*time.Second, m.refreshWatched)
 	go m.ticker(time.Second, m.syncServices)
 	go m.inhibitLoop()
+	go m.wakeLoop()
 	return nil
 }
 
@@ -816,7 +824,9 @@ func (m *Manager) anyWorking() bool {
 // anyAwake: work the machine must not suspend under. A task waiting out a
 // usage limit counts: its timer is hours away and would not fire on a sleeping
 // machine, while a restart may take it (the wait is on disk, and picked back
-// up), which is why this is the inhibitor's question and not anyWorking's.
+// up), which is why this is the inhibitor's question and not anyWorking's. So
+// does a scheduled run coming up within wakeLead, for a machine woken for it
+// not to go back to sleep before it starts.
 func (m *Manager) anyAwake() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -825,7 +835,23 @@ func (m *Manager) anyAwake() bool {
 			return true
 		}
 	}
-	return false
+	next := m.nextRunL()
+	return !next.IsZero() && time.Until(next) < wakeLead
+}
+
+// nextRunL is when the first scheduled run comes up, the zero time when none
+// ever does.
+func (m *Manager) nextRunL() time.Time {
+	var first time.Time
+	now := time.Now()
+	for _, t := range m.allTasksL() {
+		if s := t.info.Schedule; s != nil {
+			if at := s.next(now); !at.IsZero() && (first.IsZero() || at.Before(first)) {
+				first = at
+			}
+		}
+	}
+	return first
 }
 
 // --- commands ---

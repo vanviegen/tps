@@ -29,6 +29,29 @@ func TestScheduleDue(t *testing.T) {
 	}
 }
 
+// A schedule's next run is today's while it has not been, else its next day's.
+func TestScheduleNext(t *testing.T) {
+	monday := time.Date(2026, 11, 2, 9, 30, 0, 0, time.Local)
+	at := func(d, hour int) time.Time { return time.Date(2026, 11, 2+d, hour, 0, 0, 0, time.Local) }
+	s := &Schedule{Enabled: true, Time: "09:00"}
+	s.Days[time.Monday], s.Days[time.Wednesday] = true, true
+	if got := s.next(monday); !got.Equal(at(0, 9)) {
+		t.Errorf("a run due now is next, got %v", got)
+	}
+	s.LastRun = "2026-11-02"
+	if got := s.next(monday); !got.Equal(at(2, 9)) {
+		t.Errorf("after today's run, Wednesday's is next, got %v", got)
+	}
+	s.Days[time.Wednesday] = false
+	if got := s.next(monday); !got.Equal(at(7, 9)) {
+		t.Errorf("a weekly run is next a week later, got %v", got)
+	}
+	s.Enabled = false
+	if !s.next(monday).IsZero() {
+		t.Error("a disabled schedule has a next run")
+	}
+}
+
 // A scheduled task is made reviewed-and-merged, its runs start as tasks of
 // their own, and one is skipped while the previous one is still at work.
 func TestScheduledRuns(t *testing.T) {

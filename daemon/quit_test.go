@@ -55,10 +55,22 @@ func TestQuitIfUnused(t *testing.T) {
 	}
 	delete(m.projects, p.pid)
 
+	p = newProject(m, "project", &ProjectInfo{Dir: "/tmp/project", Tasks: map[string]*TaskInfo{
+		"1": {Phase: PhasePlan, Schedule: newSchedule()},
+	}})
+	p.tasks["1"] = newTask(p, "1", p.info.Tasks["1"])
+	m.projects[p.pid] = p
+	unused()
+	m.quitIfUnused()
+	if exited != 0 {
+		t.Fatal("a daemon with a scheduled run to come should stay")
+	}
+	p.info.Tasks["1"].Schedule.Enabled = false
+
 	unused()
 	m.quitIfUnused()
 	if exited != 1 {
-		t.Fatalf("an unused daemon should stop, exited %d times", exited)
+		t.Fatalf("an unused daemon, its schedules disabled, should stop, exited %d times", exited)
 	}
 }
 
