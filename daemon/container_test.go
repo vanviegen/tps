@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"syscall"
 	"testing"
@@ -48,5 +49,15 @@ func TestTermBusyScript(t *testing.T) {
 		if busy != c.busy {
 			t.Errorf("shell %q: busy %v, want %v", c.shell, busy, c.busy)
 		}
+	}
+}
+
+// The directories podman makes for a mount to land in are those between the
+// home, or /work, and the mount: not the home itself, nor what lies outside.
+func TestMountDirs(t *testing.T) {
+	got := mountDirs([]string{"/home/dev/.config/gh/hosts.yml", "/home/dev/.npmrc", "/work/conf/local/.env", "/root/.cache/pip"}, "/home/dev")
+	want := []string{"/home/dev/.config/gh", "/home/dev/.config", "/work/conf/local", "/work/conf"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

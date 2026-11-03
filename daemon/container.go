@@ -443,6 +443,20 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	if err := runContainer(o.name, o.nestDir, args, rmErr); err != nil {
 		return nil, err
 	}
+	// Podman makes the directories a mount lands in as root, which would leave
+	// uid 1000 unable to write ~/.config, say, for one host file mounted in it.
+	targets := append([]string{}, o.caches...)
+	for _, v := range vols {
+		targets = append(targets, strings.Split(v, ":")[1])
+	}
+	if len(targets) > 0 {
+		home, _ := imageHome(o.image) // none: only /work's are seen to
+		if dirs := mountDirs(targets, home); len(dirs) > 0 {
+			if _, err := runCmd(append([]string{"podman", "exec", "-u", "0", o.name, "chown", "1000:1000"}, dirs...), RunOpts{Timeout: 10 * time.Second}); err != nil {
+				logf("%s: %v", o.name, err)
+			}
+		}
+	}
 	// podman binds the ports as the container starts. A docker socket served
 	// by podnester (TPS running inside a TPS task) picks them a moment later,
 	// so a container short of its ports is given a few seconds to get them.
@@ -548,6 +562,22 @@ func imageHome(image string) (string, error) {
 	return dir, nil
 }
 
+// mountDirs are the directories that lead from the home, or from /work, to
+// these mount targets in them.
+func mountDirs(targets []string, home string) []string {
+	var dirs []string
+	for _, t := range targets {
+		for _, base := range []string{"/work", home} {
+			if rest, ok := strings.CutPrefix(t, base+"/"); ok && base != "" {
+				for d := filepath.Dir(rest); d != "."; d = filepath.Dir(d) {
+					dirs = append(dirs, filepath.Join(base, d))
+				}
+			}
+		}
+	}
+	return dirs
+}
+
 // volumes are mounts as host:container:ro|rw volumes for a container of this
 // image: each path where the host has it, and the same path in the container
 // — a path in the host user's home being one in the home of the container's,
@@ -585,7 +615,7 @@ func volumes(mounts []Mount, checkout, image string) ([]string, error) {
 // existing containers are recycled instead of reused. The host's files it
 // mounts are part of it where there are any.
 func containerConfig(image, toolbox string, caches []string, mounts []Mount) string {
-	fields := []any{15, image, filepath.Base(toolbox), caches}
+	fields := []any{16, image, filepath.Base(toolbox), caches}
 	if len(mounts) > 0 {
 		fields = append(fields, mounts)
 	}
@@ -684,12 +714,16 @@ func (c *Container) waitReady() error {
 // codeScript runs code-server in the container, with the toolbox on PATH so
 // terminals in VS Code can run claude too. The explicit --port keeps it from
 // picking up a $PORT the image may set for whatever the task itself serves.
-// Its pid is written down first (exec keeps it), for termBusyScript.
+// Its pid is written down first (exec keeps it), for termBusyScript, and its
+// output kept, for StartCode to tell why it did not come up.
 var codeScript = fmt.Sprintf("export PATH=/tps/bin:$PATH; echo $$ >%[2]s; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d"+
-	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions --session-socket %[3]s /work",
-	codePort, codePidFile, codeSocket)
+	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions --session-socket %[3]s /work >%[4]s 2>&1",
+	codePort, codePidFile, codeSocket, codeLog)
 
-const codePidFile = "/tmp/.tps-code.pid"
+const (
+	codePidFile = "/tmp/.tps-code.pid"
+	codeLog     = "/tmp/.tps-code.log"
+)
 
 // codeSocket is where code-server takes requests to open files (see
 // OpenInCode): in the container's own /tmp, as /vscode is every task's.
@@ -734,7 +768,8 @@ func (c *Container) StartCode() error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("code-server in %s did not come up", c.Name)
+	r, _ := runCmd([]string{"podman", "exec", c.Name, "tail", "-n", "20", codeLog}, RunOpts{Timeout: 10 * time.Second, NoCheck: true})
+	return fmt.Errorf("code-server in %s did not come up: %s", c.Name, strings.TrimSpace(r.Out))
 }
 
 // TerminalBusy: is a terminal in the container's VS Code running something?
