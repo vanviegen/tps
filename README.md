@@ -14,70 +14,57 @@ side-by-side, backed by its own lightweight sandbox container and repository.
 <table>
 <tr><td width="320"><img src="doc/features/sandbox.png" width="320" alt=""></td><td>
 
-**A sandbox per task.** A hardlinked clone of your repository in a rootless
-podman container of its own. Agents cannot touch your checkout or each other,
-and a task that went wrong is deleted rather than cleaned up after.
+**A sandbox per task.** Every task gets its own clone of your repository in
+its own rootless container. Agents can't touch your checkout or each other, and
+a task gone wrong is simply deleted.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/board.png" width="320" alt=""></td><td>
 
-**A Kanban board per project, and one for all of them.** The tasks you're
-planning, what agents are working on, what needs your attention and what is
-done, at a glance.
+**A Kanban board per project, and one for all of them.** What you're
+planning, what agents are working on, what needs you and what's done, at a
+glance.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/vscode.png" width="320" alt=""></td><td>
 
-**VS Code on every task.** In the browser, running in the task's container on
-the task's files, with a terminal. Read what the agent did, fix a thing
-yourself, run the tests.
+**VS Code on every task.** In the browser, on the task's own files and
+container. Read what the agent did, fix something yourself, run the tests.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/merge.png" width="320" alt=""></td><td>
 
-**Merges that land themselves.** A task becomes one squashed commit on top of
-the default branch, authored by you, with a message proposed by the agent. If
-the branch moved on, it is merged into the work first, and a conflict is
-handed to the task's agent to resolve. Tasks can also be set to merge as soon
-as the agent is done. With a `LABEL tps.check="command"` in `Containerfile.dev`,
-a merge train runs that check on what lands, a batch of merges at a time,
-skipping work a passing run already covered; a merge that fails it goes back to
-its agent.
+**Merges that land themselves.** A finished task becomes one clean commit on
+your branch, with a message the agent wrote. Conflicts go back to the agent,
+and your test suite can gate what lands.
 
 </td></tr>
-<tr><td width="320"></td><td>
+<tr><td width="320"><img src="doc/features/deploys.png" width="320" alt=""></td><td>
 
-**Deploys.** A `LABEL tps.deploy="command"` in `Containerfile.dev` turns the
-Done column into the branch as it is — the tasks' commits, and your own between
-them — with a "Deployed" line through it. Deploy the tip, or up to any commit
-(rolling back works the same way), or have every merge deploy: it runs in a
-container of its own, with the credentials you name. TPS finds its tasks on the
-branch by a trailer in their commits, so a rebase does not lose them. A script
-that needs a person — screenshots to accept, a one-time password — asks with
-`tps-guest-tool ask-human`, and the question shows up on its task. The agent
-of a task that merges by itself, a scheduled run's included, can ask to carry
-on once its work is merged — and deployed, where every merge deploys — to check
-it live or to build on it, and is sent back in, told how that went.
+**Deploys.** Point TPS at your deploy script and the Done column shows what is
+live and what isn't. Deploy, or roll back, with a click.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/review.png" width="320" alt=""></td><td>
 
-**A second pair of eyes.** Work the agent reports ready can be read over by a
-reviewing agent first: against what you actually asked for and code quality. It
-fixes the small and obvious itself, and otherwise lists what to change. The
-review can either be fed back to the implementing agent automatically, or left
-as review notes for you.
+**A second pair of eyes.** A reviewing agent can read the work over before you
+do, checking it against what you asked for and trimming what isn't needed.
+
+</td></tr>
+<tr><td width="320"><img src="doc/features/scheduled.png" width="320" alt=""></td><td>
+
+**Scheduled tasks.** Have an agent do a chore every morning, or on the days you
+pick: each run works on its own and lands its work, and only bothers you when
+it really needs to.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/environment.png" width="320" alt=""></td><td>
 
-**A project-specific environment.** A `Containerfile.dev` in
-your repository is the image tasks run in, with nothing TPS-specific in it.
-When the agent lacks a tool, it adds it there, continues in the rebuilt
-container, and the change lands with the rest of its work.
+**A project-specific environment.** A `Containerfile.dev` in your repository is
+the image tasks run in. When the agent needs a tool, it adds it there itself.
 
 </td></tr>
-<tr><td width="320"></td><td>
+<tr><td width="320"><img src="doc/features/containers.png" width="320" alt=""></td><td>
 
 **Containers within.** A Docker-compatible socket inside the sandbox, so tests
 that need `docker` or `docker compose` (mostly) just work.
@@ -85,62 +72,52 @@ that need `docker` or `docker compose` (mostly) just work.
 </td></tr>
 <tr><td width="320"><img src="doc/features/services.png" width="320" alt=""></td><td>
 
-**Services and ports.** The dev server, the test suite, and whatever else the
-agent starts run as named services with their output kept, behind a play
-button. The ports the image exposes are forwarded to your browser, so one click
-opens the app the agent is working on.
+**Services and ports.** Dev servers and test runs are named services you can
+start, stop and read the output of. One click opens the app the agent is
+working on.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/revert.png" width="320" alt=""></td><td>
 
-**Revert and fork conversations.** Every Kanban state transition creates a
-savepoint. You can reset a task or create a duplicate task at such savepoints,
-taking the conversation and the code each back to a savepoint of their own. Edit
-a message you sent to take the task back to just before it.
+**Revert and fork.** Every step is a save point. Take a task back to one, or
+fork a new task from it — or just edit a message you sent.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/followup.png" width="320" alt=""></td><td>
 
-**Follow-ups.** A done task is stored compactly, its workspace gone but its
-conversation kept: send it a message later and the agent picks it back up on
-top of the current code, knowing what it did the first time.
+**Follow-ups.** Message a finished task later, and its agent picks up on top of
+the current code, remembering what it did the first time.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/scratch.png" width="320" alt=""></td><td>
 
-**Scratch tasks.** For a question, some research, a slide deck or an experiment that belongs
-to no project: scratch tasks are listed under their host, and start in an
-empty repository of their own. One that grows into something can be turned into a
-project, its work and conversation coming along.
+**Scratch tasks.** For a question, some research or an experiment that belongs
+to no project. One that grows into something can become a project of its own.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/projects.png" width="320" alt=""></td><td>
 
 **Many projects, one place.** The sidebar lists your projects and their active
-tasks at a glance. Switch between them with a click or a few letters in the
-ctrl-L palette; each VS Code stays where you left it.
+tasks; ctrl-L gets you anywhere in a few keystrokes.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/hosts.png" width="320" alt=""></td><td>
 
-**Any number of machines.** Add a host by whatever you would type after `ssh`:
-TPS installs its daemon there, and its projects show up in the sidebar, VS Code
-and ports included. The daemon keeps driving agents, merging and starting
-queued tasks while your laptop sleeps.
+**Any number of machines.** Add a host by whatever you'd type after `ssh`, and
+its projects join the rest. Agents there keep working while your laptop sleeps.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/models.png" width="320" alt=""></td><td>
 
-**Image/audio/video model usage.** Agents can ask for an OpenRouter key, within
-a budget you set per task, for image, audio and video work or for testing apps
-that call a model API.
+**Image, audio and video models.** Agents can get an OpenRouter key, within a
+budget you set, for media work or to test apps that call a model API.
 
 </td></tr>
 </table>
 
-And of course TPS offers: mid-run steering, pasting screenshots and other files, a choice
-of model per task, cost tracking with a budget that parks a task when it is
-reached, context-window insight, manual compaction, opt-in desktop notifications, and keyboard shortcuts for the things you do all day.
+And of course: steering an agent mid-run, pasting screenshots and files, a model
+per task, budgets, context-window insight, desktop notifications, and keyboard
+shortcuts for what you do all day.
 
 ## Installing
 
@@ -149,22 +126,15 @@ TPS runs on Linux, any distribution. Every machine that runs projects needs:
 - **podman**, 4 or later, set up rootless (the distro package normally does
   that), and **git**;
 - a **login for the agent you run**: for Claude Code, a host without one says
-  so under its name in the sidebar, and its page signs you in through your
-  browser, here, and hands the login to that host. Every host gets one of its
-  own this way, over SSH as much as here, and keeps it in
-  `~/.local/share/tps/claude`, shared by all of its tasks; `ANTHROPIC_API_KEY`
-  in the environment does instead. For pi, it is the `~/.pi/agent` you log in
-  with on that host, mounted into every task of its own. No CLI is needed
-  anywhere: TPS brings both.
+  so in the sidebar, and its page signs you in through your browser (or set
+  `ANTHROPIC_API_KEY`). For pi, it is the `~/.pi/agent` you log in with on that
+  host. TPS brings both CLIs itself.
 
-A host over SSH works best with lingering on for your user (`loginctl
-enable-linger`): its daemon and containers then carry on with the work they
-have while your laptop sleeps and the connection is gone. TPS points it out
-when it is off.
+A host over SSH works best with lingering on (`loginctl enable-linger`), so its
+agents keep working while you are disconnected; TPS tells you when it is off.
 
-A machine with scheduled tasks stays up from shortly before each run until it
-is done, and can wake from suspend for it: setting the wake alarm takes root,
-so allow your user `rtcwake` without a password, once:
+To let a machine wake from suspend for scheduled tasks, allow your user
+`rtcwake` without a password, once:
 
 ```sh
 echo "$USER ALL=(root) NOPASSWD: $(command -v rtcwake)" | sudo tee /etc/sudoers.d/tps-rtcwake
@@ -179,22 +149,15 @@ chmod +x ~/.local/bin/tps
 ~/.local/bin/tps --auto-start
 ```
 
-`--auto-start` writes a desktop autostart entry, so TPS starts at every login
-without opening a browser, and then runs like plain `tps` does: the dashboard
-opens at <http://localhost:4820/>. Most distributions put `~/.local/bin` on
-your `PATH` already. Updating is the same `curl`, or add `--auto-update` (to
-the `--auto-start` line too, so the entry it writes has it) and TPS installs a
-new release itself: it checks at startup and whenever the last dashboard
-closes, and restarts into it. The daemons follow once nothing runs on them.
+`--auto-start` makes TPS start at every login; the dashboard is at
+<http://localhost:4820/>. To update, run the same `curl`, or add
+`--auto-update` and TPS installs new releases itself.
 
 ### Use it as an app
 
-The recommended way to use TPS is to install the dashboard as an app: in
-Chrome, Edge, Brave or another Chromium browser, click *Install* in the address
-bar. TPS gets a window and an icon of its own, and F11 makes it fullscreen and
-capture all VS Code keys (like ctrl-w).
-With the chat, VS Code, the terminal and the running app all in there, you will
-hardly need to leave it during your day.
+Install the dashboard as an app: in a Chromium browser, click *Install* in the
+address bar. TPS gets a window of its own, and in fullscreen (F11) VS Code gets
+all its keys, ctrl-w included.
 
 ## Building from source
 
@@ -211,19 +174,12 @@ Or, without installing either, in the project's own dev image:
 podman build -t tps-dev -f Containerfile.dev . && podman run --rm --userns=keep-id:uid=1000,gid=1000 -v "$PWD:/work:z" tps-dev sh -c 'npm install && npm run build && CGO_ENABLED=0 go build -o tps .'
 ```
 
-`./dev.sh` rebuilds and restarts on every change, and `go test ./...` runs the
-tests. `./deploy.sh` releases: it pushes the commit to GitHub with a tag for
-the version in `package.json`, and GitHub Actions build the release binaries
-from it. TPS runs it itself when the project is deployed from its board.
+`./dev.sh` rebuilds and restarts on every change, `go test ./...` runs the
+tests, and `./deploy.sh` tags a release on GitHub, which builds the binaries.
 
 `demo/seed.sh` fills a home directory with two small projects and a board's
-worth of tasks around them, to have something to click through: a merged task
-whose commit is in the log, one waiting to be merged with its work in a
-workspace, a plan waiting on another plan, a parked one, a closed one, one
-asking for OpenRouter budget, and a scratch task. The
-project's own dev container runs it before starting TPS, so the task's play
-button gives a dashboard with a board on it; `TPS_DEMO_HOME` points it at a
-directory of its own. On a freshly seeded demo, `node doc/screenshots.mjs`
-retakes the screenshots of the features above.
+worth of tasks to click through; the dev container's `app` service runs it
+before starting TPS. On a freshly seeded demo, `node doc/screenshots.mjs`
+retakes the screenshots above.
 
 ![Yeah, if you could go ahead and finish those TPS reports, that'd be great](doc/tps-reports.jpg)

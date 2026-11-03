@@ -60,9 +60,14 @@ const shots = {
 		await page.getByLabel('Merge…').click();
 		return page.getByRole('dialog');
 	} },
+	deploys: { max: [260, 300], path: '/p/local:snip', pad: [6, 8, 6, 8], show: (page) => [page.locator('section', { hasText: 'Done' }).locator('header'), page.getByText('Deployed', { exact: true })] },
+	scheduled: { max: [560, 440], path: task('standup', 5), dpr: 1, pad: [10, 12, 10, 12], show: async (page) => {
+		await page.getByText('Enabled', { exact: true }).scrollIntoViewIfNeeded();
+		return [page.getByText('Enabled', { exact: true }), page.getByLabel('Prompt')];
+	} },
 	review: { max: [400, 175], path: task('snip', 6), pad: [8, 12, 52, 8], show: (page) => [page.getByText('On agent ready'), page.getByText('10×'), page.getByText('On review accept')] },
 	environment: { max: [440, 240], path: task('snip', 3), pad: [0, 0, -420, 0], show: (page) => editor(page, 'Containerfile.dev') },
-	containers: { max: [420, 200], path: task('snip', 3), dpr: 1, pad: [-30, -110, -700, 0], show: (page) => terminal(page, ["# in the task's sandbox", 'docker run --rm docker.io/grycap/cowsay /usr/games/cowsay Moo'], 30000) },
+	containers: { max: [420, 420], path: task('snip', 3), dpr: 1, pad: [-30, -110, -480, 0], show: (page) => terminal(page, ["# in the task's sandbox", 'docker version'], 4000) },
 	services: { path: task('snip', 3), pad: [6, 6, 0, 6], show: async (page) => {
 		await page.getByLabel('Task menu').click();
 		const item = (text) => page.locator('.s-menu-item', { hasText: text });

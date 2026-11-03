@@ -517,7 +517,7 @@ function drawScheduleFields($t: any, save: (patch: object) => void): void {
 	A(() => S.checkbox({ label: 'Skip a run while the previous one is still at work', checked: !$t.schedule.parallel,
 		change: e => saveSchedule({ parallel: !checked(e) }) }));
 	S.textarea({
-		label: 'Prompt', rows: 8, value: A.peek($t, 'description') ?? '',
+		label: 'Prompt', rows: 5, autoGrow: false, value: A.peek($t, 'description') ?? '',
 		help: 'What each run’s agent is sent off with. Nobody watches a run: its agent is told so, and cannot ask you anything.',
 		input: debounce(600, (e: Event) => save({ draft: (e.target as HTMLTextAreaElement).value })),
 	});

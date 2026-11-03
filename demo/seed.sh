@@ -4,11 +4,13 @@
 # merged ones whose commits are in the git log, one waiting to be merged with
 # its work sitting in a workspace, a couple in the plan column (one of them
 # waiting for another), a parked one, a closed one, one waiting for more
-# OpenRouter budget, and a slide deck among the scratch tasks.
+# OpenRouter budget, a scheduled task with yesterday's run done, and a slide
+# deck among the scratch tasks.
 #
 # Nothing seeded here runs an agent on its own: every task is in a phase that
 # waits (plan, human, muted, done, closed), and the one task set to follow
 # another waits on a plan that is not going anywhere until someone starts it.
+# The scheduled task counts today as run, so its next run is tomorrow's.
 # Opening the demo therefore costs nothing until a button is pressed — and
 # what a press then costs is a haiku, which is what every task and both
 # projects are set to.
@@ -297,6 +299,17 @@ say 6 '"k":"text","text":"The tests drive the CLI as a subprocess with `STANDUP_
 say 2 '"k":"result","text":"turn finished · 65s · $0.27"'
 say 3 '"k":"note","text":"merged into main as 1 commit"'
 
+# standup #5 — a scheduled task, and #6 yesterday's run of it.
+chat standup 5 1
+say 0 '"k":"note","text":"Started today'"'"'s run: Dependencies: check for updates '"$(date -d "@$(( NOW - 86400 ))" +%F)"'"'
+chat standup 6 1
+say 0 '"k":"user","text":"See whether any dependency has a release out with a security fix, and update it if the tests still pass. Leave everything else alone."'
+say 9 '"k":"tool","id":"h1","name":"Bash","text":"look for advisories","arg":"npm audit --omit=dev","res":"found 0 vulnerabilities"'
+say 6 '"k":"text","text":"No dependency has a security release out, so nothing to update today. The commit message says as much."'
+say 2 '"k":"result","text":"turn finished · 19s · $0.03"'
+say 40 '"k":"note","text":"The review accepts the work; merging"'
+say 3 '"k":"note","text":"Nothing to merge; task closed"'
+
 # --- the config ---------------------------------------------------------------
 
 # Into place in one step: a daemon may be reading it the moment it appears.
@@ -414,8 +427,8 @@ cat >"$CONFIG.new" <<JSON
 			"name": "standup",
 			"color": "#c8d35a",
 			"defaults": { "model": "claude: haiku", "budget": 5 },
-			"activity": $(ms 3),
-			"nextTask": 5,
+			"activity": $(ms 1),
+			"nextTask": 7,
 			"tasks": {
 				"1": {
 					"title": "A dev container and the first tests",
@@ -460,6 +473,34 @@ cat >"$CONFIG.new" <<JSON
 					"openrouterGranted": 0.25,
 					"openrouterAsk": 2,
 					"phaseAt": $(ms 0 1)
+				},
+				"5": {
+					"title": "Dependencies: check for updates",
+					"description": "See whether any dependency has a release out with a security fix, and update it if the tests still pass. Leave everything else alone.",
+					"model": "claude: haiku",
+					"onReady": "review",
+					"onAccept": "merge",
+					"reviewLoops": 10,
+					"phase": "plan",
+					"titleAsked": true,
+					"budget": 1,
+					"schedule": {"enabled": true, "time": "07:30", "days": [false, true, true, true, true, true, false], "lastRun": "$(date +%F)"},
+					"phaseAt": $(ms 20)
+				},
+				"6": {
+					"title": "Dependencies: check for updates $(date -d "@$(( NOW - 86400 ))" +%F)",
+					"description": "See whether any dependency has a release out with a security fix, and update it if the tests still pass. Leave everything else alone.",
+					"model": "claude: haiku",
+					"onReady": "review",
+					"onAccept": "merge",
+					"reviewLoops": 10,
+					"scheduled": "5",
+					"phase": "done",
+					"started": true,
+					"spent": 0.05,
+					"budget": 1,
+					"titleAsked": true,
+					"phaseAt": $(ms 1)
 				}
 			}
 		}
