@@ -86,6 +86,9 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	fail := func(what string, detail ...string) bool {
 		jt.note("Deploy failed: "+what, detail...)
 		jt.setJobPhase(PhaseHuman)
+		p.carryOn("", fmt.Sprintf("the work is merged, but the deploy failed (%s), so it may not be live:\n\n%s\n\n"+
+			"No deploy follows until the user starts one. Find out why it failed; where the fix is not the task's to make "+
+			"(credentials, say), say so, and leave it to the user.", what, indent(strings.Join(detail, "\n"))))
 		return false
 	}
 	sha, err := jt.reset(commit)
@@ -112,7 +115,27 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	jt.note("Deployed ✔", log)
 	p.deployed(sha)
 	jt.setJobPhase(PhaseDone)
+	p.carryOn(sha, "the work is merged and deployed. The end of the deploy's output:\n\n"+indent(log))
 	return true
+}
+
+// carryOn sends back in the agents waiting for the deploy of their work (see
+// continueFile): with a deploy of sha that holds it, or with a failed one (no
+// sha), after which none follows by itself.
+func (p *Project) carryOn(sha, outcome string) {
+	p.m.mu.Lock()
+	waiting := map[*Task]string{}
+	for _, t := range p.tasks {
+		if t.info.AwaitDeploy != "" {
+			waiting[t] = t.info.AwaitDeploy
+		}
+	}
+	p.m.mu.Unlock()
+	for t, commit := range waiting {
+		if sha == "" || gitOK(p.dir(), "merge-base", "--is-ancestor", commit, sha) {
+			t.carryOn(continuePrompt(outcome))
+		}
+	}
 }
 
 // deployedRef is where the project repo keeps the commit deployed last. A

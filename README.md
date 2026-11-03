@@ -54,7 +54,10 @@ them — with a "Deployed" line through it. Deploy the tip, or up to any commit
 container of its own, with the credentials you name. TPS finds its tasks on the
 branch by a trailer in their commits, so a rebase does not lose them. A script
 that needs a person — screenshots to accept, a one-time password — asks with
-`tps-guest-tool ask-human`, and the question shows up on its task.
+`tps-guest-tool ask-human`, and the question shows up on its task. The agent
+of a task that merges by itself, a scheduled run's included, can ask to carry
+on once its work is merged — and deployed, where every merge deploys — to check
+it live or to build on it, and is sent back in, told how that went.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/review.png" width="320" alt=""></td><td>

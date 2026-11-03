@@ -704,3 +704,33 @@ func TestTurnIntoProject(t *testing.T) {
 		t.Errorf("the project's history: %q", got)
 	}
 }
+
+// An agent asking to carry on after the merge waits for the deploy of its
+// work, not for one of what came before it.
+func TestContinueAfterDeploy(t *testing.T) {
+	task, origin := testTask(t)
+	p := task.p
+	commitUpstream(t, origin, "deploy", map[string]string{containerfile: "FROM scratch\nLABEL tps.deploy=\"./ship\"\n"})
+	p.info.AutoDeploy = true
+	p.deploying = true // the deploy after the merge waits for one that is not running
+	before := gitRun(t, origin, "rev-parse", "main")
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "b.txt", "two\n")
+	task.info.Continue = true // as the agent's turn left it (see onTurnEnd)
+	mergeAndLand(t, task, "add b.txt")
+	merged := gitRun(t, origin, "rev-parse", "main")
+	if task.info.AwaitDeploy != merged || task.info.Continue {
+		t.Fatalf("waiting for %q, want %q", task.info.AwaitDeploy, merged)
+	}
+	task.info.Phase = PhaseHuman // picked up meanwhile, so the news waits for its next turn
+	p.carryOn(before, "deployed what came before")
+	if task.info.AwaitDeploy == "" {
+		t.Error("a deploy that does not hold the work sent the agent back in")
+	}
+	p.carryOn(merged, "deployed it")
+	if task.info.AwaitDeploy != "" || !strings.Contains(task.info.Pending[len(task.info.Pending)-1].Text, "deployed it") {
+		t.Errorf("after its deploy: waiting for %q, pending %v", task.info.AwaitDeploy, task.info.Pending)
+	}
+}

@@ -201,12 +201,10 @@ func (p *Project) pubDeploySettings() {
 	p.pub("deployMounts", strings.Join(p.info.DeployMounts, "\n"))
 }
 
-// pubScratch tells the dashboards a scratch project apart, and the rules its
-// agents work under from those the host's others do (see systemPromptL).
+// pubScratch tells the dashboards a scratch project apart.
 func (p *Project) pubScratch() {
 	if p.info.Scratch {
 		p.pub("scratch", true)
-		p.pub("agentPrompt", scratchPrompt)
 	}
 }
 

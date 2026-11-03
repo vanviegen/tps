@@ -13,7 +13,7 @@ import (
 // Scheduled tasks: a task that stays in Plan as a template, and at its time of
 // day, on the days it is set to, makes a task of its own — its title with the
 // date, its settings, its prompt sent to the agent. Nobody is at the controls
-// of such a run: its agent is told so (see scheduledPrompt), a question it puts
+// of such a run: its agent is told so (see scheduledIntro), a question it puts
 // to a human is refused (see syncAsksL), and a budget it runs out of is
 // stretched a few times for it to wrap up in, before the run is parked like
 // any other task (see overrunL). A turn ending with the work not ready sends

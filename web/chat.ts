@@ -121,7 +121,7 @@ function drawHidden(n: number, show: () => void): void {
  * and always as the ones its next turn will run under.
  */
 function drawRules(pid: string, tid: string, $t: any): void {
-	const prompt = $state.projects[pid]?.agentPrompt ?? $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
+	const prompt = $t.agentPrompt ?? $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
 	if (!prompt || isJob($t)) return; // no agent works in a job
 	drawEntry({ k: 'note', text: 'System message', detail: prompt }, pid, tid, $t);
 }

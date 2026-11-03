@@ -205,8 +205,8 @@ func (p *Project) trainRound(batch []*Task) {
 		delete(p.alone, t.tid)
 	}
 	p.m.mu.Unlock()
-	for _, t := range riders {
-		t.landed("Merged into " + branch + " ✔")
+	for i, t := range riders {
+		t.landed("Merged into "+branch+" ✔", commits[i])
 	}
 	jt.note(fmt.Sprintf("%s merged into %s ✔", names, branch))
 	p.deployAfterMerge()

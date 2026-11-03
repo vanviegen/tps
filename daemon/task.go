@@ -133,6 +133,8 @@ type TaskInfo struct {
 	Schedule      *Schedule      `json:"schedule,omitempty"`          // a scheduled task: it stays in Plan, and runs as tasks of its own (see schedule.go)
 	Scheduled     string         `json:"scheduled,omitempty"`         // the scheduled task this one is a run of, which nobody watches
 	Overruns      int            `json:"overruns,omitempty"`          // how often such a run had its budget raised to wrap up in (see overrunL)
+	Continue      bool           `json:"continue,omitempty"`          // its agent asked to carry on after the merge (see continueFile)
+	AwaitDeploy   string         `json:"awaitDeploy,omitempty"`       // the commit it merged as, whose deploy sends the agent back in (see continueFile)
 
 	// Pending is what the agent is told the next time it is sent in: things
 	// that happened to its workspace while it wasn't running.
@@ -188,6 +190,7 @@ type Task struct {
 	session       Session
 	sessionFlight *flight[Session]
 	sessionBudget *float64 // the budget setting the running agent was started under
+	sessionSystem string   // and the system prompt
 	sessionReview bool     // and whether it is the reviewer rather than the task's own agent (see review.go)
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
@@ -293,13 +296,17 @@ func (t *Task) agentPhaseL() bool {
 
 // systemPromptL is what the task's own agent is told above its conversation.
 func (t *Task) systemPromptL() string {
-	switch {
-	case t.p.info.Scratch:
+	if t.p.info.Scratch {
 		return scratchPrompt
-	case t.info.Scheduled != "":
-		return scheduledPrompt
 	}
-	return systemPrompt
+	intro, rules := taskIntro, agentRules
+	if t.info.Scheduled != "" {
+		intro = scheduledIntro
+	}
+	if t.onReadyL() == AnswerMerge || (t.onReadyL() == AnswerReview && t.onAcceptL() == AnswerMerge) {
+		rules += continueRule
+	}
+	return intro + rules + turnRule
 }
 
 func (t *Task) lock()   { t.p.m.mu.Lock() }
@@ -326,6 +333,11 @@ func (t *Task) publishL() {
 	t.pubL("model", t.info.Model)
 	t.pubL("onReady", string(t.onReadyL()))
 	t.pubL("onAccept", string(t.onAcceptL()))
+	if prompt := t.systemPromptL(); prompt != systemPrompt { // the host's (see server.go)
+		t.pubL("agentPrompt", prompt)
+	} else {
+		t.pubL("agentPrompt", nil)
+	}
 	t.pubL("reviewLoops", reviewLoops(t.info.ReviewLoops))
 	t.pubL("reviewModel", nonEmpty(t.info.ReviewModel))
 	t.pubL("review", nonEmpty(t.info.Review))
@@ -1029,10 +1041,11 @@ func (t *Task) kick(text string) {
 		t.setPhaseL(PhaseAgent)
 	}
 	// A running session is the reviewer's or the task's own agent's, with its
-	// spending cap fixed at start: either changing needs a new process.
+	// spending cap and system prompt fixed at start: any of them changing needs
+	// a new process.
 	review := t.info.Phase == PhaseReview
 	old := t.session
-	restart := old != nil && (t.sessionReview != review || !sameBudget(t.sessionBudget, t.info.Budget))
+	restart := old != nil && (t.sessionReview != review || !sameBudget(t.sessionBudget, t.info.Budget) || t.sessionSystem != t.systemPromptL())
 	branch := t.p.defaultBranch
 	t.unlock()
 	go func() {
@@ -1240,7 +1253,7 @@ func (t *Task) Close() error {
 	defer t.p.m.work()()
 	t.stopAgent()
 	t.lock()
-	t.info.CommitMessage = ""
+	t.setCommitMessageL("")
 	t.setPhaseL(PhaseClosed)
 	t.unlock()
 	t.park()
@@ -1256,9 +1269,14 @@ const commitMessageFile = ".tps-commit-message"
 
 // setCommitMessageL records what the file says, which is also whether the
 // work is ready to merge: the dashboard offers the merge while it says anything.
+// Work that is no longer ready takes back the agent's wish to carry on after
+// its merge (see continueFile).
 func (t *Task) setCommitMessageL(message string) {
 	if message != t.info.CommitMessage {
 		t.info.CommitMessage = message
+		if message == "" {
+			t.info.Continue = false
+		}
 		t.p.m.saveL()
 		t.pubL("commitMessage", nonEmpty(message))
 	}
@@ -1416,7 +1434,7 @@ func (t *Task) merge(repo, message string) error {
 		return err
 	}
 	if base, _ := git(repo, "rev-parse", "HEAD^{tree}"); base == tree {
-		t.landed("Nothing to merge; task closed")
+		t.landed("Nothing to merge; task closed", "")
 		return nil
 	}
 	message, err = t.stamped(message)
@@ -1447,23 +1465,26 @@ func (t *Task) merge(repo, message string) error {
 const landingRef = "refs/tps/landing"
 
 // landingTree is the tree of the work as it would be committed: everything in
-// the workspace but the commit message (see commitMessageFile).
+// the workspace but the files that speak to TPS (see commitMessageFile and
+// continueFile).
 func landingTree(repo string) (string, error) {
 	env, cleanup, err := stageAll(repo)
 	if err != nil {
 		return "", err
 	}
 	defer cleanup()
-	if _, err := runCmd([]string{"git", "-C", repo, "rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile}, RunOpts{Env: env}); err != nil {
+	if _, err := runCmd([]string{"git", "-C", repo, "rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile, continueFile}, RunOpts{Env: env}); err != nil {
 		return "", err
 	}
 	r, err := runCmd([]string{"git", "-C", repo, "write-tree"}, RunOpts{Env: env})
 	return strings.TrimSpace(r.Out), err
 }
 
-// landed finishes a task whose work is on the branch now (or that had none
-// to put there): it is Done, and its workspace is gone.
-func (t *Task) landed(note string) {
+// landed finishes a task whose work is on the branch now, as commit (or that
+// had none to put there): it is Done, and its workspace is gone. An agent that
+// asked to carry on after that is sent back in, now or once the deploy that
+// follows the merge is through (see carryOn).
+func (t *Task) landed(note, commit string) {
 	t.note(note)
 	// Before the task is Done, so it never sits there with a workspace someone
 	// could still open or merge a second time.
@@ -1484,8 +1505,45 @@ func (t *Task) landed(note string) {
 	}
 	t.queueL("merged", mergedPrompt(t.p.defaultBranch))
 	t.setPhaseL(PhaseDone)
+	carryOn := t.info.Continue
+	t.info.Continue = false
+	deploys := carryOn && commit != "" && t.p.deploy != "" && t.p.info.AutoDeploy
+	if deploys {
+		t.info.AwaitDeploy = commit
+		t.p.m.saveL()
+	}
 	t.unlock()
 	t.park()
+	if carryOn && !deploys {
+		t.carryOn(continuePrompt("the work is merged, and not deployed: this project does not deploy after every merge."))
+	}
+}
+
+// continueFile is how the agent of a task that merges by itself asks to be
+// sent back in once its work is merged, and deployed where the project deploys
+// after every merge: a file it makes beside commitMessageFile, which TPS takes
+// away as the agent's turn ends (see onTurnEnd), and holds on to as the task's
+// Continue — so it is in no save point, and no part of what is merged — until
+// the merge, or until the work is no longer ready (see setCommitMessageL). Only
+// a turn cut short leaves it in the tree, for the next to take.
+const continueFile = ".tps-continue-after-merge"
+
+// carryOn sends the agent back in after the merge, as it asked (see
+// continueFile) — or, the task having been picked up meanwhile, leaves the
+// news for its next turn.
+func (t *Task) carryOn(prompt string) {
+	t.lock()
+	t.info.AwaitDeploy = ""
+	t.p.m.saveL()
+	done := t.info.Phase == PhaseDone
+	if !done {
+		t.queueL("carryOn", prompt)
+	}
+	t.unlock()
+	if done {
+		t.note("The agent asked to carry on after the merge; sending it back in")
+		t.kick(prompt)
+	}
 }
 
 // Rebase brings the workspace onto the latest default branch without merging
@@ -2042,7 +2100,7 @@ func (t *Task) Discard() error {
 	t.lock()
 	defer t.unlock()
 	t.info.Started = false
-	t.info.CommitMessage = ""
+	t.setCommitMessageL("")
 	t.info.ReviewLoop = 0
 	t.setReviewL("")
 	t.info.Pending = nil // nothing of the old workspace is left to tell
@@ -2626,7 +2684,7 @@ func (t *Task) startSession() (Session, error) {
 		return nil, err
 	}
 	t.lock()
-	t.sessionBudget = t.info.Budget
+	t.sessionBudget, t.sessionSystem = t.info.Budget, t.systemPromptL()
 	t.sessionReview = t.info.Phase == PhaseReview
 	agent, model := t.agentL()
 	opts := SessionOpts{
@@ -2842,9 +2900,10 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// Whether the turn left anything behind, for the save point it is about
 	// to become, whether it left the work ready to merge, and whether the
 	// container still is what Containerfile.dev says it should be.
-	dirty, message, cf, human := false, "", "", false
+	dirty, message, cf, human, carryOn := false, "", "", false, false
 	if t.hasWorkspace() {
 		human = t.humanRequired()
+		carryOn = os.Remove(filepath.Join(t.repoDir(), continueFile)) == nil // see continueFile
 		dirty, _ = t.dirtyTree(t.repoDir())
 		message = t.commitMessage()
 		cf = t.containerfile()
@@ -2855,6 +2914,10 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		return
 	}
 	t.setCommitMessageL(message)
+	if carryOn && message != "" {
+		t.info.Continue = true
+		t.p.m.saveL()
+	}
 	// A container rebuilt mid-turn would take the agent down with it, so a
 	// changed Containerfile.dev is acted on here, and the agent sent back in.
 	if t.container != nil && cf != "" && imageTag(cf) != t.lastTag && !t.overBudgetL() {
