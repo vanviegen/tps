@@ -349,7 +349,8 @@ type containerOpts struct {
 	nestDir                       string                  // the task's control directory for its docker socket, see nest.go
 	cacheDir                      string                  // the project's cache directories live in here (see caches)
 	caches                        []string                // container paths the Containerfile declares as caches (see cacheLabel): package and build caches, kept per project on the host and mounted into every task's container, so a task starts warm
-	mounts                        []string                // host:container pairs mounted read-only besides: the deploy's credentials (see Task.mounts)
+	mounts                        []Mount                 // the host's files the project gives the task (see volumes)
+	checkout                      string                  // the project's checkout on the host, where relative mounts are
 }
 
 // ensureContainer makes sure a container by this name, based on this image
@@ -364,6 +365,10 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	config := containerConfig(o.image, o.toolbox, o.caches, o.mounts)
 	if c := runningContainer(o.name, config); c != nil {
 		return c, nil
+	}
+	vols, err := volumes(o.mounts, o.checkout, o.image)
+	if err != nil {
+		return nil, err
 	}
 	rmErr := rmWorkspace(o.name, o.nestDir)
 	resetServices(o.servicesDir)         // whatever ran in the old one is gone; the commands stay
@@ -421,8 +426,8 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		}
 		args = append(args, "-v", dir+":"+path)
 	}
-	for _, m := range o.mounts {
-		args = append(args, "-v", m+":ro")
+	for _, v := range vols {
+		args = append(args, "-v", v)
 	}
 	// Every port the image exposes goes on a loopback port of the host's
 	// choosing, like code-server's: nothing of a task is reachable beyond the
@@ -518,11 +523,68 @@ func nameTaken(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "already in use")
 }
 
+// The home directory of uid 1000 in an image, by image: where the host's
+// files go that live in the home of the host's user (see volumes).
+var (
+	imageHomes   = map[string]string{}
+	imageHomesMu sync.Mutex
+)
+
+func imageHome(image string) (string, error) {
+	imageHomesMu.Lock()
+	defer imageHomesMu.Unlock()
+	if dir, ok := imageHomes[image]; ok {
+		return dir, nil
+	}
+	r, err := runCmd([]string{"podman", "run", "--rm", "--user", "1000:1000", "--entrypoint", "sh", image, "-c", "echo ~"}, RunOpts{Timeout: time.Minute})
+	dir := strings.TrimSpace(r.Out)
+	if err != nil {
+		return "", fmt.Errorf("finding the home directory in the image: %w", err)
+	}
+	if !filepath.IsAbs(dir) {
+		return "", fmt.Errorf("the image has no home directory for uid 1000 (%q)", dir)
+	}
+	imageHomes[image] = dir
+	return dir, nil
+}
+
+// volumes are mounts as host:container:ro|rw volumes for a container of this
+// image: each path where the host has it, and the same path in the container
+// — a path in the host user's home being one in the home of the container's,
+// and a relative one in the project's checkout one in the task's, at /work.
+func volumes(mounts []Mount, checkout, image string) ([]string, error) {
+	if len(mounts) == 0 {
+		return nil, nil
+	}
+	inside, err := imageHome(image)
+	if err != nil {
+		return nil, err
+	}
+	var vols []string
+	for _, m := range mounts {
+		path, mode := m.Path, "ro"
+		if m.Write {
+			mode = "rw"
+		}
+		host, target := path, path
+		if rest, ok := strings.CutPrefix(path, "~/"); ok {
+			host, target = filepath.Join(home(), rest), filepath.Join(inside, rest)
+		} else if !filepath.IsAbs(path) {
+			host, target = filepath.Join(checkout, path), filepath.Join("/work", path)
+		}
+		if !exists(host) {
+			return nil, fmt.Errorf("%s, named in the project's settings, does not exist", path)
+		}
+		vols = append(vols, host+":"+target+":"+mode)
+	}
+	return vols, nil
+}
+
 // containerConfig is the label value recording what a container was started
 // with. Bump the version when ensureContainer's run command/args change, so
-// existing containers are recycled instead of reused. Mounts are named only
-// where there are any, which only the deploy task's container has.
-func containerConfig(image, toolbox string, caches, mounts []string) string {
+// existing containers are recycled instead of reused. The host's files it
+// mounts are part of it where there are any.
+func containerConfig(image, toolbox string, caches []string, mounts []Mount) string {
 	fields := []any{15, image, filepath.Base(toolbox), caches}
 	if len(mounts) > 0 {
 		fields = append(fields, mounts)

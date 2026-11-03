@@ -2069,7 +2069,7 @@ func (t *Task) adoptL() {
 	cf := t.containerfile()
 	tag := imageTag(cf)
 	services, caches := t.declarations(cf)
-	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir(), caches, nil)); c != nil {
+	if c := runningContainer(t.containerName(), containerConfig(tag, toolboxDir(), caches, t.mountsL())); c != nil {
 		if _, err := nestFor(t.containerName(), nestDir(t.dir())); err != nil {
 			logf("%s: docker socket: %v", t.key(), err)
 		}
@@ -2595,13 +2595,22 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	}
 	t.lock()
 	t.setStatusL(StatusStarting, "Starting container")
+	mounts, checkout := t.mountsL(), t.p.dir()
 	t.unlock()
 	_, caches := t.declarations(cf)
-	mounts, err := t.mounts(tag)
-	if err != nil {
-		return nil, err
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), agentDir: t.agentDir, servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir()), cacheDir: t.p.cacheDir(), caches: caches, mounts: mounts, checkout: checkout})
+}
+
+// mountsL are the project's host files this task gets: those for all tasks,
+// and those for the deploy where this is its task.
+func (t *Task) mountsL() []Mount {
+	var mounts []Mount
+	for _, m := range t.p.info.Mounts {
+		if m.AllTasks || t.tid == deployTid {
+			mounts = append(mounts, m)
+		}
 	}
-	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), agentDir: t.agentDir, servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir()), cacheDir: t.p.cacheDir(), caches: caches, mounts: mounts})
+	return mounts
 }
 
 func (t *Task) down() {

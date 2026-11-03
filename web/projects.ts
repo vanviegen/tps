@@ -357,7 +357,8 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 			}),
 		});
 		drawColorField(pid, $p);
-		A(() => { if ($p.deploy) drawDeployFields($p, save); });
+		drawDeployFields($p, save);
+		drawMounts($p, save);
 		// A section of its own under a heading, so what it is about is not
 		// mistaken for more of the project's own settings.
 		A('div display:flex flex-direction:column gap:$2', () => {
@@ -375,25 +376,54 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 }
 
 /**
- * How the project is deployed, for a project whose Containerfile.dev says how
- * (LABEL tps.deploy): when, and with which of this host's credentials.
+ * How the project is deployed: shown before Containerfile.dev says how, so it
+ * can be settled before an agent is asked to set deploys up.
  */
 function drawDeployFields($p: any, save: (patch: object) => void): void {
 	A('div display:flex flex-direction:column gap:$2', () => {
 		A('h3 m:0 mt:$2 font-size:1em #Deploy');
-		A('p.s-help m:0 #Containerfile.dev declares how this project is deployed. TPS runs that on the default branch, in a container of its own.');
+		A('p.s-help m:0 #A LABEL tps.deploy line in Containerfile.dev declares how this project is deployed (ask an agent to set it up). TPS runs that on the default branch, in a container of its own.');
 		S.checkbox({
 			label: 'Deploy after every merge',
-			help: 'Otherwise when you press Deploy. Merged work then runs with the credentials below without anyone pressing anything, including work merged by an agent.',
+			help: 'Otherwise when you press Deploy. Merged work then runs with the files below without anyone pressing anything, including work merged by an agent.',
 			checked: A.peek($p, 'autoDeploy'),
 			change: (e: Event) => save({ autoDeploy: (e.target as HTMLInputElement).checked }),
 		});
-		S.textarea({
-			label: 'Credentials', rows: 3, placeholder: '~/.npmrc\n~/.ssh',
-			help: 'Files and directories of this host the deploy gets, read-only: one per line, ~/ being your home here and the container user’s there.',
-			value: A.peek($p, 'deployMounts') ?? '',
-			input: debounce(600, (e: Event) => save({ deployMounts: (e.target as HTMLTextAreaElement).value })),
+	});
+}
+
+/**
+ * The files and directories of this host the project's containers get, a row
+ * each: whether the deploy alone gets it or every task, whether it may write
+ * there, and the path. An empty row at the end takes the next one; rows left
+ * empty are not kept.
+ */
+function drawMounts($p: any, save: (patch: object) => void): void {
+	const $rows = A.proxy(A.peek(() => A.clone($p.mounts ?? [])));
+	A(() => {
+		const last = $rows[$rows.length - 1];
+		if (!last || last.path) $rows.push({ path: '', write: false, allTasks: false });
+	});
+	const store = debounce(600, () => save({ mounts: A.peek(() => A.clone($rows)) }));
+	const choice = ($row: any, key: string, off: string, on: string) => S.select({
+		attrs: 'w:9rem', options: [off, on],
+		bind: {
+			get value() { return $row[key] ? on : off; },
+			set value(label: string) { $row[key] = label === on; store(); },
+		},
+	});
+	A('div display:flex flex-direction:column gap:$2', () => {
+		A('h3 m:0 mt:$2 font-size:1em #Host file permissions');
+		A('p.s-help m:0 #Files and directories of this host mounted into the containers at the same path, ~/ being your home here and the container user’s there. A relative path is one in the project’s checkout here, mounted at its place in the container’s own checkout (/work).');
+		A.onEach($rows, ($row: any, i: number) => {
+			A('div display:flex align-items:center gap:$2', () => {
+				choice($row, 'allTasks', 'Deploy', 'All tasks');
+				choice($row, 'write', 'Read-only', 'Read/write');
+				S.textline({ attrs: 'flex:1', placeholder: '~/.npmrc', bind: A.ref($row, 'path'), input: store });
+				S.iconButton({ icon: trash2, tooltip: 'Remove', attrs: 'fg:$s-muted', click: () => { $rows.splice(i, 1); store(); } });
+			});
 		});
+		A('p.s-help m:0 #What all tasks get is in the hands of their agents, which work without asking. A running task gets changes here once its container is made anew, as it is after idling.');
 	});
 }
 

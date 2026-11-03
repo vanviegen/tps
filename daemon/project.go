@@ -41,10 +41,19 @@ type ProjectInfo struct {
 	NextTask int                  `json:"nextTask,omitempty"`
 	Tasks    map[string]*TaskInfo `json:"tasks"`
 
-	// Deploying (see deploy.go): whether a merge deploys by itself, and the
-	// host's credentials the deploy gets.
+	// Whether a merge deploys by itself (see deploy.go), and the host's files
+	// the containers of its tasks get (see Task.mountsL).
 	AutoDeploy   bool     `json:"autoDeploy,omitempty"`
-	DeployMounts []string `json:"deployMounts,omitempty"`
+	Mounts       []Mount  `json:"mounts,omitempty"`
+	DeployMounts []string `json:"deployMounts,omitempty"` // the deploy's paths in projects.json saved by 0.4, moved into Mounts on load
+}
+
+// Mount is a file or directory of the host a project's containers get:
+// read-only unless Write, and the deploy's alone unless AllTasks.
+type Mount struct {
+	Path     string `json:"path"`
+	Write    bool   `json:"write,omitempty"`
+	AllTasks bool   `json:"allTasks,omitempty"`
 }
 
 // Project: a registered git repo plus its tasks.
@@ -111,6 +120,10 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if !colorRe.MatchString(info.Color) {
 		info.Color = m.pickColorL()
 	}
+	for _, path := range info.DeployMounts {
+		info.Mounts = append(info.Mounts, Mount{Path: path})
+	}
+	info.DeployMounts = nil
 	if info.NextTask == 0 {
 		for tid := range info.Tasks {
 			if n, err := strconv.Atoi(tid); err == nil && n >= info.NextTask {
@@ -191,15 +204,16 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 	}
 	p.refreshMeta()
-	p.pubDeploySettings()
+	p.pubMountSettings()
 	p.startTrain() // for the tasks that were waiting for it
 	return nil
 }
 
-// pubDeploySettings publishes the deploy's settings (see deploy.go).
-func (p *Project) pubDeploySettings() {
+// pubMountSettings publishes the settings on what reaches its containers: the
+// deploy (see deploy.go) and the host's files.
+func (p *Project) pubMountSettings() {
 	p.pub("autoDeploy", p.info.AutoDeploy)
-	p.pub("deployMounts", strings.Join(p.info.DeployMounts, "\n"))
+	p.pub("mounts", p.info.Mounts)
 }
 
 // pubScratch tells the dashboards a scratch project apart.
@@ -359,15 +373,20 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	if auto, ok := partial["autoDeploy"].(bool); ok {
 		p.info.AutoDeploy = auto
 	}
-	if text, ok := partial["deployMounts"].(string); ok {
-		var paths []string
-		for _, line := range strings.Split(text, "\n") {
-			if line = strings.TrimSpace(line); line != "" {
-				paths = append(paths, line)
+	if raw, ok := partial["mounts"].([]any); ok {
+		var mounts []Mount
+		for _, r := range raw {
+			m, _ := r.(map[string]any)
+			path, _ := m["path"].(string)
+			write, _ := m["write"].(bool)
+			all, _ := m["allTasks"].(bool)
+			if path = strings.TrimSpace(path); path != "" {
+				mounts = append(mounts, Mount{path, write, all})
 			}
 		}
-		p.info.DeployMounts = paths
-		// The deploy's container gets them when it is made anew.
+		p.info.Mounts = mounts
+		// The deploy's container gets them when it is made anew; a task's when
+		// its own is, as it is after idling.
 		if t := p.tasks[deployTid]; t != nil && !p.deploying {
 			go t.down()
 		}
@@ -402,7 +421,7 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	p.pub("name", p.info.Name)
 	p.pubDefaults()
 	p.pub("color", p.info.Color)
-	p.pubDeploySettings()
+	p.pubMountSettings()
 	return nil
 }
 

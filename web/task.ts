@@ -714,7 +714,7 @@ function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
 function drawJobBar(pid: string, tid: string, $t: any): void {
 	A('div display:flex align-items:center gap:$2', () => {
 		A(`span flex:1 fg:$s-muted ${ELLIPSIS}`, () => A('text=', $t.phase === 'merge' ? 'Running…' : $t.job === 'deploy'
-			? 'Deploys the default branch, with the credentials the project settings name.'
+			? 'Deploys the default branch, with the files the project settings name.'
 			: 'Tests and lands what is merged, a batch at a time.'));
 		if ($t.job === 'deploy') A(() => {
 			S.button({ content: 'Deploy', icon: rocket, attrs: '.small', disabled: $t.phase === 'merge', click: () => void deployProject(pid) });

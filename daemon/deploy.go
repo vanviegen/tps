@@ -3,10 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 )
 
 // Deploying: a project whose Containerfile.dev declares a deploy command
@@ -15,11 +12,11 @@ import (
 // merged as — which deploys that task and every one merged before it, and
 // takes back those merged after it where they were deployed. It runs when the
 // user asks, and after every merge where the project says so (AutoDeploy). A
-// deploy needs what the host has and the image does not: the credentials the
-// project's settings name (DeployMounts) are mounted into that task's
-// container alone, read-only. One that needs a person — a one-time password,
-// say — asks with ask-human (see ask.go). Where the last deploy is on the
-// branch, and so which tasks it holds, is the board's to work out (see
+// deploy needs what the host has and the image does not: the host's files the
+// project's settings name for the deploy are mounted into that task's
+// container alone (see Task.mountsL). One that needs a person — a one-time
+// password, say — asks with ask-human (see ask.go). Where the last deploy is
+// on the branch, and so which tasks it holds, is the board's to work out (see
 // branch.go).
 
 // The deploy task's service that runs the deploy.
@@ -162,58 +159,4 @@ func (p *Project) deployedCommit() string {
 // there is one: most projects never deploy, so a missing one is no failure.
 func fetchDeployed(repo string) {
 	_, _ = git(repo, "fetch", "--quiet", "origin", "+"+deployedRef+":"+deployedRef)
-}
-
-// The home directory of uid 1000 in an image, by image: where the deploy's
-// credentials go that live in the home of the host's user (see mounts).
-var (
-	imageHomes   = map[string]string{}
-	imageHomesMu sync.Mutex
-)
-
-func imageHome(image string) (string, error) {
-	imageHomesMu.Lock()
-	defer imageHomesMu.Unlock()
-	if dir, ok := imageHomes[image]; ok {
-		return dir, nil
-	}
-	r, err := runCmd([]string{"podman", "run", "--rm", "--user", "1000:1000", "--entrypoint", "sh", image, "-c", "echo ~"}, RunOpts{Timeout: time.Minute})
-	dir := strings.TrimSpace(r.Out)
-	if err != nil {
-		return "", fmt.Errorf("finding the home directory in the image: %w", err)
-	}
-	if !filepath.IsAbs(dir) {
-		return "", fmt.Errorf("the image has no home directory for uid 1000 (%q)", dir)
-	}
-	imageHomes[image] = dir
-	return dir, nil
-}
-
-// mounts are the deploy task's credentials, as host:container pairs: each
-// path the project's settings name, where the host has it, and the same path
-// in the container — a path in the host user's home being one in the home of
-// the container's.
-func (t *Task) mounts(image string) ([]string, error) {
-	t.lock()
-	paths := t.p.info.DeployMounts
-	t.unlock()
-	if t.tid != deployTid || len(paths) == 0 {
-		return nil, nil
-	}
-	inside, err := imageHome(image)
-	if err != nil {
-		return nil, err
-	}
-	var mounts []string
-	for _, path := range paths {
-		host, target := path, path
-		if rest, ok := strings.CutPrefix(path, "~/"); ok {
-			host, target = filepath.Join(home(), rest), filepath.Join(inside, rest)
-		}
-		if !exists(host) {
-			return nil, fmt.Errorf("%s, named in the project's deploy settings, does not exist", path)
-		}
-		mounts = append(mounts, host+":"+target)
-	}
-	return mounts, nil
 }
