@@ -103,20 +103,41 @@ func (p *Project) runSchedulesL(now time.Time) {
 		case !s.Parallel && p.runningL(t.tid):
 			t.note("Today's run was skipped: the previous one is still at work")
 		default:
-			run := p.addTaskL(&TaskInfo{
-				Title: t.info.Title + " " + s.LastRun, TitleAsked: true, Description: t.info.Description, Scheduled: t.tid,
-				Model: t.info.Model, ReviewModel: t.info.ReviewModel, OnReady: t.info.OnReady, OnAccept: t.info.OnAccept,
-				ReviewLoops: copyPtr(t.info.ReviewLoops), Budget: copyPtr(t.info.Budget), ORBudget: copyPtr(t.info.ORBudget),
-				Phase: PhasePlan, PhaseAt: now.UnixMilli(),
-			})
-			t.note("Started today's run: " + run.info.Title)
-			go func() {
-				if err := run.Assign("agent", ""); err != nil {
-					logf("%s: scheduled run: %v", run.key(), err)
-				}
-			}()
+			t.note("Started today's run: " + p.startRunL(t, now).info.Title)
 		}
 	}
+}
+
+// RunNow starts a run of the scheduled task straight away, besides the ones
+// its schedule starts.
+func (t *Task) RunNow() error {
+	t.lock()
+	defer t.unlock()
+	if t.info.Schedule == nil {
+		return errors.New("Only a scheduled task can be run")
+	}
+	if strings.TrimSpace(t.info.Description) == "" {
+		return errors.New("The prompt is empty")
+	}
+	_ = os.MkdirAll(t.dir(), 0o755)
+	t.note("Started a run: " + t.p.startRunL(t, time.Now()).info.Title)
+	return nil
+}
+
+// startRunL makes a run of scheduled task t and sends its agent off.
+func (p *Project) startRunL(t *Task, now time.Time) *Task {
+	run := p.addTaskL(&TaskInfo{
+		Title: t.info.Title + " " + now.Format(time.DateOnly), TitleAsked: true, Description: t.info.Description, Scheduled: t.tid,
+		Model: t.info.Model, ReviewModel: t.info.ReviewModel, OnReady: t.info.OnReady, OnAccept: t.info.OnAccept,
+		ReviewLoops: copyPtr(t.info.ReviewLoops), Budget: copyPtr(t.info.Budget), ORBudget: copyPtr(t.info.ORBudget),
+		Phase: PhasePlan, PhaseAt: now.UnixMilli(),
+	})
+	go func() {
+		if err := run.Assign("agent", ""); err != nil {
+			logf("%s: scheduled run: %v", run.key(), err)
+		}
+	}()
+	return run
 }
 
 // runningL: a run of the scheduled task is still at work.

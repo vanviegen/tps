@@ -1,6 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
+import { play } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { watchPhases } from './notify.ts';
 import { bindPalette } from './palette.ts';
@@ -9,7 +10,7 @@ import { drawDashboard, drawProjectCode, drawProjectPage } from './projects.ts';
 import { $ui, drawSidebar, SIDEBAR_CLOSED, SIDEBAR_OPEN } from './sidebar.ts';
 import { drawSplit, TASK_CODE_LEFT, WIDE_CODE_LEFT } from './split.ts';
 import { drawAgent, drawDonePanel, drawTaskCode, useTask } from './task.ts';
-import { hasWorkspace, isFinished, isJob, isSchedule, projectName, selection, taskTitle } from './util.ts';
+import { cmd, hasWorkspace, isFinished, isJob, isSchedule, projectName, selection, taskTitle } from './util.ts';
 
 S.setDarkMode(true);
 route.interceptLinks();
@@ -127,7 +128,10 @@ function drawTaskView(pid: string, tid: string, $t: any): void {
 		A(() => {
 			// A job's workspace is made when it runs (see isJob).
 			if (isJob($t) && !hasWorkspace($t)) return S.box({ header: taskTitle($t), content: 'Nothing to show: its workspace is made afresh whenever it runs.' });
-			if (isSchedule($t)) return S.box({ header: 'Scheduled task', content: 'Nothing to open: each run is a task of its own, with a workspace of its own. The log on the left says which runs were started, and which skipped.' });
+			if (isSchedule($t)) return S.box({ header: 'Scheduled task', contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+				A('p m:0 text=', 'Nothing to open: each run is a task of its own, with a workspace of its own. The log on the left says which runs were started, and which skipped.');
+				S.button({ content: 'Run now', icon: play, click: () => void cmd('runSchedule', { pid, tid }) });
+			} });
 			// Finished or kept in Plan, there is nothing left to open — once the
 			// workspace is gone, which takes a moment; until then it is still worth showing.
 			if ((isFinished($t) || $t.phase === 'muted') && !hasWorkspace($t)) return drawDonePanel(pid, tid, $t);

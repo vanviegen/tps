@@ -1103,6 +1103,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"mergeTask":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
 		"rebaseTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
 		"moveTask":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
+		"runSchedule":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunNow() }),
 		"deleteTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
 		"runService":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
 		"stopService":      withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
