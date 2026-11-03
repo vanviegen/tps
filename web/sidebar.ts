@@ -162,7 +162,7 @@ function drawHost(hid: string, $h: any): void {
 		});
 		A('div.tps-tiles', () => {
 			A.onEach($state.projects, ($p: any, pid: string) => {
-				if ($p.host === hid && !$p.scratch) drawProject(pid, $p);
+				if ($p.host === hid) drawProject(pid, $p);
 			}, projectSortKey);
 		});
 	});

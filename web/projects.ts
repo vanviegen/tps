@@ -27,9 +27,12 @@ export function projectOrder(pid: string, $p: any): (number | string)[] {
 	return [i < 0 ? order.length : i, ($p.name ?? '').toLowerCase()];
 }
 
-/** The same, in the argument order onEach hands out. */
-export function projectSortKey($p: any, pid: string): (number | string)[] {
-	return projectOrder(pid, $p);
+/**
+ * The same, in the argument order onEach hands out, for the projects proper:
+ * scratch ones get none (onEach takes no Infinity), which leaves them out.
+ */
+export function projectSortKey($p: any, pid: string): (number | string)[] | undefined {
+	return $p.scratch ? undefined : projectOrder(pid, $p);
 }
 
 /** The projects in the order they are listed. */
