@@ -1,11 +1,15 @@
 package ui
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/vanviegen/tps/daemon"
 )
 
 // addProject has a host's daemon register a repository at "dir", connecting to
@@ -61,6 +65,113 @@ func (u *UI) turnIntoProject(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return l.newProject(res)
+}
+
+// copyProject copies a project to an empty directory on a host, its own or
+// another: the checkout and its tasks, workspaces and conversations included,
+// streamed from one host to the other through here. A move then removes the
+// original, checkout and all.
+func (u *UI) copyProject(raw json.RawMessage) (any, error) {
+	var args struct {
+		Pid  string `json:"pid"`
+		Hid  string `json:"hid"`
+		Dir  string `json:"dir"`
+		Move bool   `json:"move"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	from, pid, err := u.resolve(args.Pid)
+	if err != nil {
+		return nil, err
+	}
+	to, err := u.link(args.Hid)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(args.Dir) == "" {
+		return nil, errors.New("Give a directory, like ~/projects/app")
+	}
+	to.Wake()
+	if err := to.awaitConnection(10 * time.Minute); err != nil {
+		return nil, err
+	}
+	var src struct {
+		Dir     string          `json:"dir"`
+		Tasks   string          `json:"tasks"`
+		Project json.RawMessage `json:"project"`
+	}
+	if err := cmdInto(from, "exportProject", map[string]any{"pid": pid}, &src); err != nil {
+		return nil, err
+	}
+	var dst struct {
+		Dir     string `json:"dir"`
+		Staging string `json:"staging"`
+	}
+	if err := cmdInto(to, "prepareImport", map[string]any{"dir": strings.TrimSpace(args.Dir)}, &dst); err != nil {
+		return nil, err
+	}
+	res, err := func() (json.RawMessage, error) {
+		if from == to && strings.HasPrefix(dst.Dir, src.Dir+"/") {
+			return nil, fmt.Errorf("%s is inside the project", dst.Dir)
+		}
+		if err := copyTree(from, src.Dir, to, dst.Dir); err != nil {
+			return nil, err
+		}
+		if err := copyTree(from, src.Tasks, to, dst.Staging); err != nil {
+			return nil, err
+		}
+		return to.cmd("importProject", map[string]any{"dir": dst.Dir, "staging": dst.Staging, "project": src.Project})
+	}()
+	if err != nil {
+		_ = to.tr.Shell("rm -rf -- " + daemon.ShellQuote(dst.Dir) + " " + daemon.ShellQuote(dst.Staging)).Run()
+		return nil, err
+	}
+	if args.Move {
+		if _, err := from.cmd("removeProject", map[string]any{"pid": pid}); err != nil {
+			return nil, fmt.Errorf("copied, but removing the original failed: %w", err)
+		}
+		if out, err := from.tr.Shell("rm -rf -- " + daemon.ShellQuote(src.Dir)).CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("moved, but removing %s failed: %s", src.Dir, strings.TrimSpace(string(out)))
+		}
+	}
+	return to.newProject(res)
+}
+
+// cmdInto sends a daemon a command and reads its answer into out.
+func cmdInto(l *Link, name string, args any, out any) error {
+	res, err := l.cmd(name, args)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(res, out)
+}
+
+// copyTree copies what one host has in a directory into one on another host
+// (or the same), as a tar stream from the one through here into the other.
+func copyTree(from *Link, src string, to *Link, dst string) error {
+	pack := from.tr.Shell("tar -C " + daemon.ShellQuote(src) + " -cf - .")
+	unpack := to.tr.Shell("tar -C " + daemon.ShellQuote(dst) + " -xpf -")
+	stream, err := pack.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var packErr, unpackErr bytes.Buffer
+	pack.Stderr, unpack.Stdin, unpack.Stderr = &packErr, stream, &unpackErr
+	if err := pack.Start(); err != nil {
+		return err
+	}
+	err = unpack.Run()
+	stream.Close() // an unpack that gave up must not leave the pack blocked on writing
+	packed := pack.Wait()
+	if err != nil {
+		return fmt.Errorf("unpacking into %s failed: %s", dst, strings.TrimSpace(unpackErr.String()))
+	}
+	// GNU tar exits 1 for files that changed while it read them — a service
+	// writing its log, say — which leaves the copy as good as a later one.
+	var exit *exec.ExitError
+	if packed != nil && !(errors.As(packed, &exit) && exit.ExitCode() == 1) {
+		return fmt.Errorf("packing %s failed: %s", src, strings.TrimSpace(packErr.String()))
+	}
+	return nil
 }
 
 // newProject reads a daemon's answer naming a project it just made, and a

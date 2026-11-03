@@ -85,9 +85,14 @@ type RunResult struct {
 	Out, Err string
 }
 
+// Shell is a shell command on the host, for the caller to hook up and run.
+func (c *Client) Shell(cmd string) *exec.Cmd {
+	return c.command(append(append([]string{}, c.dest...), "--", cmd)...)
+}
+
 // Run executes a shell command on the host, feeding it stdin if given.
 func (c *Client) Run(cmd string, stdin io.Reader) (RunResult, error) {
-	p := c.command(append(append([]string{}, c.dest...), "--", cmd)...)
+	p := c.Shell(cmd)
 	p.Stdin = stdin
 	var out, errb bytes.Buffer
 	p.Stdout, p.Stderr = &out, &errb

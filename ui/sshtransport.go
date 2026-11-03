@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -70,6 +71,8 @@ func (t *sshTransport) DialDaemon() (net.Conn, error) {
 func (t *sshTransport) DialPort(port int) (net.Conn, error) {
 	return t.c.DialTCP(port)
 }
+
+func (t *sshTransport) Shell(cmd string) *exec.Cmd { return t.c.Shell(cmd) }
 
 // preflight learns what the host offers and refuses hosts that lack podman or git.
 func (t *sshTransport) preflight() error {

@@ -243,7 +243,7 @@ func (m *Manager) Start() error {
 	m.usedAt = time.Now()
 	refreshGuestTool() // before any container this daemon adopts is used
 	for _, info := range saved.Projects {
-		if _, err := m.load(info); err != nil {
+		if _, err := m.load(info, ""); err != nil {
 			logf("Failed to load project %s: %v", info.Dir, err)
 		}
 	}
@@ -398,16 +398,31 @@ func (m *Manager) sortedProjectsL() []*Project {
 	return out
 }
 
-func (m *Manager) load(info *ProjectInfo) (*Project, error) {
+// load registers a project under the pid it had, or a fresh one. A staged
+// directory becomes its tasks directory first (see Import).
+func (m *Manager) load(info *ProjectInfo, staged string) (*Project, error) {
 	m.mu.Lock()
-	pid := Slugify(filepath.Base(info.Dir))
+	pid := info.Pid
+	if pid == "" {
+		pid = Slugify(filepath.Base(info.Dir))
+	}
 	for m.projects[pid] != nil {
 		pid += "x"
 	}
+	info.Pid = pid // the tasks directory is named after it, so it has to stay
 	p := newProject(m, pid, info)
 	m.projects[pid] = p
 	m.mu.Unlock()
-	if err := p.init(); err != nil {
+	err := error(nil)
+	if staged != "" {
+		if err = os.MkdirAll(filepath.Dir(p.tasksDir()), 0o755); err == nil {
+			err = os.Rename(staged, p.tasksDir())
+		}
+	}
+	if err == nil {
+		err = p.init()
+	}
+	if err != nil {
 		m.mu.Lock()
 		delete(m.projects, pid)
 		m.mu.Unlock()
@@ -473,7 +488,7 @@ func (m *Manager) Add(dir, name string, init bool) (*Project, string, error) {
 			return nil, "", err
 		}
 	}
-	p, err := m.load(&ProjectInfo{Dir: dir, Name: strings.TrimSpace(name)})
+	p, err := m.load(&ProjectInfo{Dir: dir, Name: strings.TrimSpace(name)}, "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -584,6 +599,70 @@ func (m *Manager) TurnIntoProject(t *Task, dir, name string) (*Project, *Task, e
 	moved.loadChat()
 	go moved.refreshChanges()
 	return p, moved, nil
+}
+
+// Export says what a copy of the project takes: its info, its checkout and its
+// tasks directory, which the dashboard copies to where Import picks them up.
+// Not while an agent is at work in it, as its workspace would be copied
+// halfway through a turn.
+func (m *Manager) Export(pid string) (map[string]any, error) {
+	p, err := m.project(pid)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(p.tasksDir(), 0o755); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range p.taskListL() {
+		if t.workingL() {
+			return nil, fmt.Errorf("The agent of %q is at work; wait for it, or stop it", t.info.Title)
+		}
+	}
+	info, err := json.Marshal(p.info) // here, under the lock that guards it
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"dir": p.dir(), "tasks": p.tasksDir(), "project": json.RawMessage(info)}, nil
+}
+
+// PrepareImport makes the directory a copied project is to go in, which must
+// not hold anything yet, and one to stage its tasks directory in.
+func (m *Manager) PrepareImport(dir string) (map[string]any, error) {
+	dir = homePath(dir)
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
+		return nil, fmt.Errorf("%s is not empty", dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	staging, err := os.MkdirTemp(m.dataDir, "import-")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"dir": dir, "staging": staging}, nil
+}
+
+// Import registers a project copied into dir, its tasks directory into
+// staging (see PrepareImport): the workspaces clone it from its new place.
+func (m *Manager) Import(dir, staging string, info *ProjectInfo) (*Project, error) {
+	info.Dir = dir
+	for tid := range info.Tasks {
+		if repo := filepath.Join(staging, tid, "repo"); exists(filepath.Join(repo, ".git")) {
+			if _, err := git(repo, "remote", "set-url", "origin", dir); err != nil {
+				return nil, err
+			}
+		}
+	}
+	p, err := m.load(info, staging)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	m.saveL()
+	m.mu.Unlock()
+	return p, nil
 }
 
 // Remove unregisters a project, with the tasks and workspaces it holds. The
@@ -959,6 +1038,35 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			}
 			return map[string]any{"pid": p.pid, "tid": moved.tid, "project": m.hub.Snapshot("projects", p.pid)}, nil
 		}),
+		"exportProject": func(raw json.RawMessage) (any, error) {
+			r, _, err := decode(raw)
+			if err != nil {
+				return nil, err
+			}
+			return m.Export(r.Pid)
+		},
+		"prepareImport": func(raw json.RawMessage) (any, error) {
+			r, _, err := decode(raw)
+			if err != nil {
+				return nil, err
+			}
+			return m.PrepareImport(r.Dir)
+		},
+		"importProject": func(raw json.RawMessage) (any, error) {
+			var args struct {
+				Dir     string       `json:"dir"`
+				Staging string       `json:"staging"`
+				Project *ProjectInfo `json:"project"`
+			}
+			if err := json.Unmarshal(raw, &args); err != nil || args.Project == nil {
+				return nil, errors.New("bad arguments")
+			}
+			p, err := m.Import(args.Dir, args.Staging, args.Project)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"pid": p.pid, "project": m.hub.Snapshot("projects", p.pid)}, nil
+		},
 		"removeProject": func(raw json.RawMessage) (any, error) {
 			r, _, err := decode(raw)
 			if err != nil {

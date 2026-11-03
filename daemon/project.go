@@ -31,6 +31,7 @@ type TaskDefaults struct {
 // belongs to the host: every dashboard connecting to this daemon sees the same
 // projects, under the same names.
 type ProjectInfo struct {
+	Pid      string               `json:"pid,omitempty"` // what its tasks directory is named after (see load)
 	Dir      string               `json:"dir"`
 	Name     string               `json:"name"`
 	Color    string               `json:"color,omitempty"`   // the accent the dashboards show it in, as #rrggbb

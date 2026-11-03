@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,6 +16,9 @@ import (
 var uiHandled = map[string]bool{
 	"addProject":       true, // needs the host picked before there is a pid to translate
 	"turnIntoProject":  true, // answers with a pid to translate
+	"exportProject":    true, // the steps of copyProject, which spans two hosts
+	"prepareImport":    true,
+	"importProject":    true,
 	"restart":          true, // the daemon's own lifecycle: stopDaemon and updateDaemon drive it
 	"stop":             true,
 	"setLogin":         true, // the login is made in the browser and handed over (see ui/login.go)
@@ -93,5 +98,27 @@ func TestSSHLoginWaitsOnTheHost(t *testing.T) {
 	prompt.Run = "r3"
 	if reply := u.askpass.answer(u, prompt); !reply.Cancel {
 		t.Errorf("the refused answer survived into the next ssh process: %+v", reply)
+	}
+}
+
+// A tree copied between hosts arrives whole, and an unpack that fails says so
+// rather than leaving the pack waiting to be read.
+func TestCopyTree(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "sub", "a"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	host := &Link{tr: localTransport{}}
+	if err := copyTree(host, src, host, dst); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dst, "sub", "a")); string(got) != "one" {
+		t.Errorf("copied: %q", got)
+	}
+	if err := copyTree(host, src, host, filepath.Join(dst, "missing")); err == nil {
+		t.Error("unpacking into a missing directory succeeded")
 	}
 }

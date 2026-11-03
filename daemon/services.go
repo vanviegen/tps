@@ -232,14 +232,14 @@ func shellLine(argv []string) string {
 	}
 	parts := make([]string, len(argv))
 	for i, a := range argv {
-		parts[i] = shellQuote(a)
+		parts[i] = ShellQuote(a)
 	}
 	return strings.Join(parts, " ")
 }
 
 var bareWordRe = regexp.MustCompile(`^[A-Za-z0-9_./:=@%+,-]+$`)
 
-func shellQuote(a string) string {
+func ShellQuote(a string) string {
 	if bareWordRe.MatchString(a) {
 		return a
 	}

@@ -1,12 +1,12 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDown, arrowUp, calendarClock, check, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
+import { arrowDown, arrowUp, calendarClock, check, copy, folder, gitBranch, plus, settings, trash2 } from 'staffa/icons.js';
 import { showAsk } from './ask.ts';
 import { drawBoard } from './board.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
-import { drawHostNotice, hostInk, hostState } from './hosts.ts';
+import { drawHostNotice, hostInk, hostOrder, hostState } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
 import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, PROJECT_COLORS, projectColor, projectName, selection, shortDir } from './util.ts';
 
@@ -111,12 +111,60 @@ export function projectMenuItems(pid: string, $p: any): S.MenuEntry[] {
 		{ label: 'Create scheduled task', icon: calendarClock, click: () => addTask(pid, { schedule: {} }) },
 		{ label: 'Open project directory', icon: folder, click: () => void route.go(pathTo(pid, 'base')) },
 		{ label: 'Settings…', icon: settings, click: () => projectSettingsDialog(pid, $p) },
+		{ label: 'Copy/Move project…', icon: copy, click: () => copyProjectDialog(pid, $p) },
 		{ separator: true },
 		{ label: 'Move up', icon: arrowUp, click: () => moveProject(pid, -1) },
 		{ label: 'Move down', icon: arrowDown, click: () => moveProject(pid, 1) },
 		{ separator: true },
 		{ label: 'Remove project…', icon: trash2, attrs: 'fg:$s-danger', click: () => void removeProject(pid, $p) },
 	];
+}
+
+/**
+ * Copying a project, or moving it, to a directory on a host: its checkout and
+ * its tasks, workspaces and all. A moved project takes the original's place
+ * in the list.
+ */
+function copyProjectDialog(pid: string, $p: any): void {
+	const $form = A.proxy({ hid: A.peek($p, 'host'), dir: A.peek(() => shortDir($p.host, $p.dir)), how: 'copy' });
+	const $busy = A.proxy({ copying: false });
+	void S.dialog({ header: () => A('text=', `Copy or move ${projectName($p)}`), attrs: 'w:32rem', content: close => {
+		S.form({
+			submit: async () => {
+				if (!$form.dir.trim() || $busy.copying) return;
+				const move = $form.how === 'move';
+				const list = A.peek(sortedProjects);
+				const next = list[list.findIndex(([id]) => id === pid) + 1]?.[0];
+				$busy.copying = true;
+				const result = await cmd('copyProject', { pid, hid: $form.hid, dir: $form.dir.trim(), move });
+				$busy.copying = false;
+				if (!result) return;
+				if (move) reorderProjects(result.pid, next);
+				close();
+				route.go(pathTo(result.pid));
+			},
+			content: () => {
+				S.select({
+					label: 'Host', bind: A.ref($form, 'hid'),
+					options: () => Object.keys($state.hosts ?? {}).sort((a, b) => hostOrder(a).localeCompare(hostOrder(b))).map(hid => ({ value: hid, label: hostName(hid) })),
+				});
+				S.textline({ label: 'Directory', help: 'Made for it; it must not hold anything yet.', required: true, bind: A.ref($form, 'dir') });
+				A('div.s-field', () => {
+					S.buttonChooser({ attrs: 'align-self:flex-start', options: { copy: 'Copy', move: 'Move' }, bind: A.ref($form, 'how') });
+					A(() => A('small fg:$s-muted text=', $form.how === 'move'
+						? 'The project, its tasks and its directory are removed here once the copy is in place.'
+						: 'The project stays as it is here, and its copy starts out with the same tasks.'));
+				});
+				// Like adding a project, this waits for the host, which may want a login first.
+				A(() => {
+					if (!$busy.copying) return;
+					A('p.s-help #Copying…');
+					if ($state.hosts?.[$form.hid]?.ask) showAsk($form.hid);
+				});
+			},
+			actions: () => S.button({ content: $form.how === 'move' ? 'Move' : 'Copy', icon: copy, type: 'submit' }),
+		});
+	}});
 }
 
 /**

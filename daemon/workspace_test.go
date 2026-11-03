@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -702,6 +703,53 @@ func TestTurnIntoProject(t *testing.T) {
 	mergeAndLand(t, moved, "Notes")
 	if got := gitRun(t, dir, "log", "--format=%s", "-1"); got != "Notes" {
 		t.Errorf("the project's history: %q", got)
+	}
+}
+
+// A project copied on its own host: the dashboard copies what Export names
+// to where PrepareImport says, and Import registers it beside the original.
+func TestExportImport(t *testing.T) {
+	task, _ := testTask(t)
+	m, p := task.p.m, task.p
+	p.info.Pid, p.info.Tasks[task.tid] = p.pid, task.info // as load leaves them
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "b.txt", "work\n")
+	src, err := m.Export(p.pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := m.PrepareImport(filepath.Join(t.TempDir(), "copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, staging := dst["dir"].(string), dst["staging"].(string)
+	for from, to := range map[string]string{src["dir"].(string): dir, src["tasks"].(string): staging} {
+		if _, err := runCmd([]string{"cp", "-a", from + "/.", to}, RunOpts{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var info ProjectInfo
+	if err := json.Unmarshal(src["project"].(json.RawMessage), &info); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := m.Import(dir, staging, &info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.pid != "projectx" || copied.info.Pid != "projectx" {
+		t.Errorf("the copy is %q, remembered as %q", copied.pid, copied.info.Pid)
+	}
+	moved := copied.tasks[task.tid]
+	if moved == nil || readFile(filepath.Join(moved.repoDir(), "b.txt")) != "work\n" {
+		t.Fatal("the task's work did not come along")
+	}
+	if got := gitRun(t, moved.repoDir(), "remote", "get-url", "origin"); got != dir {
+		t.Errorf("the workspace clones %s", got)
+	}
+	if _, err := m.PrepareImport(dir); err == nil {
+		t.Error("a directory in use was accepted")
 	}
 }
 

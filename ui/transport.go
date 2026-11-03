@@ -19,6 +19,8 @@ type transport interface {
 	DialDaemon() (net.Conn, error)
 	// DialPort connects to 127.0.0.1:port on that host.
 	DialPort(port int) (net.Conn, error)
+	// Shell is a shell command on that host, for the caller to run.
+	Shell(cmd string) *exec.Cmd
 }
 
 type localTransport struct{}
@@ -43,6 +45,8 @@ func (localTransport) DialDaemon() (net.Conn, error) {
 func (localTransport) DialPort(port int) (net.Conn, error) {
 	return net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 5*time.Second)
 }
+
+func (localTransport) Shell(cmd string) *exec.Cmd { return exec.Command("sh", "-c", cmd) }
 
 func daemonLog() string {
 	return filepath.Join(filepath.Dir(daemon.SocketPath()), "daemon.log")
