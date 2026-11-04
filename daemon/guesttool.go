@@ -106,26 +106,40 @@ for anything that serves or takes a while: dev servers, test suites, builds.
                            suggestion standing, its answer told you the next
                            time you are sent in.
 
-  ask-human <question> [--option <label>]... [--input] [--secret]
-            [--service <name>] [--port <port>]
+  ask-human <question> [--input <prompt>]... [--secret <prompt>]...
+            [--select <prompt> [--choice <label>]...]...
+            [--button <text> [--id <id>] [--color <color>]
+                             [--url <url> | --port <port>]]...
+            [--service <name>]
                            Not a service: put a question to the user in the
                            dashboard, and wait for the answer: for a script
                            that needs a human's judgment or input, such as a
                            test whose screenshots someone has to accept, or a
                            deploy that wants a one-time password. An agent
-                           asks its questions in the chat instead. Each option
-                           is a button; the exit code is the index of the one
-                           pressed (so the first means yes), and its label is
-                           printed. --input adds a text field, whose text is
-                           printed instead; --secret hides what is typed in it.
-                           --service starts that service if it is not running
-                           (a review app, say), and its exit code answers the
-                           question if no button does first; --port links the
-                           user to that port of this container. It needs
-                           something to answer with: an option, the field, or
-                           a service. Changes made to /work while a run of the
-                           'check' service waits on a question are the
-                           human's, and do not void the run.
+                           asks its questions in the chat instead. The
+                           question is rich text: *italic*, **bold**,
+                           [link](url); links, as a --url, are http(s)
+                           only. --input adds a text area, --secret a
+                           hidden field, --select a drop-down of the --choice
+                           labels after it; each shows its prompt until it is
+                           filled in. Each --button is a button, in a colour
+                           of primary, neutral, success, warning or danger;
+                           one with a --url opens it, one with a --port opens
+                           that port of this container. Pressing a button
+                           with an --id answers the question with it; a
+                           button with neither --url nor --port has its text
+                           as its id. The exit code is the index of the
+                           button pressed (so the first means yes), and its
+                           id is printed — or, where there are fields, a JSON
+                           object: {"button": id, "fields": [their values, in
+                           order]}. --service starts that service if it is
+                           not running (a review app, say), and its exit code
+                           answers the question if no button does first,
+                           printing nothing. It needs something to answer
+                           with: a button with an id, or a service. Changes
+                           made to /work while a run of the 'check' service
+                           waits on a question are the human's, and do not
+                           void the run.
 `
 
 // GuestToolInvoked tells whether this process is the guest tool: the binary

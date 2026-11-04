@@ -13,6 +13,6 @@ WORKDIR /work
 # The check work has to pass to be merged.
 LABEL tps.check="python3 -m unittest discover -v"
 # A stand-in deploy, which asks before it ships.
-LABEL tps.deploy="echo deploying snip at $(git rev-parse --short HEAD); /tps/bin/tps-guest-tool ask-human 'Ship snip to production?' --option Ship --option Abort && echo shipped"
+LABEL tps.deploy="echo deploying snip at $(git rev-parse --short HEAD); /tps/bin/tps-guest-tool ask-human 'Ship snip to production?' --button Ship --button Abort --color danger && echo shipped"
 EXPOSE 8000
 CMD python3 snip.py --host 0.0.0.0 --port 8000

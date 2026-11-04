@@ -77,6 +77,8 @@ A.insertGlobalCss({
 	body: 'p:0 h:100dvh min-height:0 overflow:hidden',
 });
 A(() => { A.cssVars.sidew = $ui.collapsed ? SIDEBAR_CLOSED : SIDEBAR_OPEN; });
+// What the browser draws itself (a drop-down's list, scrollbars) follows the theme too.
+A(() => { document.documentElement.style.colorScheme = S.getDarkMode() ? 'dark' : 'light'; });
 
 A('div display:flex h:100dvh align-items:stretch', () => {
 	A('div flex:none w:var(--sidew) min-width:0 transition: width 0.15s;', drawSidebar);

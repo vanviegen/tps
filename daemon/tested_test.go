@@ -78,21 +78,49 @@ func TestAskHuman(t *testing.T) {
 		return askRequest{}
 	}
 
-	done := ask("Accept the screenshots?", "--option", "Accept", "--option", "Reject", "--port", "8080")
+	done := ask("Accept the screenshots?", "--button", "Look", "--port", "8080",
+		"--button", "Accept", "--color", "success", "--button", "Reject", "--id", "no")
 	req := waitAsk()
-	if req.Question != "Accept the screenshots?" || len(req.Options) != 2 || req.Port != 8080 {
+	if req.Question != "Accept the screenshots?" || len(req.Buttons) != 3 || req.Buttons[0].Port != 8080 ||
+		req.Buttons[0].ID != "" || req.Buttons[1].ID != "Accept" || req.Buttons[2].ID != "no" {
 		t.Errorf("the question: %+v", req)
 	}
-	data, _ := json.Marshal(askAnswer{Option: 1})
+	data, _ := json.Marshal(askAnswer{Button: 2})
 	if err := writeAtomic(filepath.Join(root, askDir, req.ID+".answer"), data); err != nil {
 		t.Fatal(err)
 	}
-	if code := <-done; code != 1 {
+	if code := <-done; code != 2 {
 		t.Errorf("the answer's exit code: %d", code)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(root, askDir)); len(entries) != 0 {
 		t.Errorf("left behind: %v", entries)
 	}
+
+	req, err := parseAsk([]string{"Deploy?", "--secret", "OTP", "--select", "Where", "--choice", "eu", "--choice", "us", "--button", "Go"})
+	if err != nil || len(req.Fields) != 2 || req.Fields[0].Kind != "secret" || len(req.Fields[1].Choices) != 2 {
+		t.Errorf("fields: %+v %v", req, err)
+	}
+	for _, args := range [][]string{
+		{"Pick", "--choice", "a", "--button", "Go"},               // a choice of no select
+		{"Pick", "--select", "Which", "--button", "Go"},           // a select with no choices
+		{"Look", "--button", "Open", "--port", "80"},              // nothing answers
+		{"Go?", "--button", "Go", "--color", "chartreuse"},        // no such colour
+		{"Go?", "--id", "go"},                                     // an id of no button
+		{"Go?", "--button", "Go", "--url", "javascript:alert(1)"}, // no web page
+		{"See [this](javascript:alert(1))", "--button", "Go"},     // nor in the question
+	} {
+		if _, err := parseAsk(args); err == nil {
+			t.Errorf("accepted %q", args)
+		}
+	}
+
+	// One written without the tool is checked all the same.
+	_ = os.MkdirAll(filepath.Join(root, askDir), 0o755)
+	write(t, filepath.Join(root, askDir, "x.json"), `{"question":"[x](javascript:alert(1))","buttons":[{"text":"Go","id":"go"}]}`)
+	if asks := readAsks(root); len(asks) != 0 {
+		t.Errorf("a script link read: %+v", asks)
+	}
+	os.Remove(filepath.Join(root, askDir, "x.json"))
 
 	// A service of its own answers it by exiting.
 	if code := st.askHuman([]string{"Have a look", "--service", "look"}); code != 2 {

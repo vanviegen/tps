@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,62 +31,166 @@ const askDir = ".ask"
 
 // askRequest is a question as the tool writes it down.
 type askRequest struct {
-	ID       string   `json:"id,omitempty"` // the file's name, filled in as it is read
-	Question string   `json:"question"`
-	Options  []string `json:"options,omitempty"`
-	Input    bool     `json:"input,omitempty"`
-	Secret   bool     `json:"secret,omitempty"`
-	Service  string   `json:"service,omitempty"` // whose exit answers it, unless a button does first
-	Port     int      `json:"port,omitempty"`    // of the container, for the dashboard to link to
+	ID       string      `json:"id,omitempty"` // the file's name, filled in as it is read
+	Question string      `json:"question"`     // rich text
+	Fields   []askField  `json:"fields,omitempty"`
+	Buttons  []askButton `json:"buttons,omitempty"`
+	Service  string      `json:"service,omitempty"` // whose exit answers it, unless a button does first
 }
 
-// askAnswer is what the user answered: the option pressed, and what they typed
-// — or that nobody is there to answer, in a scheduled run (see schedule.go).
+// askField is something to fill in: text, a secret, or a pick among Choices.
+type askField struct {
+	Kind    string   `json:"kind"` // "text", "secret" or "select"
+	Prompt  string   `json:"prompt"`
+	Choices []string `json:"choices,omitempty"`
+}
+
+// askButton opens its URL or the container's Port where it has one, and
+// answers the question where it has an ID.
+type askButton struct {
+	Text  string `json:"text"`
+	Color string `json:"color,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Port  int    `json:"port,omitempty"`
+	ID    string `json:"id,omitempty"`
+}
+
+// The colours a button comes in: the dashboard's surfaces.
+var askColors = []string{"primary", "neutral", "success", "warning", "danger"}
+
+// askAnswer is what the user answered: the button pressed, and what the
+// fields hold — or that nobody is there to answer, in a scheduled run (see
+// schedule.go).
 type askAnswer struct {
-	Option  int    `json:"option"`
-	Text    string `json:"text,omitempty"`
-	Refused bool   `json:"refused,omitempty"`
+	Button  int      `json:"button"`
+	Fields  []string `json:"fields,omitempty"`
+	Refused bool     `json:"refused,omitempty"`
 }
 
 // --- the tool's side ---
 
-func (st *guestTool) askHuman(args []string) int {
+// parseAsk reads ask-human's arguments. --id, --color, --url and --port are
+// the last --button's, --choice the last --select's.
+func parseAsk(args []string) (askRequest, error) {
 	var req askRequest
 	for i := 0; i < len(args); i++ {
-		switch a := args[i]; a {
-		case "--option", "--service", "--port":
-			if i+1 == len(args) {
-				return st.fail(fmt.Errorf("ask-human: %s needs a value", a))
-			}
-			i++
-			switch a {
-			case "--option":
-				req.Options = append(req.Options, args[i])
-			case "--service":
-				req.Service = args[i]
-			default:
-				port, err := strconv.Atoi(args[i])
-				if err != nil || port <= 0 {
-					return st.fail(fmt.Errorf("ask-human: '%s' is not a port", args[i]))
-				}
-				req.Port = port
-			}
-		case "--input":
-			req.Input = true
-		case "--secret":
-			req.Input, req.Secret = true, true
-		default:
-			if strings.HasPrefix(a, "--") || req.Question != "" {
-				return st.fail(fmt.Errorf("ask-human: unexpected '%s'; run without arguments for usage", a))
+		a := args[i]
+		if !strings.HasPrefix(a, "--") {
+			if req.Question != "" {
+				return req, fmt.Errorf("unexpected '%s'; run without arguments for usage", a)
 			}
 			req.Question = a
+			continue
+		}
+		if i+1 == len(args) {
+			return req, fmt.Errorf("%s needs a value", a)
+		}
+		i++
+		v := args[i]
+		var button *askButton
+		if n := len(req.Buttons); n > 0 {
+			button = &req.Buttons[n-1]
+		}
+		switch a {
+		case "--button":
+			req.Buttons = append(req.Buttons, askButton{Text: v})
+		case "--input":
+			req.Fields = append(req.Fields, askField{Kind: "text", Prompt: v})
+		case "--secret":
+			req.Fields = append(req.Fields, askField{Kind: "secret", Prompt: v})
+		case "--select":
+			req.Fields = append(req.Fields, askField{Kind: "select", Prompt: v})
+		case "--choice":
+			n := len(req.Fields)
+			if n == 0 || req.Fields[n-1].Kind != "select" {
+				return req, errors.New("--choice goes after the --select it is for")
+			}
+			req.Fields[n-1].Choices = append(req.Fields[n-1].Choices, v)
+		case "--service":
+			req.Service = v
+		case "--id", "--color", "--url", "--port":
+			if button == nil {
+				return req, fmt.Errorf("%s goes after the --button it is for", a)
+			}
+			switch a {
+			case "--id":
+				button.ID = v
+			case "--color":
+				if !slices.Contains(askColors, v) {
+					return req, fmt.Errorf("'%s' is not a colour: %s", v, strings.Join(askColors, ", "))
+				}
+				button.Color = v
+			case "--url":
+				button.URL = v
+			default:
+				port, err := strconv.Atoi(v)
+				if err != nil || port <= 0 {
+					return req, fmt.Errorf("'%s' is not a port", v)
+				}
+				button.Port = port
+			}
+		default:
+			return req, fmt.Errorf("unexpected '%s'; run without arguments for usage", a)
 		}
 	}
 	if strings.TrimSpace(req.Question) == "" {
-		return st.fail(errors.New("ask-human: what is the question?"))
+		return req, errors.New("what is the question?")
 	}
-	if len(req.Options) == 0 && !req.Input && req.Service == "" {
-		return st.fail(errors.New("ask-human: nothing to answer with: give an --option, --input or a --service"))
+	answers := req.Service != ""
+	for i := range req.Buttons {
+		b := &req.Buttons[i]
+		if b.URL != "" && b.Port != 0 {
+			return req, fmt.Errorf("button '%s' has both a --url and a --port", b.Text)
+		}
+		if b.ID == "" && b.URL == "" && b.Port == 0 {
+			b.ID = b.Text
+		}
+		answers = answers || b.ID != ""
+	}
+	for _, f := range req.Fields {
+		if f.Kind == "select" && len(f.Choices) == 0 {
+			return req, fmt.Errorf("--select '%s' has no --choice", f.Prompt)
+		}
+	}
+	if !answers {
+		return req, errors.New("nothing to answer with: give a --button that answers, or a --service")
+	}
+	return req, checkAskLinks(req)
+}
+
+// checkAskLinks refuses links the dashboard would follow to anything but a
+// web page: a javascript: link runs in the dashboard itself. A link in the
+// rich text is whatever follows a "](" up to the first ")", as Aberdeen reads
+// it, so every such stretch is checked. Whatever runs in the container can
+// write a request without the tool, so the daemon checks it again (see
+// readAsks).
+func checkAskLinks(req askRequest) error {
+	web := func(url string) bool {
+		url = strings.ToLower(url)
+		return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+	}
+	for _, b := range req.Buttons {
+		if b.URL != "" && !web(b.URL) {
+			return fmt.Errorf("button '%s': '%s' is not an http(s) URL", b.Text, b.URL)
+		}
+	}
+	for _, link := range strings.Split(req.Question, "](")[1:] {
+		link, _, _ = strings.Cut(link, ")")
+		if !web(link) {
+			return fmt.Errorf("the link to '%s' in the question is not an http(s) URL", link)
+		}
+	}
+	return nil
+}
+
+func (st *guestTool) askHuman(args []string) int {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		fmt.Print(guestToolUsage)
+		return 0
+	}
+	req, err := parseAsk(args)
+	if err != nil {
+		return st.fail(fmt.Errorf("ask-human: %w", err))
 	}
 	var serviceDir string
 	if req.Service != "" {
@@ -131,7 +236,7 @@ func (st *guestTool) askHuman(args []string) int {
 	for code < 0 {
 		time.Sleep(300 * time.Millisecond)
 		if data, err := os.ReadFile(answerFile); err == nil && json.Unmarshal(data, &ans) == nil {
-			code, answered = max(ans.Option, 0), true
+			code, answered = ans.Button, true
 		} else if serviceDir != "" && !serviceAlive(serviceDir) {
 			serviceRepair(serviceDir)
 			code, _ = strconv.Atoi(strings.TrimSpace(readFile(filepath.Join(serviceDir, "exit"))))
@@ -146,10 +251,12 @@ func (st *guestTool) askHuman(args []string) int {
 		return st.fail(errors.New("ask-human: nobody is there to answer: this is a scheduled run"))
 	}
 	switch {
-	case answered && req.Input:
-		fmt.Println(ans.Text)
-	case answered && ans.Option < len(req.Options):
-		fmt.Println(req.Options[ans.Option])
+	case !answered:
+	case len(req.Fields) == 0:
+		fmt.Println(req.Buttons[ans.Button].ID)
+	default:
+		data, _ := json.Marshal(map[string]any{"button": req.Buttons[ans.Button].ID, "fields": ans.Fields})
+		fmt.Println(string(data))
 	}
 	return code
 }
@@ -177,7 +284,7 @@ func readAsks(servicesDir string) []askRequest {
 			continue
 		}
 		var req askRequest
-		if json.Unmarshal([]byte(readFile(filepath.Join(dir, e.Name()))), &req) == nil {
+		if json.Unmarshal([]byte(readFile(filepath.Join(dir, e.Name()))), &req) == nil && checkAskLinks(req) == nil {
 			req.ID = id
 			asks = append(asks, req)
 		}
@@ -216,7 +323,7 @@ func (t *Task) syncAsksL() {
 }
 
 // AnswerAsk is the user's answer to one of the task's open questions.
-func (t *Task) AnswerAsk(id string, option int, text string) error {
+func (t *Task) AnswerAsk(id string, button int, fields []string) error {
 	t.lock()
 	var req *askRequest
 	for i := range t.asks {
@@ -228,15 +335,18 @@ func (t *Task) AnswerAsk(id string, option int, text string) error {
 		t.unlock()
 		return errors.New("That question is not open any more")
 	}
-	said := "Answered"
-	if option >= 0 && option < len(req.Options) {
-		said += ": " + req.Options[option]
+	if button < 0 || button >= len(req.Buttons) || req.Buttons[button].ID == "" || len(fields) != len(req.Fields) {
+		t.unlock()
+		return errors.New("That is no answer to the question")
 	}
-	if req.Input && !req.Secret && text != "" {
-		said += " — " + text
+	said := "Answered: " + req.Buttons[button].Text
+	for i, f := range req.Fields {
+		if f.Kind != "secret" && fields[i] != "" {
+			said += " — " + fields[i]
+		}
 	}
 	t.unlock()
-	data, _ := json.Marshal(askAnswer{Option: option, Text: text})
+	data, _ := json.Marshal(askAnswer{Button: button, Fields: fields})
 	if err := writeAtomic(filepath.Join(t.servicesDir(), askDir, id+".answer"), data); err != nil {
 		return err
 	}

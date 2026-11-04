@@ -672,12 +672,14 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	acceptFiles(zone, area, files => uploadFiles(pid, tid, files));
 }
 
-interface Ask { id: string; question: string; options?: string[]; input?: boolean; secret?: boolean; service?: string; port?: number }
+interface AskField { kind: 'text' | 'secret' | 'select'; prompt: string; choices?: string[] }
+interface AskButton { text: string; color?: string; url?: string; port?: number; id?: string }
+interface Ask { id: string; question: string; fields?: AskField[]; buttons?: AskButton[]; service?: string }
 
 /**
  * The questions something in the task's container puts to the user (see
- * ask.go), each a strip of its own: the question, a link to the port it names,
- * a field to type in where it wants text, and a button per answer. A script
+ * ask.go), each a strip of its own: the question, a field per thing to fill
+ * in, and its buttons, which open a link or a port, answer, or both. A script
  * waits on the answer, whatever the task's phase.
  */
 function drawAsks(pid: string, tid: string, $t: any): void {
@@ -687,24 +689,36 @@ function drawAsks(pid: string, tid: string, $t: any): void {
 }
 
 function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
-	const $form = A.proxy({ text: '' });
-	const answer = (option: number) => void cmd('answerAsk', { pid, tid, id: ask.id, option, text: $form.text });
-	// A field with nothing to press says Send; a question with neither waits for its service.
-	const options = ask.options?.length ? ask.options : ask.input ? ['Send'] : [];
+	const fields = ask.fields ?? [];
+	const $form = A.proxy({ values: fields.map(() => '') });
+	// A field would fill with the strip's colour: let the tint show through.
+	const inputAttrs = 'background:transparent';
 	A('div.s-s.warning.tonal p:$2 display:flex flex-direction:column gap:$2', () => {
-		A('div font-weight:600 white-space:pre-wrap text=', ask.question);
-		if (ask.input) S.textline({ type: ask.secret ? 'password' : 'text', placeholder: 'Your answer', bind: A.ref($form, 'text'),
-			// The field would fill with the strip's colour: let the tint show through.
-			inputAttrs: 'background:transparent' });
-		A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
-			if (ask.port) A(() => {
-				const p = ($t.ports ?? []).find((p: any) => p.port === ask.port);
-				S.button({ content: `Open port ${ask.port}`, icon: externalLink, attrs: '.small .neutral', disabled: !p,
-					tooltip: p ? undefined : `Port ${ask.port} is not forwarded: Containerfile.dev needs an EXPOSE line for it`,
-					click: () => window.open(portUrl(p), '_blank') });
+		A('div font-weight:600 white-space:pre-wrap rich=', ask.question);
+		fields.forEach((f, i) => {
+			const bind = A.ref($form.values, i);
+			// A choice made hides a placeholder: the prompt stays beside the drop-down instead.
+			if (f.kind === 'select') A('div display:flex align-items:center gap:$2', () => {
+				A('span text=', f.prompt);
+				S.select({ placeholder: 'Choose…', options: f.choices ?? [], bind, attrs: 'flex:1', inputAttrs });
 			});
-			options.forEach((label, i) => S.button({ content: label, attrs: (i ? '.small .neutral' : '.small') + ' white-space:normal text-align:left', click: () => answer(i) }));
-			if (ask.service) A('span fg:$s-muted font-size:0.9em text=', `${options.length ? 'Or answered' : 'Answered'} by the service ${ask.service} when it exits`);
+			else if (f.kind === 'secret') S.textline({ type: 'password', placeholder: f.prompt, bind, inputAttrs });
+			else S.textarea({ placeholder: f.prompt, bind, inputAttrs });
+		});
+		A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
+			(ask.buttons ?? []).forEach((b, i) => A(() => {
+				const p = b.port ? ($t.ports ?? []).find((p: any) => p.port === b.port) : undefined;
+				const url = b.port ? p && portUrl(p) : b.url;
+				S.button({ content: b.text, icon: url || b.port ? externalLink : undefined,
+					attrs: `.small .${b.color ?? (i ? 'neutral' : 'primary')} white-space:normal text-align:left`,
+					disabled: !!b.port && !p && b.id == null,
+					tooltip: b.port && !p ? `Port ${b.port} is not forwarded: Containerfile.dev needs an EXPOSE line for it` : undefined,
+					click: () => {
+						if (url) window.open(url, '_blank');
+						if (b.id != null) void cmd('answerAsk', { pid, tid, id: ask.id, button: i, fields: A.peek(() => [...$form.values]) });
+					} });
+			}));
+			if (ask.service) A('span fg:$s-muted font-size:0.9em text=', `${ask.buttons?.some(b => b.id != null) ? 'Or answered' : 'Answered'} by the service ${ask.service} when it exits`);
 		});
 	});
 }
