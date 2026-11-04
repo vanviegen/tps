@@ -688,15 +688,23 @@ function drawAsks(pid: string, tid: string, $t: any): void {
 	});
 }
 
+// What has been filled in for each open question, by its id: the strips are
+// drawn anew whenever the task's questions are published again (a reconnect,
+// say), and what was typed must outlive that.
+const $askValues: Record<string, string[]> = A.proxy({});
+
 function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
 	const fields = ask.fields ?? [];
-	const $form = A.proxy({ values: fields.map(() => '') });
+	const $values = A.peek(() => {
+		if (!$askValues[ask.id]) $askValues[ask.id] = fields.map(() => '');
+		return $askValues[ask.id];
+	});
 	// A field would fill with the strip's colour: let the tint show through.
 	const inputAttrs = 'background:transparent';
 	A('div.s-s.warning.tonal p:$2 display:flex flex-direction:column gap:$2', () => {
 		A('div font-weight:600 white-space:pre-wrap rich=', ask.question);
 		fields.forEach((f, i) => {
-			const bind = A.ref($form.values, i);
+			const bind = A.ref($values, i);
 			// A choice made hides a placeholder: the prompt stays beside the drop-down instead.
 			if (f.kind === 'select') A('div display:flex align-items:center gap:$2', () => {
 				A('span text=', f.prompt);
@@ -715,7 +723,9 @@ function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
 					tooltip: b.port && !p ? `Port ${b.port} is not forwarded: Containerfile.dev needs an EXPOSE line for it` : undefined,
 					click: () => {
 						if (url) window.open(url, '_blank');
-						if (b.id != null) void cmd('answerAsk', { pid, tid, id: ask.id, button: i, fields: A.peek(() => [...$form.values]) });
+						if (b.id == null) return;
+						void cmd('answerAsk', { pid, tid, id: ask.id, button: i, fields: A.peek(() => [...$values]) });
+						delete $askValues[ask.id];
 					} });
 			}));
 		});

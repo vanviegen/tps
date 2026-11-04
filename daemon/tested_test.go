@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,6 +93,22 @@ func TestAskHuman(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(root, requestsDir)); len(entries) != 0 {
 		t.Errorf("left behind: %v", entries)
+	}
+
+	// What it prints: the id, then the fields, a line each.
+	stdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	done = ask("Deploy?", "--input", "Notes", "--secret", "OTP", "--button", "Go")
+	req = waitAsk()
+	if err := answerRequest(root, req.ID, askAnswer{Fields: []string{"two\nlines \\o/", "123"}}); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	w.Close()
+	os.Stdout = stdout
+	if out, _ := io.ReadAll(r); string(out) != "Go\ntwo\\nlines \\\\o/\n123\n" {
+		t.Errorf("printed %q", out)
 	}
 
 	req, err := parseAsk([]string{"Deploy?", "--secret", "OTP", "--select", "Where", "--choice", "eu", "--choice", "us", "--button", "Go"})

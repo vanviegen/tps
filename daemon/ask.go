@@ -175,7 +175,7 @@ func checkAskLinks(req askRequest) error {
 
 func (st *guestTool) askHuman(args []string) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Print(guestToolUsage)
+		os.Stdout.WriteString(guestToolUsage)
 		return 0
 	}
 	req, err := parseAsk(args)
@@ -212,11 +212,10 @@ func (st *guestTool) askHuman(args []string) int {
 	if ans.Refused {
 		return st.fail(errors.New("ask-human: nobody is there to answer: this is a scheduled run"))
 	}
-	if len(req.Fields) == 0 {
-		fmt.Println(req.Buttons[ans.Button].ID)
-	} else {
-		data, _ := json.Marshal(map[string]any{"button": req.Buttons[ans.Button].ID, "fields": ans.Fields})
-		fmt.Println(string(data))
+	// A line each, for a shell's read: the button's id, then the fields.
+	escape := strings.NewReplacer(`\`, `\\`, "\n", `\n`)
+	for _, v := range append([]string{req.Buttons[ans.Button].ID}, ans.Fields...) {
+		fmt.Println(escape.Replace(v))
 	}
 	return ans.Button
 }

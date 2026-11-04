@@ -132,12 +132,14 @@ Other commands:
                            answers the question with it; a button with neither
                            --url nor --port has its text as its id. The exit
                            code is the index of the button pressed (so the
-                           first means yes), and its id is printed — or, where
-                           there are fields, a JSON object: {"button": id,
-                           "fields": [their values, in order]}. At least one
-                           button needs an id. Changes made to /work while a
-                           run of the 'check' service waits on a question are
-                           the human's, and do not void the run.
+                           first means yes). Printed are its id and then each
+                           field's value, in the order given, a line each, with
+                           every backslash and newline in them escaped as \\
+                           and \n: read -r takes them line by line, and printf
+                           '%b' undoes the escapes. At least one button needs
+                           an id. Changes made to /work while a run of the
+                           'check' service waits on a question are the human's,
+                           and do not void the run.
 
   projects                 The projects on this host, each by the name the
                            commands below take.
@@ -187,7 +189,7 @@ func guestToolMain(args []string) int {
 	}
 	st := &guestTool{root: root}
 	if len(args) == 0 {
-		fmt.Print(guestToolUsage)
+		os.Stdout.WriteString(guestToolUsage)
 		return 0
 	}
 	var err error
@@ -219,7 +221,7 @@ func guestToolMain(args []string) int {
 	case "ps", "list":
 		err = st.ps()
 	case "help", "-h", "--help":
-		fmt.Print(guestToolUsage)
+		os.Stdout.WriteString(guestToolUsage)
 	default:
 		err = fmt.Errorf("unknown command '%s'; run without arguments for usage", cmd)
 	}
