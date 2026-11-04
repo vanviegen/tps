@@ -71,20 +71,21 @@ func branchLog(dir, rev string) ([]branchCommit, error) {
 
 // refreshBranch publishes the branch's commits for the board, where on them
 // the last deploy is (see branchState), and whether the branch holds anything
-// that deploy does not.
+// that deploy does not: for a project that deploys, or one whose deploys are
+// made outside TPS and recorded in deployedRef by hand (declared false).
 func (p *Project) refreshBranch() {
 	p.m.mu.Lock()
 	deploys, head := p.deploy != "", p.head
 	p.m.mu.Unlock()
 	deployed := p.deployedCommit()
-	if !deploys {
+	if !deploys && deployed == "" {
 		p.pub("commits", nil)
 		p.pub("deploy", nil)
 		return
 	}
 	log, at, rewritten := p.branchState()
 	p.pub("commits", log)
-	p.pub("deploy", map[string]any{"at": at, "rewritten": rewritten, "pending": head != deployed})
+	p.pub("deploy", map[string]any{"at": at, "rewritten": rewritten, "pending": head != deployed, "declared": deploys})
 }
 
 // branchState reads the branch for the board, and where on it the last
