@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,16 +22,10 @@ import (
 // that may be handed out without asking; a request beyond it waits for the
 // user, who may raise the budget or turn the request down.
 //
-// The tool and the daemon talk through two files in the task's services dir:
-// the tool writes the amount to orRequestFile, the daemon (on its services
-// tick) answers in orAnswerFile, and the tool takes both away once it has read
-// the answer.
-const (
-	orRequestFile = ".openrouter-request"
-	orAnswerFile  = ".openrouter-answer"
-)
+// The tool asks with a request of the kind "openrouter" (see requests.go),
+// whose body is the amount; one at a time is taken up.
 
-// orAnswer is what orAnswerFile holds: a key and its limit, or why there is none.
+// orAnswer is the answer to such a request: a key and its limit, or why there is none.
 type orAnswer struct {
 	Key   string  `json:"key,omitempty"`
 	Limit float64 `json:"limit,omitempty"`
@@ -104,24 +97,24 @@ func (t *Task) orRoomL() float64 {
 // yet: a key, when the budget has room for it, and otherwise the question for
 // the user.
 func (t *Task) checkORRequestL() {
-	dir := t.servicesDir()
-	if t.orBusy || t.info.ORAsk > 0 || exists(filepath.Join(dir, orAnswerFile)) {
+	if t.orBusy || t.info.ORAsk > 0 {
 		return
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, orRequestFile))
-	if err != nil {
+	reqs := readRequests(t.servicesDir(), "openrouter", false)
+	if len(reqs) == 0 {
 		return
 	}
-	amount, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64)
+	var amount float64
+	err := json.Unmarshal(reqs[0].Body, &amount)
 	switch {
 	case err != nil || amount <= 0:
-		writeORAnswer(dir, orAnswer{Error: "the request names no amount of USD"})
+		t.answerOR(orAnswer{Error: "the request names no amount of USD"})
 	case t.p.m.orKey == "":
 		t.note("The agent asked for OpenRouter access, which this host has no management key for")
-		writeORAnswer(dir, orAnswer{Error: "this host has no OpenRouter management key, so TPS cannot make keys here"})
+		t.answerOR(orAnswer{Error: "this host has no OpenRouter management key, so TPS cannot make keys here"})
 	case amount > t.orRoomL()+0.005 && t.info.Scheduled != "":
 		t.note(fmt.Sprintf("The agent asked for $%g of OpenRouter spending, more than this scheduled run's OpenRouter budget has left; refused, nobody being there to raise it", amount))
-		writeORAnswer(dir, orAnswer{Error: "that is more than this scheduled run's OpenRouter budget has left, and nobody is there to raise it"})
+		t.answerOR(orAnswer{Error: "that is more than this scheduled run's OpenRouter budget has left, and nobody is there to raise it"})
 	case amount > t.orRoomL()+0.005:
 		t.note(fmt.Sprintf("The agent asks for $%g of OpenRouter spending, more than the task's OpenRouter budget has left", amount))
 		t.info.ORAsk = amount
@@ -133,12 +126,10 @@ func (t *Task) checkORRequestL() {
 	}
 }
 
-// writeORAnswer puts the answer in place whole, never half written for the tool to read.
-func writeORAnswer(dir string, a orAnswer) {
-	data, _ := json.Marshal(a)
-	tmp := filepath.Join(dir, orAnswerFile+".tmp")
-	if os.WriteFile(tmp, data, 0o600) == nil {
-		_ = os.Rename(tmp, filepath.Join(dir, orAnswerFile))
+// answerOR answers the request taken up: the oldest one standing.
+func (t *Task) answerOR(a orAnswer) {
+	if reqs := readRequests(t.servicesDir(), "openrouter", false); len(reqs) > 0 {
+		_ = answerRequest(t.servicesDir(), reqs[0].ID, a)
 	}
 }
 
@@ -175,7 +166,7 @@ func (t *Task) RejectOpenRouter() error {
 	t.info.ORAsk = 0
 	t.p.m.saveL()
 	t.publishL()
-	writeORAnswer(t.servicesDir(), orAnswer{Error: "the user turned the request down"})
+	t.answerOR(orAnswer{Error: "the user turned the request down"})
 	t.note("OpenRouter request rejected")
 	return nil
 }
@@ -199,14 +190,14 @@ func (t *Task) grantOpenRouter(amount float64) {
 	t.orBusy = false
 	if err != nil {
 		t.noteErr("Making or raising the OpenRouter key failed", err)
-		writeORAnswer(t.servicesDir(), orAnswer{Error: err.Error()})
+		t.answerOR(orAnswer{Error: err.Error()})
 		return
 	}
 	t.info.ORKey = &k
 	t.info.ORGranted += amount
 	t.p.m.saveL()
 	t.publishL()
-	writeORAnswer(t.servicesDir(), orAnswer{Key: k.Key, Limit: k.Limit})
+	t.answerOR(orAnswer{Key: k.Key, Limit: k.Limit})
 	t.note(fmt.Sprintf("The agent's OpenRouter key allows $%g more, $%g in all", amount, k.Limit))
 }
 
@@ -217,25 +208,23 @@ func (st *guestTool) openRouter(args []string) int {
 	if len(args) != 1 {
 		return st.fail(errors.New("openrouter: how many USD of spending should the key allow?"))
 	}
-	if amount, err := strconv.ParseFloat(args[0], 64); err != nil || amount <= 0 {
+	amount, err := strconv.ParseFloat(args[0], 64)
+	if err != nil || amount <= 0 {
 		return st.fail(fmt.Errorf("openrouter: '%s' is not an amount of USD", args[0]))
 	}
-	request, answer := filepath.Join(st.root, orRequestFile), filepath.Join(st.root, orAnswerFile)
-	if !exists(request) {
-		_ = os.Remove(answer)
-		if err := os.WriteFile(request, []byte(args[0]+"\n"), 0o644); err != nil {
-			return st.fail(err)
-		}
+	var id string
+	if standing := readRequests(st.root, "openrouter", true); len(standing) > 0 {
+		id = standing[0].ID
+	} else if id, err = st.put("openrouter", amount); err != nil {
+		return st.fail(err)
 	}
 	for deadline := time.Now().Add(orWait); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
-		raw, err := os.ReadFile(answer)
-		if err != nil {
+		var a orAnswer
+		if !st.answer(id, &a) {
 			continue
 		}
-		_ = os.Remove(answer)
-		_ = os.Remove(request)
-		var a orAnswer
-		if json.Unmarshal(raw, &a) != nil || a.Key == "" {
+		st.drop(id)
+		if a.Key == "" {
 			return st.fail(fmt.Errorf("no key: %s", cmp.Or(a.Error, "the answer could not be read")))
 		}
 		fmt.Fprintf(os.Stderr, "The task's OpenRouter API key for https://openrouter.ai/api/v1, limited to $%g of spending in all:\n", a.Limit)

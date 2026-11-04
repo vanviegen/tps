@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,14 +84,13 @@ func TestAskHuman(t *testing.T) {
 		req.Buttons[0].ID != "" || req.Buttons[1].ID != "Accept" || req.Buttons[2].ID != "no" {
 		t.Errorf("the question: %+v", req)
 	}
-	data, _ := json.Marshal(askAnswer{Button: 2})
-	if err := writeAtomic(filepath.Join(root, askDir, req.ID+".answer"), data); err != nil {
+	if err := answerRequest(root, req.ID, askAnswer{Button: 2}); err != nil {
 		t.Fatal(err)
 	}
 	if code := <-done; code != 2 {
 		t.Errorf("the answer's exit code: %d", code)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(root, askDir)); len(entries) != 0 {
+	if entries, _ := os.ReadDir(filepath.Join(root, requestsDir)); len(entries) != 0 {
 		t.Errorf("left behind: %v", entries)
 	}
 
@@ -115,12 +113,12 @@ func TestAskHuman(t *testing.T) {
 	}
 
 	// One written without the tool is checked all the same.
-	_ = os.MkdirAll(filepath.Join(root, askDir), 0o755)
-	write(t, filepath.Join(root, askDir, "x.json"), `{"question":"[x](javascript:alert(1))","buttons":[{"text":"Go","id":"go"}]}`)
+	_ = os.MkdirAll(filepath.Join(root, requestsDir), 0o755)
+	write(t, filepath.Join(root, requestsDir, "x.json"), `{"kind":"ask","body":{"question":"[x](javascript:alert(1))","buttons":[{"text":"Go","id":"go"}]}}`)
 	if asks := readAsks(root); len(asks) != 0 {
 		t.Errorf("a script link read: %+v", asks)
 	}
-	os.Remove(filepath.Join(root, askDir, "x.json"))
+	os.Remove(filepath.Join(root, requestsDir, "x.json"))
 
 	// A service of its own answers it by exiting.
 	if code := st.askHuman([]string{"Have a look", "--service", "look"}); code != 2 {

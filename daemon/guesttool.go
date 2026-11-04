@@ -17,7 +17,8 @@ import (
 
 // tps-guest-tool: what a task's agent reaches for from inside its container.
 // That is the task's services — starting, stopping and watching them —
-// OpenRouter keys (see openrouter.go), and questions for the user (see ask.go).
+// OpenRouter keys (see openrouter.go), questions for the user (see ask.go), and
+// tasks of other projects (see board.go).
 // It is the tps binary itself, copied into the toolbox under that name (see
 // ensureToolbox) and dispatched on it (see GuestToolInvoked). Both the agent
 // and the daemon (on the dashboard's behalf) go through it, so the two never
@@ -140,6 +141,24 @@ for anything that serves or takes a while: dev servers, test suites, builds.
                            made to /work while a run of the 'check' service
                            waits on a question are the human's, and do not
                            void the run.
+
+  projects                 Not a service: the projects on this host, each by
+                           the name the commands below take.
+  create-task <project> <title> <description>
+                           Not a service: put a task in a project, '.' being
+                           this task's own: in Plan, with the description as
+                           what its agent is to be sent in with, for the user
+                           to look over and start. Prints the task, as
+                           <project>/<number>, for await-task.
+  await-task <task> [<state>] [seconds]
+                           Not a service: wait for a task to be in a state:
+                           merged, deployed, or a phase (plan, agent, review,
+                           human, muted, merge, done, closed); with none named,
+                           for it to leave the phase it is in. Waits up to 60
+                           seconds by default, and exits 0 once it is, 1 once
+                           it never will be (closed without merging, deleted,
+                           or merged in a project that does not deploy), and
+                           124 if it is not yet: feel free to await again.
 `
 
 // GuestToolInvoked tells whether this process is the guest tool: the binary
@@ -192,6 +211,12 @@ func guestToolMain(args []string) int {
 		return st.openRouter(rest)
 	case "ask-human":
 		return st.askHuman(rest)
+	case "projects":
+		return st.projects(rest)
+	case "create-task":
+		return st.createTask(rest)
+	case "await-task":
+		return st.awaitTask(rest)
 	case "settings":
 		return st.settings(rest)
 	case "ps", "list":

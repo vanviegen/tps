@@ -33,7 +33,7 @@ kill -KILL "$p" 2>/dev/null || true
 // ChatEntry is one condensed line of a task's chat log. A tool call and its
 // result share a single entry: the result is merged in later, addressed by ID.
 type ChatEntry struct {
-	K         string     `json:"k"`                   // user | text | thinking | tool | note | result | mark
+	K         string     `json:"k"`                   // user | text | thinking | tool | note | result | mark | task
 	ID        string     `json:"id,omitempty"`        // tool_use id; an entry re-sent with a known id replaces the original
 	Text      string     `json:"text,omitempty"`      // markdown (user/text/note), or a one-line brief (thinking/tool/result)
 	Name      string     `json:"name,omitempty"`      // tool name
@@ -47,6 +47,7 @@ type ChatEntry struct {
 	Error     bool       `json:"error,omitempty"`
 	Rev       bool       `json:"rev,omitempty"`  // said by the reviewer rather than by the task's own agent (see review.go)
 	Mark      *Mark      `json:"mark,omitempty"` // mark: the save point this entry is (see mark.go)
+	Task      *TaskLink  `json:"task,omitempty"` // task: one made on the task's behalf (see board.go)
 	T         int64      `json:"t"`
 }
 

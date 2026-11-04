@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { deployProject, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, busyAttrs, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, scheduleText, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, scheduleText, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -336,15 +336,16 @@ const deployHere = A.insertCss({
 });
 
 /**
- * Whether a card's icon would say more than the column it sits in: the task is
- * waiting (for the tasks it follows, or for claude's usage limit), it is being
- * merged among the ones already merged, it keeps work the others in its column
+ * Whether a card's icon would say more than the column it sits in: an agent
+ * asked for the task and the user has yet to look at it, the task is waiting
+ * (for the tasks it follows, or for claude's usage limit), it is being merged
+ * among the ones already merged, it keeps work the others in its column
  * do not (see keepsWork), or its workspace is in trouble — which the icon
  * carries as its colour. Everything else the icon could show is the phase, and
  * that is the column's to say.
  */
 function saysMore(pid: string, $t: any): boolean {
-	return autoStarts($t) || !!$t.limitUntil || $t.phase === 'merge' || keepsWork($t) || taskActivity(pid, $t).color === 'danger';
+	return requested($t) || autoStarts($t) || !!$t.limitUntil || $t.phase === 'merge' || keepsWork($t) || taskActivity(pid, $t).color === 'danger';
 }
 
 // Browsers can fire a click on the card a drag started from once that drag

@@ -15,16 +15,12 @@ import (
 // Agents help set projects up, so they read the project's settings with
 // 'tps-guest-tool settings', and suggest changes with 'tps-guest-tool settings
 // suggest': a suggestion waits in the task for the user to accept or reject,
-// the tool waiting with it. The tool and the daemon talk through files in the
-// task's services dir: the daemon keeps settingsFile current (see
-// syncSettingsL), the tool leaves its suggestion in askDir, and the daemon
-// answers beside it. A suggestion answered after the tool gave up waiting is
-// told the agent the next time it is sent in.
-const (
-	settingsFile   = ".settings.json"
-	suggestionFile = "settings.suggestion" // in askDir, which a container that goes takes along (see resetServices)
-	suggestedFile  = "settings.answer"
-)
+// the tool waiting with it. The daemon keeps settingsFile in the task's
+// services dir current (see syncSettingsL); a suggestion is a request of the
+// kind "settings" (see requests.go), answered "accepted", "rejected" or
+// "refused". A suggestion answered after the tool gave up waiting is told the
+// agent the next time it is sent in.
+const settingsFile = ".settings.json"
 
 // settingsL are the project's settings, as SetConfig takes them.
 func (p *Project) settingsL() map[string]any {
@@ -198,14 +194,8 @@ func (st *guestTool) suggest(raw string) int {
 	if err != nil {
 		return st.fail(fmt.Errorf("settings suggest: %w", err))
 	}
-	dir := filepath.Join(st.root, askDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return st.fail(err)
-	}
-	file, answer := filepath.Join(dir, suggestionFile), filepath.Join(dir, suggestedFile)
-	_ = os.Remove(answer)
-	data, _ := json.Marshal(partial)
-	if err := writeAtomic(file, data); err != nil {
+	id, err := st.put("settings", partial)
+	if err != nil {
 		return st.fail(err)
 	}
 	// Not waiting any more, the suggestion is left standing for the user, and
@@ -214,16 +204,15 @@ func (st *guestTool) suggest(raw string) int {
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	go func() {
 		<-sigs
-		os.Remove(file)
+		st.drop(id)
 		os.Exit(130)
 	}()
+	defer st.drop(id)
 	for deadline := time.Now().Add(orWait); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
-		said := readFile(answer)
-		if said == "" {
+		var said string
+		if !st.answer(id, &said) {
 			continue
 		}
-		os.Remove(answer)
-		os.Remove(file)
 		switch said {
 		case "accepted":
 			fmt.Println("The user accepted the suggestion.")
@@ -234,7 +223,6 @@ func (st *guestTool) suggest(raw string) int {
 		}
 		return st.fail(errors.New("settings suggest: nobody is there to answer: this is a scheduled run"))
 	}
-	os.Remove(file)
 	fmt.Fprintln(os.Stderr, "The user has not answered in half an hour. The suggestion stands in the dashboard, and you hear their answer the next time you are sent in.")
 	return 124
 }
@@ -246,31 +234,31 @@ func (st *guestTool) suggest(raw string) int {
 // weigh it.
 func (t *Task) syncSettingsL() {
 	if data, _ := json.MarshalIndent(t.p.settingsL(), "", "  "); string(data) != t.settingsShown {
-		if writeAtomic(filepath.Join(t.servicesDir(), settingsFile), append(data, '\n')) == nil {
+		if writeAtomic(filepath.Join(t.servicesDir(), settingsFile), append(data, '\n'), 0o644) == nil {
 			t.settingsShown = string(data)
 		}
 	}
-	dir := filepath.Join(t.servicesDir(), askDir)
-	raw, err := os.ReadFile(filepath.Join(dir, suggestionFile))
-	if err != nil || exists(filepath.Join(dir, suggestedFile)) {
+	reqs := readRequests(t.servicesDir(), "settings", false)
+	if len(reqs) == 0 {
 		return
 	}
+	raw := reqs[0].Body
 	if taken, _ := json.Marshal(t.info.Suggestion); t.info.Suggestion != nil && string(taken) == string(raw) {
 		return
 	}
 	// Kept as it was read, which is what SetConfig takes.
 	var partial map[string]any
-	err = json.Unmarshal(raw, &partial)
+	err := json.Unmarshal(raw, &partial)
 	if err == nil {
 		_, err = checkSettings(partial)
 	}
 	switch {
 	case err != nil:
 		t.noteErr("The agent's suggested project settings could not be read", err)
-		_ = os.Remove(filepath.Join(dir, suggestionFile))
+		_ = os.Remove(filepath.Join(t.servicesDir(), requestsDir, reqs[0].ID+".json"))
 	case t.info.Scheduled != "":
 		t.note("Turned down the agent's suggested project settings, nobody being there to weigh them")
-		_ = writeAtomic(filepath.Join(dir, suggestedFile), []byte("refused"))
+		_ = answerRequest(t.servicesDir(), reqs[0].ID, "refused")
 	default:
 		t.info.Suggestion = partial
 		t.p.m.saveL()
@@ -299,9 +287,8 @@ func (t *Task) AnswerSuggestion(accept bool) error {
 	// the suggestion up again meanwhile.
 	t.lock()
 	defer t.unlock()
-	dir := filepath.Join(t.servicesDir(), askDir)
-	if exists(filepath.Join(dir, suggestionFile)) {
-		_ = writeAtomic(filepath.Join(dir, suggestedFile), []byte(said))
+	if reqs := readRequests(t.servicesDir(), "settings", false); len(reqs) > 0 {
+		_ = answerRequest(t.servicesDir(), reqs[0].ID, said)
 	} else {
 		t.queueL("settings", fmt.Sprintf("The user %s the project settings you suggested.", said))
 	}

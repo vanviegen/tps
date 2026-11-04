@@ -282,7 +282,7 @@ func resetService(dir string) {
 // questions put to a human go too, with whatever was waiting on them.
 func resetServices(dir string) {
 	_ = os.MkdirAll(dir, 0o755)
-	_ = os.RemoveAll(filepath.Join(dir, askDir))
+	_ = os.RemoveAll(filepath.Join(dir, requestsDir))
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.IsDir() && serviceNameRe.MatchString(e.Name()) {
@@ -557,8 +557,8 @@ func (t *Task) RestartService(name string) error {
 }
 
 // syncServices is the manager's tick: every running task's services are
-// re-read, and the output of those someone is looking at, and a request for
-// an OpenRouter key is taken up.
+// re-read, and the output of those someone is looking at, and the requests
+// their tools left are taken up.
 func (m *Manager) syncServices() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -566,6 +566,7 @@ func (m *Manager) syncServices() {
 		if t.status == StatusUp && t.container != nil {
 			t.syncServicesL(t.viewers > 0)
 			t.checkORRequestL()
+			t.checkBoardRequestsL()
 		}
 	}
 }

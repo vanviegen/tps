@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,19 +18,13 @@ import (
 // inside a task's container — a script's, such as a test whose screenshots
 // someone has to accept or a deploy that wants a one-time password, or the
 // agent's own, to have the user look at something — and waits for the answer.
-// Each question is a file in the services directory's askDir, <id>.json, and
-// its answer <id>.answer beside it, written by the daemon on the dashboard's
-// behalf; the tool takes both away once it has the answer. So the
-// daemon learns of a question the way it learns of a service, by reading the
-// directory (see syncServicesL), and a container that goes takes its questions
-// with it (see resetServices). A task with a question open is flagged as one
-// waiting for its human, whatever its phase.
-
-const askDir = ".ask"
+// Each question is a request of the kind "ask" (see requests.go), answered by
+// the daemon on the dashboard's behalf. A task with a question open is flagged
+// as one waiting for its human, whatever its phase.
 
 // askRequest is a question as the tool writes it down.
 type askRequest struct {
-	ID       string      `json:"id,omitempty"` // the file's name, filled in as it is read
+	ID       string      `json:"id,omitempty"` // the request's, filled in as it is read
 	Question string      `json:"question"`     // rich text
 	Fields   []askField  `json:"fields,omitempty"`
 	Buttons  []askButton `json:"buttons,omitempty"`
@@ -206,20 +199,6 @@ func (st *guestTool) askHuman(args []string) int {
 		}
 		serviceDir = dir
 	}
-	dir := filepath.Join(st.root, askDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return st.fail(err)
-	}
-	id := strconv.FormatInt(time.Now().UnixNano(), 36)
-	file, answerFile := filepath.Join(dir, id+".json"), filepath.Join(dir, id+".answer")
-	cleanup := func() { os.Remove(file); os.Remove(answerFile) }
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-	go func() {
-		<-sigs
-		cleanup()
-		os.Exit(130)
-	}()
 	// Under the check, the work as it stands on either side of the wait
 	// is written down: what the human changes meanwhile is theirs (see tested.go).
 	var under string
@@ -227,15 +206,23 @@ func (st *guestTool) askHuman(args []string) int {
 		under = filepath.Join(st.root, checkService)
 		noteTree(under, "ask")
 	}
-	data, _ := json.Marshal(req)
-	if err := writeAtomic(file, data); err != nil {
+	id, err := st.put("ask", req)
+	if err != nil {
 		return st.fail(err)
 	}
+	cleanup := func() { st.drop(id) }
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	go func() {
+		<-sigs
+		cleanup()
+		os.Exit(130)
+	}()
 	var ans askAnswer
 	code, answered := -1, false
 	for code < 0 {
 		time.Sleep(300 * time.Millisecond)
-		if data, err := os.ReadFile(answerFile); err == nil && json.Unmarshal(data, &ans) == nil {
+		if st.answer(id, &ans) {
 			code, answered = ans.Button, true
 		} else if serviceDir != "" && !serviceAlive(serviceDir) {
 			serviceRepair(serviceDir)
@@ -261,35 +248,18 @@ func (st *guestTool) askHuman(args []string) int {
 	return code
 }
 
-// writeAtomic puts a file in place whole, so that whoever reads the
-// directory never finds half of it.
-func writeAtomic(file string, data []byte) error {
-	tmp := file + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, file)
-}
-
 // --- the daemon's side ---
 
 // readAsks reads the questions waiting in a services dir, oldest first.
 func readAsks(servicesDir string) []askRequest {
-	dir := filepath.Join(servicesDir, askDir)
-	entries, _ := os.ReadDir(dir)
 	var asks []askRequest
-	for _, e := range entries {
-		id, ok := strings.CutSuffix(e.Name(), ".json")
-		if !ok || exists(filepath.Join(dir, id+".answer")) {
-			continue
-		}
+	for _, r := range readRequests(servicesDir, "ask", false) {
 		var req askRequest
-		if json.Unmarshal([]byte(readFile(filepath.Join(dir, e.Name()))), &req) == nil && checkAskLinks(req) == nil {
-			req.ID = id
+		if json.Unmarshal(r.Body, &req) == nil && checkAskLinks(req) == nil {
+			req.ID = r.ID
 			asks = append(asks, req)
 		}
 	}
-	sort.Slice(asks, func(i, j int) bool { return asks[i].ID < asks[j].ID })
 	return asks
 }
 
@@ -299,8 +269,7 @@ func (t *Task) syncAsksL() {
 	asks := readAsks(t.servicesDir())
 	if t.info.Scheduled != "" {
 		for _, a := range asks {
-			data, _ := json.Marshal(askAnswer{Refused: true})
-			_ = writeAtomic(filepath.Join(t.servicesDir(), askDir, a.ID+".answer"), data)
+			_ = answerRequest(t.servicesDir(), a.ID, askAnswer{Refused: true})
 			t.note("Refused a question, nobody being there to answer it: " + a.Question)
 		}
 		asks = nil
@@ -346,8 +315,7 @@ func (t *Task) AnswerAsk(id string, button int, fields []string) error {
 		}
 	}
 	t.unlock()
-	data, _ := json.Marshal(askAnswer{Button: button, Fields: fields})
-	if err := writeAtomic(filepath.Join(t.servicesDir(), askDir, id+".answer"), data); err != nil {
+	if err := answerRequest(t.servicesDir(), id, askAnswer{Button: button, Fields: fields}); err != nil {
 		return err
 	}
 	t.note(said)

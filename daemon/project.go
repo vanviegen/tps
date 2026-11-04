@@ -457,6 +457,8 @@ func (p *Project) CreateTask(partial map[string]any) (string, error) {
 		loops := maxReviewLoops
 		info.Schedule, info.OnReady, info.OnAccept, info.ReviewLoops = newSchedule(), AnswerReview, AnswerMerge, &loops
 	}
+	// A task an agent asked for (see board.go) says by whom until the user has looked at it.
+	info.Requested, _ = partial["requested"].(string)
 	t := p.addTaskL(info)
 	t.applyL(partial)
 	p.m.saveL()

@@ -6,7 +6,7 @@ import { copy, copyCheck, gitFork, pencil, undo2 } from 'staffa/icons.js';
 import { $state, chatLog } from './conn.ts';
 import { serviceDialog } from './services.ts';
 import { formatShell } from './shell.ts';
-import { cmd, ELLIPSIS, hasWorkspace, isJob, pathTo } from './util.ts';
+import { cmd, ELLIPSIS, hasWorkspace, isJob, pathTo, taskTitle } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escape = (text: string) => text.replace(/[&<>"]/g, c => ESCAPES[c]);
@@ -229,7 +229,30 @@ function drawEntry($e: any, pid: string, tid: string, $t: any, turn?: number): v
 		case 'mark':
 			drawMark($e, pid, tid, $t);
 			break;
+		case 'task':
+			drawCreated(pid, $e.task);
+			break;
 	}
+}
+
+/**
+ * A task the agent created (see daemon/board.go), as a card in the log that
+ * opens it: its title as it is now, and the project it is in beneath. That
+ * project is on the host of the task in whose log it is, `pid`.
+ */
+function drawCreated(pid: string, task: { pid: string; tid: string; title: string; project: string }): void {
+	const id = `${pid.slice(0, pid.indexOf(':'))}:${task.pid}`;
+	A('div.s-s.outlined pv:$1 ph:$3 justify-self:start display:flex flex-direction:column', openable,
+		'click=', () => void route.go(pathTo(id, task.tid)), () => {
+			A('div', () => {
+				A('b fg:$s-accent #Created task');
+				A(() => {
+					const $t = $state.projects[id]?.tasks?.[task.tid];
+					A('text=', ': ' + ($t ? taskTitle($t) : task.title));
+				});
+			});
+			A('small fg:$s-muted text=', task.project);
+		});
 }
 
 /**

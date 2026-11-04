@@ -136,6 +136,7 @@ type TaskInfo struct {
 	Overruns      int            `json:"overruns,omitempty"`          // how often such a run had its budget raised to wrap up in (see overrunL)
 	Continue      bool           `json:"continue,omitempty"`          // its agent asked to carry on after the merge (see continueFile)
 	AwaitDeploy   string         `json:"awaitDeploy,omitempty"`       // the commit it merged as, whose deploy sends the agent back in (see continueFile)
+	Requested     string         `json:"requested,omitempty"`         // the task whose agent asked for this one, until the user has opened it (see board.go)
 
 	// Pending is what the agent is told the next time it is sent in: things
 	// that happened to its workspace while it wasn't running.
@@ -196,10 +197,11 @@ type Task struct {
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
-	summaryNudges int         // turns in a row the agent was sent back in for the summary its turn left out
-	readyNudges   int         // turns in a row a scheduled run's agent was sent back in for leaving its work not ready (see schedule.go)
-	limitTimer    *time.Timer // running while the task waits out a usage limit (see armLimitL)
-	limitWaits    int         // waits in a row that ran straight into the limit again
+	summaryNudges int             // turns in a row the agent was sent back in for the summary its turn left out
+	readyNudges   int             // turns in a row a scheduled run's agent was sent back in for leaving its work not ready (see schedule.go)
+	limitTimer    *time.Timer     // running while the task waits out a usage limit (see armLimitL)
+	limitWaits    int             // waits in a row that ran straight into the limit again
+	boardBusy     map[string]bool // the requests about other projects being answered (see board.go)
 	chatMu        sync.Mutex
 	cloneMu       sync.Mutex // one workspace at a time — two messages can want one at once — and none dropped while it is read (see refreshChanges)
 	starting      sync.Mutex // held while a task sent in from Plan has its workspace made, until the plan is in the log (see Assign)
@@ -331,6 +333,7 @@ func (t *Task) publishL() {
 		t.pubL("job", t.tid)
 	}
 	t.pubL("description", t.info.Description)
+	t.pubL("requested", nonEmpty(t.info.Requested))
 	t.pubL("draft", nonEmpty(t.info.Draft))
 	t.pubL("model", t.info.Model)
 	t.pubL("onReady", string(t.onReadyL()))

@@ -4,7 +4,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -21,7 +20,8 @@ func TestOpenRouterRequestBeyondBudget(t *testing.T) {
 	task.p.m.orKey = "mgmt"
 	budget := 2.0
 	task.info.ORBudget, task.info.ORGranted = &budget, 1
-	if err := os.WriteFile(filepath.Join(dir, orRequestFile), []byte("3\n"), 0o644); err != nil {
+	st := &guestTool{root: dir}
+	if _, err := st.put("openrouter", 3); err != nil {
 		t.Fatal(err)
 	}
 
@@ -35,8 +35,7 @@ func TestOpenRouterRequestBeyondBudget(t *testing.T) {
 	if err := task.RejectOpenRouter(); err != nil {
 		t.Fatal(err)
 	}
-	st := &guestTool{root: dir}
-	if code := st.openRouter([]string{"3"}); code == 0 || exists(filepath.Join(dir, orRequestFile)) {
+	if code := st.openRouter([]string{"3"}); code == 0 || len(readRequests(dir, "openrouter", true)) > 0 {
 		t.Errorf("a rejected request should fail, and be gone once read: %d", code)
 	}
 }
@@ -44,8 +43,11 @@ func TestOpenRouterRequestBeyondBudget(t *testing.T) {
 // The tool prints the key the daemon answered with.
 func TestOpenRouterToolReadsKey(t *testing.T) {
 	dir := t.TempDir()
-	writeORAnswer(dir, orAnswer{Key: "sk-or-test", Limit: 3})
-	if err := os.WriteFile(filepath.Join(dir, orRequestFile), []byte("3\n"), 0o644); err != nil {
+	id, err := (&guestTool{root: dir}).put("openrouter", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := answerRequest(dir, id, orAnswer{Key: "sk-or-test", Limit: 3}); err != nil {
 		t.Fatal(err)
 	}
 	r, w, _ := os.Pipe()

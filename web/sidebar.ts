@@ -7,7 +7,7 @@ import { $state } from './conn.ts';
 import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
 import { closeBase, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
-import { asks, drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, selection, taskTip, taskTitle } from './util.ts';
+import { asks, drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, requested, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -238,15 +238,16 @@ function drawScratch(pid: string, $p: any): void {
 /**
  * A task is listed while it waits for a human, while an agent is on it (its
  * own, the one reviewing its work, or its merge), while something in it asks
- * the user a question, and while it is on screen: everything under way, in
- * other words. A muted one is none of those: putting it away is what muting is
- * for, and opening it takes it back out (see useTask). The project's jobs are
- * listed by the same rule: while they run, failed, or ask something.
+ * the user a question or an agent asked for it, and while it is on screen:
+ * everything under way, in other words. A muted one is none of those: putting
+ * it away is what muting is for, and opening it takes it back out (see
+ * useTask). The project's jobs are listed by the same rule: while they run,
+ * failed, or ask something.
  */
 function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
-	if (asks($t)) return true;
+	if (asks($t) || requested($t)) return true;
 	if ($t.phase === 'muted') return false;
 	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
 }
