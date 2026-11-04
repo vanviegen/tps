@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -41,10 +40,12 @@ type ProjectInfo struct {
 	NextTask int                  `json:"nextTask,omitempty"`
 	Tasks    map[string]*TaskInfo `json:"tasks"`
 
-	// Whether a merge deploys by itself (see deploy.go), and the host's files
-	// the containers of its tasks get (see Task.mountsL).
+	// Whether a merge deploys by itself (see deploy.go), the host's files the
+	// containers of its tasks get (see Task.mountsL), and what of its checkout
+	// their workspaces start with (see Task.seed).
 	AutoDeploy   bool     `json:"autoDeploy,omitempty"`
 	Mounts       []Mount  `json:"mounts,omitempty"`
+	Seeds        []string `json:"seeds,omitempty"`
 	DeployMounts []string `json:"deployMounts,omitempty"` // the deploy's paths in projects.json saved by 0.4, moved into Mounts on load
 }
 
@@ -204,16 +205,16 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 	}
 	p.refreshMeta()
-	p.pubMountSettings()
+	p.pubSetup()
 	p.startTrain() // for the tasks that were waiting for it
 	return nil
 }
 
-// pubMountSettings publishes the settings on what reaches its containers: the
-// deploy (see deploy.go) and the host's files.
-func (p *Project) pubMountSettings() {
+// pubSetup publishes the settings on what reaches its containers.
+func (p *Project) pubSetup() {
 	p.pub("autoDeploy", p.info.AutoDeploy)
 	p.pub("mounts", p.info.Mounts)
+	p.pub("seeds", p.info.Seeds)
 }
 
 // pubScratch tells the dashboards a scratch project apart.
@@ -358,38 +359,29 @@ func gitSummary(status string) string {
 func (p *Project) SetConfig(partial map[string]any) error {
 	p.m.mu.Lock()
 	defer p.m.mu.Unlock()
+	partial, err := checkSettings(partial)
+	if err != nil {
+		return err
+	}
 	if name, ok := partial["name"].(string); ok {
-		if name = strings.TrimSpace(name); name == "" {
-			return errors.New("Give the project a name")
-		}
 		p.info.Name = name
 	}
 	if color, ok := partial["color"].(string); ok {
-		if !colorRe.MatchString(color) {
-			return errors.New("A colour is #rrggbb")
-		}
-		p.info.Color = strings.ToLower(color)
+		p.info.Color = color
 	}
 	if auto, ok := partial["autoDeploy"].(bool); ok {
 		p.info.AutoDeploy = auto
 	}
-	if raw, ok := partial["mounts"].([]any); ok {
-		var mounts []Mount
-		for _, r := range raw {
-			m, _ := r.(map[string]any)
-			path, _ := m["path"].(string)
-			write, _ := m["write"].(bool)
-			all, _ := m["allTasks"].(bool)
-			if path = strings.TrimSpace(path); path != "" {
-				mounts = append(mounts, Mount{path, write, all})
-			}
-		}
+	if mounts, ok := partial["mounts"].([]Mount); ok {
 		p.info.Mounts = mounts
 		// The deploy's container gets them when it is made anew; a task's when
 		// its own is, as it is after idling.
 		if t := p.tasks[deployTid]; t != nil && !p.deploying {
 			go t.down()
 		}
+	}
+	if seeds, ok := partial["seeds"].([]string); ok {
+		p.info.Seeds = seeds // for the workspaces made from now on (see Task.seed)
 	}
 	// The defaults arrive as the task settings they are, one or more at a time.
 	if defaults, ok := partial["defaults"].(map[string]any); ok {
@@ -421,25 +413,30 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	p.pub("name", p.info.Name)
 	p.pubDefaults()
 	p.pub("color", p.info.Color)
-	p.pubMountSettings()
+	p.pubSetup()
 	return nil
 }
 
 // pubDefaults publishes the defaults a field at a time, so that setting one
 // leaves the rest of them — the field being typed in included — alone.
 func (p *Project) pubDefaults() {
-	d := p.info.Defaults
-	p.pubDefault("model", d.Model)
-	p.pubDefault("reviewModel", d.ReviewModel)
-	p.pubDefault("onReady", string(cmp.Or(d.OnReady, defaultOnReady)))
-	p.pubDefault("onAccept", string(cmp.Or(d.OnAccept, defaultOnAccept)))
-	p.pubDefault("reviewLoops", reviewLoops(d.ReviewLoops))
-	p.pubDefault("budget", optional(d.Budget))
-	p.pubDefault("openrouterBudget", optional(d.ORBudget))
+	for field, value := range p.defaultsL() {
+		p.m.hub.Set([]string{"projects", p.pid, "defaults", field}, value)
+	}
 }
 
-func (p *Project) pubDefault(field string, value any) {
-	p.m.hub.Set([]string{"projects", p.pid, "defaults", field}, value)
+// defaultsL are the defaults as they are shown: what a task gets for each.
+func (p *Project) defaultsL() map[string]any {
+	d := p.info.Defaults
+	return map[string]any{
+		"model":            d.Model,
+		"reviewModel":      d.ReviewModel,
+		"onReady":          string(cmp.Or(d.OnReady, defaultOnReady)),
+		"onAccept":         string(cmp.Or(d.OnAccept, defaultOnAccept)),
+		"reviewLoops":      reviewLoops(d.ReviewLoops),
+		"budget":           optional(d.Budget),
+		"openrouterBudget": optional(d.ORBudget),
+	}
 }
 
 // CreateTask writes a task down, description and settings and all. The

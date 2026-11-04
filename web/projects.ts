@@ -362,6 +362,7 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 		drawColorField(pid, $p);
 		drawDeployFields($p, save);
 		drawMounts($p, save);
+		drawSeeds($p, save);
 		// A section of its own under a heading, so what it is about is not
 		// mistaken for more of the project's own settings.
 		A('div display:flex flex-direction:column gap:$2', () => {
@@ -427,6 +428,30 @@ function drawMounts($p: any, save: (patch: object) => void): void {
 			});
 		});
 		A('p.s-help m:0 #What all tasks get is in the hands of their agents, which work without asking. A running task gets changes here once its container is made anew, as it is after idling.');
+	});
+}
+
+/**
+ * What of the project's checkout a new workspace starts with, a row each, as
+ * the host file permissions are; rows left empty are not kept.
+ */
+function drawSeeds($p: any, save: (patch: object) => void): void {
+	const $rows = A.proxy(A.peek(() => ($p.seeds ?? []).map((path: string) => ({ path }))));
+	A(() => {
+		const last = $rows[$rows.length - 1];
+		if (!last || last.path) $rows.push({ path: '' });
+	});
+	const store = debounce(600, () => save({ seeds: A.peek(() => $rows.map((r: any) => r.path)) }));
+	A('div display:flex flex-direction:column gap:$2', () => {
+		A('h3 m:0 mt:$2 font-size:1em #Seeds');
+		A('p.s-help m:0 #Paths in the project’s checkout here that git ignores, such as node_modules or a build’s output, which every new workspace starts with, so that its first install or build has less to do. Copied as reflinks where the filesystem has them (btrfs, XFS), which cost next to nothing; elsewhere, such as on ext4, as copies in full.');
+		A.onEach($rows, ($row: any, i: number) => {
+			A('div display:flex align-items:center gap:$2', () => {
+				S.textline({ attrs: 'flex:1', placeholder: 'node_modules', bind: A.ref($row, 'path'), input: store });
+				S.iconButton({ icon: trash2, tooltip: 'Remove', attrs: 'fg:$s-muted', click: () => { $rows.splice(i, 1); store(); } });
+			});
+		});
+		A('p.s-help m:0 #Every agent reads what its workspace holds: seed nothing secret.');
 	});
 }
 

@@ -469,6 +469,7 @@ func (t *Task) syncServicesL(logs bool) {
 	}
 	t.pubL("services", t.servicesL())
 	t.syncAsksL()
+	t.syncSettingsL()
 	if !logs {
 		return
 	}

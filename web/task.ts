@@ -658,6 +658,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 				() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
+		A(() => { if ($t.suggestion) drawSuggestion(pid, tid, $t.suggestion); });
 		// A host that cannot run agents (claude wanting a sign-in, say) says so here too, with the way out.
 		A(() => drawHostNotice($state.projects[pid]?.host));
 		A(() => {
@@ -704,6 +705,44 @@ function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
 			});
 			options.forEach((label, i) => S.button({ content: label, attrs: (i ? '.small .neutral' : '.small') + ' white-space:normal text-align:left', click: () => answer(i) }));
 			if (ask.service) A('span fg:$s-muted font-size:0.9em text=', `${options.length ? 'Or answered' : 'Answered'} by the service ${ask.service} when it exits`);
+		});
+	});
+}
+
+/**
+ * Project settings the agent suggests (see daemon/settings.go), as the lines of
+ * the project's settings they take out and put in, to accept or reject.
+ */
+function drawSuggestion(pid: string, tid: string, suggestion: any): void {
+	const mount = (m: any) => `${m.allTasks ? 'All tasks' : 'Deploy'}, ${m.write ? 'read/write' : 'read-only'}: ${m.path}`;
+	const lines = (s: any) => [
+		...s.name === undefined ? [] : [`Name: ${s.name}`],
+		...s.color === undefined ? [] : [`Colour: ${s.color}`],
+		...s.autoDeploy === undefined ? [] : [`Deploy after every merge: ${s.autoDeploy ? 'yes' : 'no'}`],
+		...(s.mounts ?? []).map((m: any) => `Host file, ${mount(m)}`),
+		...(s.seeds ?? []).map((path: string) => `Seed: ${path}`),
+		...Object.entries(s.defaults ?? {}).map(([key, v]) => `Default ${key}: ${v ?? 'none'}`),
+	];
+	A('div.s-s.warning.tonal p:$2 display:flex flex-direction:column gap:$2', () => {
+		A('div font-weight:600 #The agent suggests a change to the project settings');
+		A(() => {
+			// What the suggestion replaces is the project's settings of the same kinds, as they are now.
+			const $p = $state.projects[pid] ?? {};
+			const current = (key: string, of: any) => key in suggestion ? of : undefined;
+			const before = lines({
+				name: current('name', $p.name), color: current('color', $p.color), autoDeploy: current('autoDeploy', !!$p.autoDeploy),
+				mounts: current('mounts', $p.mounts), seeds: current('seeds', $p.seeds),
+				defaults: Object.fromEntries(Object.keys(suggestion.defaults ?? {}).map(key => [key, $p.defaults?.[key]])),
+			});
+			const after = lines(suggestion);
+			A('div font-family:monospace font-size:0.9em white-space:pre-wrap', () => {
+				for (const line of before) if (!after.includes(line)) A('div fg:$s-danger text=', '− ' + line);
+				for (const line of after) A(`div ${before.includes(line) ? 'fg:$s-muted' : 'fg:$s-success'} text=`, (before.includes(line) ? '  ' : '+ ') + line);
+			});
+		});
+		A('div display:flex gap:$2', () => {
+			S.button({ content: 'Accept', attrs: '.small', click: () => void cmd('answerSuggestion', { pid, tid, accept: true }) });
+			S.button({ content: 'Reject', attrs: '.small .neutral', click: () => void cmd('answerSuggestion', { pid, tid, accept: false }) });
 		});
 	});
 }

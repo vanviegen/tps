@@ -1093,6 +1093,9 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"grantOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
 			return nil, t.GrantOpenRouter(partial["budget"])
 		}),
+		"answerSuggestion": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			return nil, t.AnswerSuggestion(partial["accept"] == true)
+		}),
 		"rejectOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RejectOpenRouter() }),
 		"openTask":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
 		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text) }),

@@ -88,6 +88,24 @@ for anything that serves or takes a while: dev servers, test suites, builds.
                            exits 124. Ask only once OpenRouter turns the key
                            down for want of credit.
 
+  settings                 Not a service: print the project's settings as
+                           JSON: name, color, autoDeploy (whether every merge
+                           deploys), mounts (the host's files its containers
+                           get: path, write, allTasks), seeds (paths in the
+                           project's own checkout that git ignores, such as
+                           node_modules or a build's output, which a new
+                           workspace starts with, copied) and defaults (what
+                           a new task's settings start as).
+  settings suggest <json>  Suggest a change to them, in the same shape: the
+                           fields given replace the project's (a field of
+                           defaults the default it names), the rest stay.
+                           The user is shown the change, to accept or reject,
+                           and the tool waits for the answer, half an hour at
+                           most: it exits 0 for accepted, 1 for rejected, and
+                           124 when the user has not answered by then, the
+                           suggestion standing, its answer told you the next
+                           time you are sent in.
+
   ask-human <question> [--option <label>]... [--input] [--secret]
             [--service <name>] [--port <port>]
                            Not a service: put a question to the user in the
@@ -160,6 +178,8 @@ func guestToolMain(args []string) int {
 		return st.openRouter(rest)
 	case "ask-human":
 		return st.askHuman(rest)
+	case "settings":
+		return st.settings(rest)
 	case "ps", "list":
 		err = st.ps()
 	case "help", "-h", "--help":

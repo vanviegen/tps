@@ -121,6 +121,7 @@ type TaskInfo struct {
 	ORGranted     float64        `json:"openrouterGranted,omitempty"` // the USD of OpenRouter spending it was granted so far
 	ORKey         *orKey         `json:"openrouterKey,omitempty"`     // the key it is handed, its limit raised with every grant
 	ORAsk         float64        `json:"openrouterAsk,omitempty"`     // a request of the agent's beyond that budget, waiting for the user
+	Suggestion    map[string]any `json:"suggestion,omitempty"`        // project settings the agent suggests, waiting for the user (see settings.go)
 	Context       int64          `json:"context,omitempty"`           // tokens the conversation came to at the agent's last turn
 	Window        *ContextWindow `json:"window,omitempty"`            // and what claude's window holds besides it (see context.go)
 	TitleAsked    bool           `json:"titleAsked,omitempty"`        // claude has been asked to name this task (once is enough)
@@ -208,6 +209,7 @@ type Task struct {
 	logsPublished map[string]bool   // the services whose output tail the dashboard has
 	orBusy        bool              // an OpenRouter key is being made for the agent (see openrouter.go)
 	asks          []askRequest      // the questions the container has open for a human (see ask.go)
+	settingsShown string            // the project's settings as last written for the tool to read (see syncSettingsL)
 }
 
 func newTask(p *Project, tid string, info *TaskInfo) *Task {
@@ -349,6 +351,11 @@ func (t *Task) publishL() {
 	t.pubL("openrouterBudget", optional(t.info.ORBudget))
 	t.pubL("openrouterGranted", nonZero(t.info.ORGranted))
 	t.pubL("openrouterAsk", nonZero(t.info.ORAsk))
+	if t.info.Suggestion != nil {
+		t.pubL("suggestion", t.info.Suggestion)
+	} else {
+		t.pubL("suggestion", nil)
+	}
 	t.pubL("context", t.contextL())
 	t.pubL("schedule", optional(t.info.Schedule))
 	if len(t.info.StartAfter) > 0 {
@@ -1294,17 +1301,25 @@ func (t *Task) commitMessage() string {
 // freshen moves a workspace that holds no work onto the latest default
 // branch, so that a task that waited in Plan starts from the code as it is now
 // rather than as it was when it was first opened. Work is moved by a rebase
-// only (see Rebase).
+// only (see Rebase). A workspace the branch has not moved past since — the
+// one made as the plan was opened, as a rule — is left as it is, without
+// staging the whole tree to look for work.
 func (t *Task) freshen() error {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
+	repo := t.repoDir()
+	if _, err := git(repo, "fetch", "--quiet", "origin"); err != nil {
+		return err
+	}
+	defer fetchDeployed(repo)
+	if gitOK(repo, "merge-base", "--is-ancestor", "origin/"+t.p.defaultBranch, "HEAD") {
+		return nil
+	}
 	changes, err := t.changes()
 	if err != nil || len(changes) > 0 {
 		return err
 	}
-	repo := t.repoDir()
 	for _, args := range [][]string{
-		{"fetch", "--quiet", "origin"},
 		{"reset", "--quiet", "--hard", "origin/" + t.p.defaultBranch},
 		{"update-ref", "refs/heads/" + stepsBranch, "HEAD"},
 	} {
@@ -1312,7 +1327,6 @@ func (t *Task) freshen() error {
 			return err
 		}
 	}
-	fetchDeployed(repo)
 	return nil
 }
 
@@ -1609,8 +1623,12 @@ func tmpIndex() (env []string, cleanup func(), err error) {
 
 // stageAll stages the whole tree in a copy of the index (unchanged files then
 // need no rehashing): the tree's every difference from a commit, untracked
-// files included, is a `diff --cached` away.
+// files included, is a `diff --cached` away. The index is refreshed first:
+// one written in the same second as the files it lists — a fresh clone's —
+// cannot vouch for any of them, and a copy of it would have every file of
+// the tree read again, each time.
 func stageAll(repo string) (env []string, cleanup func(), err error) {
+	_, _ = git(repo, "update-index", "-q", "--refresh") // a lock held elsewhere only costs the rehash
 	env, cleanup, err = tmpIndex()
 	if err != nil {
 		return nil, nil, err
@@ -2287,6 +2305,7 @@ func (t *Task) clone() error {
 		return err
 	}
 	fetchDeployed(tmp)
+	t.seed(tmp)
 	return os.Rename(tmp, t.repoDir())
 }
 

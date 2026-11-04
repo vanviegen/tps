@@ -384,6 +384,7 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 						if (isSchedule($t)) A('small fg:$s-muted text=', scheduleText($t));
 						else if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
 						else if ($t.openrouterAsk) A('small fg:$s-warning #⚠ Asks for OpenRouter budget');
+						else if ($t.suggestion) A('small fg:$s-warning #⚠ Suggests project settings');
 						else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
 						else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');
 						else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);

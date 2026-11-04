@@ -196,10 +196,11 @@ export function watchPhases(): void {
 			for (const [tid, $t] of Object.entries($p.tasks ?? {}) as [string, any][]) {
 				const k = key(pid, tid);
 				live.add(k);
-				const ask = !!$t.openrouterAsk || asks($t);
+				const ask = !!$t.openrouterAsk || !!$t.suggestion || asks($t);
 				const on = A.peek(() => $on[k] || isJob($t));
 				if (ask && !asking.has(k) && seen.has(k) && on) {
-					const what = asks($t) ? `asks you: ${A.peek(() => $t.asks[0].question)}` : 'the agent asks for OpenRouter budget';
+					const what = asks($t) ? `asks you: ${A.peek(() => $t.asks[0].question)}`
+						: A.peek(() => $t.suggestion) ? 'the agent suggests project settings' : 'the agent asks for OpenRouter budget';
 					show(A.peek(() => taskTitle($t)), `${A.peek(() => projectName($p))}: ${what}`, pathTo(pid, tid));
 				}
 				if (ask) asking.add(k);
