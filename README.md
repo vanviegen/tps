@@ -140,6 +140,14 @@ To let a machine wake from suspend for scheduled tasks, allow your user
 echo "$USER ALL=(root) NOPASSWD: $(command -v rtcwake)" | sudo tee /etc/sudoers.d/tps-rtcwake
 ```
 
+Every task's container counts toward one inotify limit: your user's on the
+host, 128 instances on many distributions, which file watchers in a few tasks
+use up. Raise it once:
+
+```sh
+echo fs.inotify.max_user_instances=4096 | sudo tee /etc/sysctl.d/90-tps-inotify.conf && sudo sysctl --system
+```
+
 Download a release into a bin directory of your own and start it:
 
 ```sh
