@@ -48,10 +48,11 @@ const serviceEnv = "TPS_SERVICE"
 
 const guestToolUsage = `Usage: tps-guest-tool <command> ...
 
-Runs commands as named services of this task: detached from your shell, with
-their output kept, and listed in the TPS dashboard (the play button of the
-task), where the user sees them and can start, stop and read them too. Use it
-for anything that serves or takes a while: dev servers, test suites, builds.
+Services: commands run as named services of this task, detached from your
+shell, with their output kept, and listed in the TPS dashboard (the play
+button of the task), where the user sees them and can start, stop and read
+them too. Use them for anything that serves or takes a while: dev servers,
+test suites, builds.
 
   start <name> <seconds> [command...]
                            Start a service and wait up to that many seconds for
@@ -79,31 +80,33 @@ for anything that serves or takes a while: dev servers, test suites, builds.
   logs <name> [lines]      The last lines of its output (default 100).
   ps                       Every service, with its state.
 
-  openrouter <usd>         Not a service: ask TPS for that many USD more of
-                           OpenRouter spending, for models you lack (audio,
-                           video) or a system under test that calls an LLM
-                           API. Prints the task's key, the same one each time,
-                           its limit raised by that much. A request beyond the
-                           task's OpenRouter budget waits for the user, half
-                           an hour at most; one they have not answered by then
-                           exits 124. Ask only once OpenRouter turns the key
-                           down for want of credit.
+Other commands:
 
-  settings                 Not a service: print the project's settings as
-                           JSON: name, color, autoDeploy (whether every merge
-                           deploys), mounts (the host's files its containers
-                           get: path, write, allTasks), seeds (paths in the
-                           project's own checkout that git ignores, such as
-                           node_modules or a build's output, which a new
-                           workspace starts with, copied) and defaults (what
-                           a new task's settings start as).
+  openrouter <usd>         Ask TPS for that many USD more of OpenRouter
+                           spending, for models you lack (audio, video) or a
+                           system under test that calls an LLM API. Prints the
+                           task's key, the same one each time, its limit raised
+                           by that much. A request beyond the task's OpenRouter
+                           budget waits for the user, half an hour at most; one
+                           they have not answered by then exits 124. Ask only
+                           once OpenRouter turns the key down for want of
+                           credit.
+
+  settings                 Print the project's settings as JSON: name, color,
+                           autoDeploy (whether every merge deploys), mounts
+                           (the host's files its containers get: path, write,
+                           allTasks), seeds (paths in the project's own
+                           checkout that git ignores, such as node_modules or a
+                           build's output, which a new workspace starts with,
+                           copied) and defaults (what a new task's settings
+                           start as).
   settings suggest <json>  Suggest a change to them, in the same shape: the
                            fields given replace the project's (a field of
-                           defaults the default it names), the rest stay.
-                           The user is shown the change, to accept or reject,
-                           and the tool waits for the answer, half an hour at
-                           most: it exits 0 for accepted, 1 for rejected, and
-                           124 when the user has not answered by then, the
+                           defaults the default it names), the rest stay. The
+                           user is shown the change, to accept or reject, and
+                           the tool waits for the answer, half an hour at most:
+                           it exits 0 for accepted, 1 for rejected, and 124
+                           when the user has not answered by then, the
                            suggestion standing, its answer told you the next
                            time you are sent in.
 
@@ -111,54 +114,48 @@ for anything that serves or takes a while: dev servers, test suites, builds.
             [--select <prompt> [--choice <label>]...]...
             [--button <text> [--id <id>] [--color <color>]
                              [--url <url> | --port <port>]]...
-            [--service <name>]
-                           Not a service: put a question to the user in the
-                           dashboard, and wait for the answer: for a script
-                           that needs a human's judgment or input, such as a
-                           test whose screenshots someone has to accept, or a
-                           deploy that wants a one-time password. An agent
-                           asks its questions in the chat instead. The
-                           question is rich text: *italic*, **bold**,
-                           [link](url); links, as a --url, are http(s)
-                           only. --input adds a text area, --secret a
-                           hidden field, --select a drop-down of the --choice
-                           labels after it; each shows its prompt until it is
-                           filled in. Each --button is a button, in a colour
-                           of primary, neutral, success, warning or danger;
-                           one with a --url opens it, one with a --port opens
-                           that port of this container. Pressing a button
-                           with an --id answers the question with it; a
-                           button with neither --url nor --port has its text
-                           as its id. The exit code is the index of the
-                           button pressed (so the first means yes), and its
-                           id is printed — or, where there are fields, a JSON
-                           object: {"button": id, "fields": [their values, in
-                           order]}. --service starts that service if it is
-                           not running (a review app, say), and its exit code
-                           answers the question if no button does first,
-                           printing nothing. It needs something to answer
-                           with: a button with an id, or a service. Changes
-                           made to /work while a run of the 'check' service
-                           waits on a question are the human's, and do not
-                           void the run.
+                           Put a question to the user in the dashboard, and
+                           wait for the answer: for a script that needs a
+                           human's judgment or input, such as a test whose
+                           screenshots someone has to accept, or a deploy that
+                           wants a one-time password. An agent asks its
+                           questions in the chat instead. The question is rich
+                           text: *italic*, **bold**, [link](url); links, as a
+                           --url, are http(s) only. --input adds a text area
+                           and --secret a hidden field, each showing its prompt
+                           until it is filled in; --select adds a drop-down of
+                           the --choice labels after it, its prompt beside it.
+                           Each --button is a button, in a colour of primary,
+                           neutral, success, warning or danger; one with a
+                           --url opens it, one with a --port opens that port of
+                           this container. Pressing a button with an --id
+                           answers the question with it; a button with neither
+                           --url nor --port has its text as its id. The exit
+                           code is the index of the button pressed (so the
+                           first means yes), and its id is printed — or, where
+                           there are fields, a JSON object: {"button": id,
+                           "fields": [their values, in order]}. At least one
+                           button needs an id. Changes made to /work while a
+                           run of the 'check' service waits on a question are
+                           the human's, and do not void the run.
 
-  projects                 Not a service: the projects on this host, each by
-                           the name the commands below take.
+  projects                 The projects on this host, each by the name the
+                           commands below take.
   create-task <project> <title> <description>
-                           Not a service: put a task in a project, '.' being
-                           this task's own: in Plan, with the description as
-                           what its agent is to be sent in with, for the user
-                           to look over and start. Prints the task, as
-                           <project>/<number>, for await-task.
+                           Put a task in a project, '.' being this task's own:
+                           in Plan, with the description as what its agent is
+                           to be sent in with, for the user to look over and
+                           start. Prints the task, as <project>/<number>, for
+                           await-task.
   await-task <task> [<state>] [seconds]
-                           Not a service: wait for a task to be in a state:
-                           merged, deployed, or a phase (plan, agent, review,
-                           human, muted, merge, done, closed); with none named,
-                           for it to leave the phase it is in. Waits up to 60
-                           seconds by default, and exits 0 once it is, 1 once
-                           it never will be (closed without merging, deleted,
-                           or merged in a project that does not deploy), and
-                           124 if it is not yet: feel free to await again.
+                           Wait for a task to be in a state: merged, deployed,
+                           or a phase (plan, agent, review, human, muted,
+                           merge, done, closed); with none named, for it to
+                           leave the phase it is in. Waits up to 60 seconds by
+                           default, and exits 0 once it is, 1 once it never
+                           will be (closed without merging, deleted, or merged
+                           in a project that does not deploy), and 124 if it
+                           is not yet: feel free to await again.
 `
 
 // GuestToolInvoked tells whether this process is the guest tool: the binary

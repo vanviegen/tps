@@ -53,8 +53,8 @@ func TestTestVerdict(t *testing.T) {
 	}
 }
 
-// A question waits for its answer, from the dashboard or from the service
-// that answers it, and is gone once answered.
+// A question waits for its answer from the dashboard, and is gone once
+// answered.
 func TestAskHuman(t *testing.T) {
 	root := t.TempDir()
 	st := &guestTool{root: root}
@@ -119,16 +119,6 @@ func TestAskHuman(t *testing.T) {
 		t.Errorf("a script link read: %+v", asks)
 	}
 	os.Remove(filepath.Join(root, requestsDir, "x.json"))
-
-	// A service of its own answers it by exiting.
-	if code := st.askHuman([]string{"Have a look", "--service", "look"}); code != 2 {
-		t.Errorf("a service with no command: %d", code)
-	}
-	_ = os.MkdirAll(filepath.Join(root, ".declared"), 0o755)
-	write(t, filepath.Join(root, ".declared", "look"), "sleep 0.5; exit 4\n")
-	if code := st.askHuman([]string{"Have a look", "--service", "look"}); code != 4 {
-		t.Errorf("answered by the service: %d", code)
-	}
 }
 
 // Tasks merged while the train is busy go in one batch, each its own commit.

@@ -674,7 +674,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 
 interface AskField { kind: 'text' | 'secret' | 'select'; prompt: string; choices?: string[] }
 interface AskButton { text: string; color?: string; url?: string; port?: number; id?: string }
-interface Ask { id: string; question: string; fields?: AskField[]; buttons?: AskButton[]; service?: string }
+interface Ask { id: string; question: string; fields?: AskField[]; buttons?: AskButton[] }
 
 /**
  * The questions something in the task's container puts to the user (see
@@ -718,7 +718,6 @@ function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
 						if (b.id != null) void cmd('answerAsk', { pid, tid, id: ask.id, button: i, fields: A.peek(() => [...$form.values]) });
 					} });
 			}));
-			if (ask.service) A('span fg:$s-muted font-size:0.9em text=', `${ask.buttons?.some(b => b.id != null) ? 'Or answered' : 'Answered'} by the service ${ask.service} when it exits`);
 		});
 	});
 }

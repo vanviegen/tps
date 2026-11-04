@@ -28,7 +28,6 @@ type askRequest struct {
 	Question string      `json:"question"`     // rich text
 	Fields   []askField  `json:"fields,omitempty"`
 	Buttons  []askButton `json:"buttons,omitempty"`
-	Service  string      `json:"service,omitempty"` // whose exit answers it, unless a button does first
 }
 
 // askField is something to fill in: text, a secret, or a pick among Choices.
@@ -99,8 +98,6 @@ func parseAsk(args []string) (askRequest, error) {
 				return req, errors.New("--choice goes after the --select it is for")
 			}
 			req.Fields[n-1].Choices = append(req.Fields[n-1].Choices, v)
-		case "--service":
-			req.Service = v
 		case "--id", "--color", "--url", "--port":
 			if button == nil {
 				return req, fmt.Errorf("%s goes after the --button it is for", a)
@@ -129,7 +126,7 @@ func parseAsk(args []string) (askRequest, error) {
 	if strings.TrimSpace(req.Question) == "" {
 		return req, errors.New("what is the question?")
 	}
-	answers := req.Service != ""
+	answers := false
 	for i := range req.Buttons {
 		b := &req.Buttons[i]
 		if b.URL != "" && b.Port != 0 {
@@ -146,7 +143,7 @@ func parseAsk(args []string) (askRequest, error) {
 		}
 	}
 	if !answers {
-		return req, errors.New("nothing to answer with: give a --button that answers, or a --service")
+		return req, errors.New("nothing to answer with: give a --button that is not only a --url or --port")
 	}
 	return req, checkAskLinks(req)
 }
@@ -185,20 +182,6 @@ func (st *guestTool) askHuman(args []string) int {
 	if err != nil {
 		return st.fail(fmt.Errorf("ask-human: %w", err))
 	}
-	var serviceDir string
-	if req.Service != "" {
-		dir, err := st.dir(req.Service)
-		if err != nil {
-			return st.fail(err)
-		}
-		serviceRepair(dir)
-		if !serviceAlive(dir) {
-			if err := st.launch(req.Service, nil); err != nil {
-				return st.fail(err)
-			}
-		}
-		serviceDir = dir
-	}
 	// Under the check, the work as it stands on either side of the wait
 	// is written down: what the human changes meanwhile is theirs (see tested.go).
 	var under string
@@ -219,16 +202,8 @@ func (st *guestTool) askHuman(args []string) int {
 		os.Exit(130)
 	}()
 	var ans askAnswer
-	code, answered := -1, false
-	for code < 0 {
+	for !st.answer(id, &ans) {
 		time.Sleep(300 * time.Millisecond)
-		if st.answer(id, &ans) {
-			code, answered = ans.Button, true
-		} else if serviceDir != "" && !serviceAlive(serviceDir) {
-			serviceRepair(serviceDir)
-			code, _ = strconv.Atoi(strings.TrimSpace(readFile(filepath.Join(serviceDir, "exit"))))
-			fmt.Fprintf(os.Stderr, "'%s' exited with code %d\n", req.Service, code)
-		}
 	}
 	cleanup()
 	if under != "" {
@@ -237,15 +212,13 @@ func (st *guestTool) askHuman(args []string) int {
 	if ans.Refused {
 		return st.fail(errors.New("ask-human: nobody is there to answer: this is a scheduled run"))
 	}
-	switch {
-	case !answered:
-	case len(req.Fields) == 0:
+	if len(req.Fields) == 0 {
 		fmt.Println(req.Buttons[ans.Button].ID)
-	default:
+	} else {
 		data, _ := json.Marshal(map[string]any{"button": req.Buttons[ans.Button].ID, "fields": ans.Fields})
 		fmt.Println(string(data))
 	}
-	return code
+	return ans.Button
 }
 
 // --- the daemon's side ---
