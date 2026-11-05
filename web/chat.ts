@@ -3,6 +3,7 @@ import * as route from 'aberdeen/route';
 import { Marked } from 'marked';
 import * as S from 'staffa';
 import { copy, copyCheck, gitFork, pencil, undo2 } from 'staffa/icons.js';
+import { ansiToHtml } from './ansi.ts';
 import { $state, chatLog } from './conn.ts';
 import { serviceDialog } from './services.ts';
 import { formatShell } from './shell.ts';
@@ -355,6 +356,11 @@ function codeBlock(text: string): void {
 	A('pre m:0 r:0 white-space:pre-wrap overflow-wrap:anywhere', () => A('code text=', text));
 }
 
+/** Console output, played out as a terminal would have shown it (see ansi.ts). */
+function termBlock(text: string): void {
+	A('pre m:0 r:0 white-space:pre-wrap overflow-wrap:anywhere html=', ansiToHtml(text));
+}
+
 /**
  * Tool requests logged before they were sent field by field: 'key: value' or
  * 'key:\nvalue' blocks, a blank line apart. A block that opens with no key of
@@ -398,8 +404,10 @@ function detailDialog($e: any, pid: string, tid: string, $t: any): void {
 					});
 				});
 			});
+			// A shell's response is what a terminal would have shown, the rest
+			// (a file's contents, say) is text as it is.
 			if ($e.resDetail !== undefined) {
-				section($e.error ? 'Response (error)' : 'Response', () => codeBlock($e.resDetail));
+				section($e.error ? 'Response (error)' : 'Response', () => /^bash$/i.test($e.name) ? termBlock($e.resDetail) : codeBlock($e.resDetail));
 			}
 			// A file the agent read (an image, often) opens in the task's VS Code.
 			const path = /^read$/i.test($e.name) && fields.find((f: any) => f.k === 'file_path' || f.k === 'path')?.v;
@@ -411,7 +419,7 @@ function detailDialog($e: any, pid: string, tid: string, $t: any): void {
 			// The note is prose and wraps under the header; what it carries (a
 			// build log, an error) is not, and keeps its own lines in a box.
 			A('p m:0 overflow-wrap:anywhere text=', $e.text);
-			if ($e.detail) section('Details', () => codeBlock($e.detail));
+			if ($e.detail) section('Details', () => termBlock($e.detail));
 		} else if ($e.detail !== undefined) {
 			section(title, () => codeBlock($e.detail));
 		}
