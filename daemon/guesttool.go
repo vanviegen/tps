@@ -198,6 +198,8 @@ func guestToolMain(args []string) int {
 		return st.settings(rest)
 	case "ps", "list":
 		err = st.ps()
+	case "init":
+		return containerInit()
 	case "help", "-h", "--help":
 		os.Stdout.WriteString(guestToolUsage)
 	default:
@@ -372,6 +374,25 @@ func hasEnv(env []string, name string) bool {
 		}
 	}
 	return false
+}
+
+// containerInit is a task container's PID 1 (see ensureContainer). Whatever
+// runs in the container is exec'd into it, so all it does is reap what those
+// leave orphaned, and end when the container is stopped.
+func containerInit() int {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGCHLD, syscall.SIGTERM, syscall.SIGINT)
+	for sig := range sigs {
+		if sig != syscall.SIGCHLD {
+			return 0
+		}
+		for {
+			if pid, _ := syscall.Wait4(-1, nil, syscall.WNOHANG, nil); pid <= 0 {
+				break
+			}
+		}
+	}
+	return 0
 }
 
 // serviceWrap is the wrapper: it runs the command as its child and records

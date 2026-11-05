@@ -429,11 +429,11 @@ func ensureContainer(o containerOpts) (*Container, error) {
 	for _, port := range append([]int{codePort}, exposed...) {
 		args = append(args, "-p", fmt.Sprintf("127.0.0.1::%d", port))
 	}
-	// The container idles under the toolbox's init: the agent, the project's
+	// The container idles under our own init: the agent, the project's
 	// CMD and code-server are all exec'd into it, so each comes and goes on
 	// its own — VS Code in particular is started when a dashboard shows the
 	// task (see StartCode), and goes with the container once it idles.
-	args = append(args, o.image, "/tps/bin/tini", "--", "sh", "-c", "while :; do sleep 3600; done")
+	args = append(args, o.image, guestToolPath, "init")
 	if err := runContainer(o.name, o.nestDir, args, rmErr); err != nil {
 		return nil, err
 	}

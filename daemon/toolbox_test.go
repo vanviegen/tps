@@ -48,7 +48,7 @@ func TestUntar(t *testing.T) {
 // started on, so the guest tool goes into every toolbox the host has.
 func TestRefreshGuestTool(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	inUse := filepath.Join(toolboxRoot(), "code-server-1.0_tini-1.0")
+	inUse := filepath.Join(toolboxRoot(), "code-server-1.0_claude-1.0")
 	if err := os.MkdirAll(filepath.Join(inUse, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}

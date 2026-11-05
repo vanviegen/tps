@@ -13,23 +13,22 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
-// The toolbox: code-server, claude and a tiny init, downloaded once per host
+// The toolbox: code-server and claude, downloaded once per host
 // and mounted read-only into every task container at /tps. Images stay free
 // of anything TPS-specific, and updating the tools (bump the versions here, or
 // claude's in claude.go) never needs an image rebuild. Layout:
-// bin/{code-server,claude,tini}, the code-server release under code-server/,
-// and two things of ours: the default Containerfile.dev, and this binary as
-// guest-tool (see guesttool.go), refreshed whenever the daemon is a new build.
-const (
-	codeServerVersion = "4.135.0"
-	tiniVersion       = "0.19.0"
-)
+// bin/{code-server,claude}, the code-server release under code-server/, and
+// two things of ours: the default Containerfile.dev, and this binary as
+// guest-tool (see guesttool.go; also the containers' init), refreshed whenever
+// the daemon is a new build.
+const codeServerVersion = "4.135.0"
 
 // toolboxKey names the exact set of tools a toolbox holds, so that a container
 // says which one it runs on and a bumped version is a new directory.
-var toolboxKey = "code-server-" + codeServerVersion + "_claude-" + claudeVersion + "_tini-" + tiniVersion
+var toolboxKey = "code-server-" + codeServerVersion + "_claude-" + claudeVersion
 
 func toolboxRoot() string    { return filepath.Join(home(), ".local", "share", "tps", "toolbox") }
 func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey) }
@@ -96,18 +95,27 @@ func downloadToolbox(dir string) error {
 	}); err != nil {
 		return err
 	}
-	if err := fetch("https://github.com/krallin/tini/releases/download/v"+tiniVersion+"/tini-static-"+arch, func(r io.Reader) error {
-		return writeFile(filepath.Join(bin, "tini"), r, 0o755)
-	}); err != nil {
-		return err
-	}
 	if err := installClaude(dir); err != nil {
 		return fmt.Errorf("installing claude: %w", err)
 	}
 	return os.Symlink("../code-server/bin/code-server", filepath.Join(bin, "code-server"))
 }
 
-func fetch(url string, read func(io.Reader) error) error {
+// fetch downloads url into read, trying a few times over a minute or so: a
+// GitHub release now and then answers a 504 for a while. Each try starts on
+// fresh connections, as a kept-alive one may stick to the edge that fails.
+func fetch(url string, read func(io.Reader) error) (err error) {
+	for wait := 5 * time.Second; ; wait *= 2 {
+		if err = fetchOnce(url, read); err == nil || wait > time.Minute {
+			return err
+		}
+		logf("%v; trying again in %s", err, wait)
+		http.DefaultClient.CloseIdleConnections()
+		time.Sleep(wait)
+	}
+}
+
+func fetchOnce(url string, read func(io.Reader) error) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -134,8 +142,12 @@ func writeFile(path string, r io.Reader, mode os.FileMode) error {
 	return err
 }
 
-// untar extracts a .tar.gz stream into dir, dropping the archive's top-level directory.
+// untar extracts a .tar.gz stream into dir, dropping the archive's top-level
+// directory. What dir held before goes: a download that broke off left it.
 func untar(r io.Reader, dir string) error {
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return err
