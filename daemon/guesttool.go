@@ -110,7 +110,7 @@ Other commands:
                            suggestion standing, its answer told you the next
                            time you are sent in.
 
-  request-human-views <port> [path]
+  request-human-views [<port> [path]]
                            Ask the user to look at a page this container
                            serves: a review app, a report, screenshots. Every
                            port with an EXPOSE line in Containerfile.dev that
@@ -119,7 +119,8 @@ Other commands:
                            (/ by default), and says so at the bottom of the
                            chat. Returns right away: a port not answering yet
                            is switched to once it does. A new request replaces
-                           the last; it goes with the container.
+                           the last; it goes with the container. Without
+                           arguments, withdraws it.
 
   projects                 The projects on this host, each by the name the
                            commands below take.

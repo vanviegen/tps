@@ -49,7 +49,8 @@ export function drawTaskPages(key: string, $t: any, left: string, code: (top: st
 	A(() => {
 		const at = $t.view?.at;
 		const seen = seenAt[key];
-		if (at && (seen === undefined ? A.peek(() => $t.viewNew) : at > seen)) pending = at;
+		if (!at) pending = undefined;
+		else if (seen === undefined ? A.peek(() => $t.viewNew) : at > seen) pending = at;
 		seenAt[key] = Math.max(seen ?? 0, at ?? 0);
 		if (pending && livePorts($t).some(p => p.port === $t.view.port)) {
 			pending = undefined;
