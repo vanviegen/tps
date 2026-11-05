@@ -173,7 +173,7 @@ function announcement(pid: string, $t: any, from: Phase): string | undefined {
 
 /** The phase each task was last seen in: what a change is told from. */
 const seen = new Map<string, Phase>();
-/** The tasks last seen with a request waiting for the user: for OpenRouter budget, project settings, or a page set (see daemon/urls.go). */
+/** The tasks last seen with a request waiting for the user: for OpenRouter budget, project settings, or a page to look at (see daemon/views.go). */
 const asking = new Set<string>();
 
 /**

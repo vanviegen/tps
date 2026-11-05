@@ -17,7 +17,7 @@ import (
 
 // /tps/guest-tool: what a task's agent reaches for from inside its container.
 // That is the task's services — starting, stopping and watching them —
-// OpenRouter keys (see openrouter.go), pages for the user (see urls.go), and
+// OpenRouter keys (see openrouter.go), pages for the user (see views.go), and
 // tasks of other projects (see board.go).
 // It is the tps binary itself, copied into the toolbox under that name (see
 // ensureToolbox) and dispatched on it (see GuestToolInvoked). Both the agent
@@ -108,17 +108,16 @@ Other commands:
                            suggestion standing, its answer told you the next
                            time you are sent in.
 
-  set-url <id> [url]       Show the user a web page, as a tab named after the id
-                           beside VS Code in the dashboard, switched to right
-                           away: a review app, a report, screenshots to look
-                           at. A URL on localhost is this container's, and
-                           reaches the dashboard through the port's EXPOSE line
-                           in Containerfile.dev. Every such port that answers
-                           HTTP has a tab of its own already, port_<port>: set
-                           that id to open another page of it, or to switch to
-                           it. Without a URL, the tab goes away (a port's goes
-                           back to its own page). The tabs go with the
-                           container.
+  request-human-views <port> [path]
+                           Ask the user to look at a page this container
+                           serves: a review app, a report, screenshots. Every
+                           port with an EXPOSE line in Containerfile.dev that
+                           answers HTTP is a tab beside VS Code in the
+                           dashboard; this opens that port's tab at the path
+                           (/ by default), and says so at the bottom of the
+                           chat. Returns right away: a port not answering yet
+                           is switched to once it does. A new request replaces
+                           the last; it goes with the container.
 
   projects                 The projects on this host, each by the name the
                            commands below take.
@@ -187,8 +186,8 @@ func guestToolMain(args []string) int {
 		err = st.logs(rest)
 	case "openrouter":
 		return st.openRouter(rest)
-	case "set-url":
-		err = st.setURL(rest)
+	case "request-human-views":
+		err = st.requestViews(rest)
 	case "projects":
 		return st.projects(rest)
 	case "create-task":

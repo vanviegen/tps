@@ -2,39 +2,30 @@ import A from 'aberdeen';
 import * as S from 'staffa';
 import { externalLink } from 'staffa/icons.js';
 import { drawCode } from './code.ts';
+import { portUrl } from './util.ts';
 
 /**
- * The pages a task's container puts in front of the user, as tabs beside VS
- * Code: one for each forwarded port that answers HTTP (port_<port>, on its own
- * front page), and one for each URL the container set (see daemon/urls.go),
- * which takes the place of a port's of the same id. A page loads the first
- * time its tab is opened. A URL set while the task is on screen is switched to
- * there and then; one set while it was not, once it is opened.
+ * The pages a task's container serves, as tabs beside VS Code: one for each
+ * forwarded port that answers HTTP, loaded the first time its tab is opened,
+ * on its front page — or on the page the container asks the user to look at
+ * (see daemon/views.go). That request is switched to once its port answers:
+ * there and then for one made while the task is on screen, and as it is opened
+ * for one made while it was not.
  */
 
-interface Page { id: string; url: string; at?: number }
-
-/** The tab each task shows, by `pid/tid`: a page's id, or '' for VS Code. */
+/** The tab each task shows, by `pid/tid`: a port, or '' for VS Code. */
 const $shown: Record<string, string> = A.proxy({});
-/** The newest URL each task had set when last looked at, by `pid/tid`. */
+/** The newest view request each task had when last looked at, by `pid/tid`. */
 const seenAt: Record<string, number> = {};
 
-function pages($t: any): Page[] {
-	const byId = new Map<string, Page>();
-	for (const p of $t.ports ?? []) if (p.live) byId.set(`port_${p.port}`, { id: `port_${p.port}`, url: `http://localhost:${p.port}/` });
-	for (const u of ($t.urls ?? []) as Page[]) byId.set(u.id, u);
-	return [...byId.values()];
-}
-
-/** "port_8080" is "Port 8080". */
-function title(id: string): string {
-	return id.charAt(0).toUpperCase() + id.slice(1).replace(/_/g, ' ');
+function livePorts($t: any): any[] {
+	return ($t.ports ?? []).filter((p: any) => p.live);
 }
 
 /** The task's tabs while it has pages, for the palette: VS Code's id is ''. */
 export function taskTabs($t: any): { id: string; title: string }[] {
-	const list = pages($t);
-	return list.length ? [{ id: '', title: 'VS Code' }, ...list.map(p => ({ id: p.id, title: title(p.id) }))] : [];
+	const list = livePorts($t);
+	return list.length ? [{ id: '', title: 'VS Code' }, ...list.map(p => ({ id: String(p.port), title: `Port ${p.port}` }))] : [];
 }
 
 /** Switch the task (by `pid/tid`) to a tab. */
@@ -42,20 +33,9 @@ export function showTab(key: string, id: string): void {
 	$shown[key] = id;
 }
 
-/**
- * Where this browser reaches a URL: one on localhost is the container's, and
- * goes through the port forwarded for it — or nowhere, where none is.
- */
-function reach($t: any, url: string): string | undefined {
-	let u: URL;
-	try { u = new URL(url); } catch { return; }
-	if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return url;
-	const port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
-	const p = ($t.ports ?? []).find((p: any) => p.port === port);
-	if (!p) return;
-	u.hostname = location.hostname;
-	u.port = String(p.host);
-	return u.href;
+/** Where this browser reaches a forwarded port's page: the one requested, where it is on that port. */
+function pageUrl($t: any, p: any): string {
+	return portUrl(p) + ($t.view?.port === p.port ? $t.view.path.slice(1) : '');
 }
 
 /**
@@ -64,15 +44,20 @@ function reach($t: any, url: string): string | undefined {
  * while there are none.
  */
 export function drawTaskPages(key: string, $t: any, left: string, code: (top: string) => void): void {
+	// A request not switched to yet, until its port answers.
+	let pending: number | undefined;
 	A(() => {
-		let newest: Page | undefined;
-		for (const u of ($t.urls ?? []) as Page[]) if (!newest || u.at! > newest.at!) newest = u;
+		const at = $t.view?.at;
 		const seen = seenAt[key];
-		seenAt[key] = Math.max(seen ?? 0, newest?.at ?? 0);
-		if (newest && (seen === undefined ? A.peek(() => $t.urlsNew) : newest.at! > seen)) $shown[key] = newest.id;
+		if (at && (seen === undefined ? A.peek(() => $t.viewNew) : at > seen)) pending = at;
+		seenAt[key] = Math.max(seen ?? 0, at ?? 0);
+		if (pending && livePorts($t).some(p => p.port === $t.view.port)) {
+			pending = undefined;
+			$shown[key] = String($t.view.port);
+		}
 	});
 	A(() => {
-		const list = pages($t);
+		const list = livePorts($t);
 		if (!list.length) return code('0px');
 		// The frames are fixed (see code.ts): they start right under the strip.
 		const $top = A.proxy({ px: 0 });
@@ -82,24 +67,44 @@ export function drawTaskPages(key: string, $t: any, left: string, code: (top: st
 			bind: A.ref($shown, key),
 			tabs: [
 				{ id: '', label: 'VS Code', content: () => A(() => code(top())) },
-				...list.map(page => ({
-					id: page.id,
+				...list.map(p => ({
+					id: String(p.port),
 					label: () => {
-						A('text=', title(page.id));
-						const url = reach($t, page.url);
-						if (url) A('span display:inline-flex ml:$1', 'click=', (e: Event) => { e.stopPropagation(); window.open(url, '_blank'); }, () => {
+						A('text=', `Port ${p.port}`);
+						A('span display:inline-flex ml:$1', 'click=', (e: Event) => { e.stopPropagation(); window.open(pageUrl($t, p), '_blank'); }, () => {
 							S.addTooltip({ tip: 'Open in a new browser tab' });
 							externalLink({ size: '0.9em' });
 						});
 					},
 					content: () => A(() => {
-						const url = reach($t, page.url);
-						if (url) drawCode(`${key}#${page.id}`, url, url, left, top());
-						else A('p text=', `${page.url} is this task's container, on a port that is not forwarded: Containerfile.dev needs an EXPOSE line for it.`);
+						const url = pageUrl($t, p);
+						drawCode(`${key}#${p.port}`, url, url, left, top());
 					}),
 				})),
 			],
 		})) as HTMLElement;
 		$top.px = (el.querySelector('.s-tabbar') as HTMLElement).getBoundingClientRect().bottom;
+	});
+}
+
+/**
+ * The page the container asks the user to look at, at the bottom of the chat:
+ * a link that switches to its port's tab, or what keeps it from having one.
+ */
+export function drawViewRequest(key: string, $t: any): void {
+	A(() => {
+		const v = $t.view;
+		if (!v) return;
+		const p = ($t.ports ?? []).find((p: any) => p.port === v.port);
+		A('div.s-s.primary.tonal p:$2 r:$s-radius-sm overflow-wrap:anywhere', () => {
+			A('text=', 'The agent requests you look at ');
+			A('a text=', `http://localhost:${v.port}${v.path}`, 'href=', p && pageUrl($t, p), 'click=', (e: MouseEvent) => {
+				if (e.ctrlKey || e.metaKey || e.shiftKey) return; // a browser tab of its own
+				e.preventDefault();
+				if (p?.live) $shown[key] = String(v.port);
+			});
+			A('text=', !p ? ', which is not available: Containerfile.dev needs an EXPOSE line for that port.'
+				: !p.live ? ', which is not available yet: nothing answers HTTP on that port.' : '.');
+		});
 	});
 }

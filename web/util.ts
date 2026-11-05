@@ -56,9 +56,9 @@ export function isFinished($t: any): boolean {
 	return $t.phase === 'done' || $t.phase === 'closed';
 }
 
-/** Whether the task's container put a page in front of the user since they last had the task open (see daemon/urls.go). */
+/** Whether the task's container asked the user to look at a page since they last had the task open (see daemon/views.go). */
 export function newPage($t: any): boolean {
-	return !!$t.urlsNew;
+	return !!$t.viewNew;
 }
 
 /** Whether the task is a plan an agent asked for (see daemon/board.go) that the user has yet to open. */

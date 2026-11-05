@@ -222,7 +222,7 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 			t.viewers = count
 			t.touchL()
 			if count > 0 {
-				t.seenURLsL()
+				t.seenViewL()
 			}
 			if count > 0 && t.info.Requested != "" { // seen to
 				t.info.Requested = ""
