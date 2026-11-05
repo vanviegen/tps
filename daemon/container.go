@@ -343,19 +343,19 @@ func splitPortSpec(spec string) (port int, proto string) {
 
 type containerOpts struct {
 	name, image, toolbox, repoDir string
-	agentDir                      func(p Provider) string // where the task keeps its state for an agent, mounted where that agent expects it (see Provider.Mounts)
-	servicesDir                   string                  // the task's services (see services.go), mounted at /services
-	uploadsDir                    string                  // what the user attached to its messages (see uploads.go), mounted read-only at /uploads
-	nestDir                       string                  // the task's control directory for its docker socket, see nest.go
-	cacheDir                      string                  // the project's cache directories live in here (see caches)
-	caches                        []string                // container paths the Containerfile declares as caches (see cacheLabel): package and build caches, kept per project on the host and mounted into every task's container, so a task starts warm
-	mounts                        []Mount                 // the host's files the project gives the task (see volumes)
-	checkout                      string                  // the project's checkout on the host, where relative mounts are
+	claudeDir                     string   // where the task keeps claude's state, mounted where claude expects it (see claudeMounts)
+	servicesDir                   string   // the task's services (see services.go), mounted at /services
+	uploadsDir                    string   // what the user attached to its messages (see uploads.go), mounted read-only at /uploads
+	nestDir                       string   // the task's control directory for its docker socket, see nest.go
+	cacheDir                      string   // the project's cache directories live in here (see caches)
+	caches                        []string // container paths the Containerfile declares as caches (see cacheLabel): package and build caches, kept per project on the host and mounted into every task's container, so a task starts warm
+	mounts                        []Mount  // the host's files the project gives the task (see volumes)
+	checkout                      string   // the project's checkout on the host, where relative mounts are
 }
 
 // ensureContainer makes sure a container by this name, based on this image
-// and toolbox, is running with the task's repo clone mounted at /work and an
-// agent state dir for every provider. Reuses a running match; otherwise replaces.
+// and toolbox, is running with the task's repo clone mounted at /work and its
+// claude state dir at /claude. Reuses a running match; otherwise replaces.
 func ensureContainer(o containerOpts) (*Container, error) {
 	// The socket for sub-containers is served before the container starts, and a container found running gets it too.
 	nest, err := nestFor(o.name, o.nestDir)
@@ -407,16 +407,10 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		"-v", vscode + ":/vscode",
 		"-w", "/work",
 	}
-	// Every agent's state directory and login, whichever of them the task's
-	// model turns out to name: the container is made before that is asked, and
-	// a model changed in the settings must not need a new one (see Mounts).
-	for _, p := range providers {
-		dir := o.agentDir(p)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, err
-		}
-		args = append(args, p.Mounts(dir)...)
+	if err := os.MkdirAll(o.claudeDir, 0o755); err != nil {
+		return nil, err
 	}
+	args = append(args, claudeMounts(o.claudeDir)...)
 	// Each cache directory is one of the project's, named after its path in
 	// the container, and ours to make: uid 1000 in there is us.
 	for _, path := range o.caches {

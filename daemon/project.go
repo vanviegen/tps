@@ -115,8 +115,10 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if info.Name == "" { // added before the daemon kept names, or none was given
 		info.Name = filepath.Base(info.Dir)
 	}
-	if info.Defaults.Model == "" {
-		info.Defaults.Model = DefaultModel
+	info.Defaults.Model = cmp.Or(bareModel(info.Defaults.Model), DefaultModel)
+	info.Defaults.ReviewModel = bareModel(info.Defaults.ReviewModel)
+	for _, t := range info.Tasks {
+		t.Model, t.ReviewModel = bareModel(t.Model), bareModel(t.ReviewModel)
 	}
 	if !colorRe.MatchString(info.Color) {
 		info.Color = m.pickColorL()

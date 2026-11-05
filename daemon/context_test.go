@@ -127,7 +127,7 @@ func TestCompactRefusals(t *testing.T) {
 	task, _ := markTask(t) // a workspace, so the refusals are about nothing else
 	task.info.Started, task.info.Phase = true, PhaseHuman
 
-	session := &claudeSession{agentProc: &agentProc{}}
+	session := &Session{}
 	task.session = session
 	session.turnActive.Store(true)
 	if err := task.SendChat("/compact"); err == nil {

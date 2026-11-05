@@ -188,8 +188,8 @@ type Task struct {
 	autoStarting bool     // an auto-start is under way, so it isn't started twice
 	behind       int      // commits on the default branch the workspace doesn't have yet (see refreshBehind)
 
-	session       Session
-	sessionFlight *flight[Session]
+	session       *Session
+	sessionFlight *flight[*Session]
 	sessionBudget *float64 // the budget setting the running agent was started under
 	sessionSystem string   // and the system prompt
 	sessionReview bool     // and whether it is the reviewer rather than the task's own agent (see review.go)
@@ -229,21 +229,9 @@ func (t *Task) containerName() string { return "tps-" + t.p.pid + "-" + t.tid }
 func (t *Task) workingL() bool        { return t.session != nil && t.session.TurnActive() }
 func (t *Task) touchL()               { t.lastActivity = time.Now() }
 
-// agentDir is where the task keeps what one of the agents remembers: its
-// session transcripts, and whatever else that CLI writes beside them (see
-// Provider.Mounts). One per provider, so that they are each other's memory
-// as little as two tasks are.
-func (t *Task) agentDir(p Provider) string { return filepath.Join(t.dir(), p.Name()) }
-
-// agentL is the agent the task runs on, and the model to run it on: its model
-// setting names both (see splitModel).
-func (t *Task) agentL() (Provider, string) { return splitModel(t.info.Model) }
-
-func (t *Task) agent() (Provider, string) {
-	t.lock()
-	defer t.unlock()
-	return t.agentL()
-}
+// claudeDir is where the task keeps what claude remembers: its session
+// transcripts, and whatever else it writes beside them (see claudeMounts).
+func (t *Task) claudeDir() string { return filepath.Join(t.dir(), "claude") }
 
 // hasWorkspace: the task has a clone to work in. A bare directory is not one
 // and must not pass for one: podman makes the mount point back whenever a
@@ -783,7 +771,6 @@ func (t *Task) noteBudgetL() {
 // in a task's life, and the answer is adopted only while the stand-in is still
 // there — a rename meanwhile wins.
 func (t *Task) ensureTitleL(desc string) {
-	agent, _ := t.agentL()
 	if strings.TrimSpace(desc) == "" {
 		return
 	}
@@ -800,7 +787,7 @@ func (t *Task) ensureTitleL(desc string) {
 		return // named by hand already: leave it be
 	}
 	go func() {
-		title := agent.Title(desc)
+		title := generateTitle(desc)
 		t.lock()
 		defer t.unlock()
 		if title != "" && t.info.Title == stand && t.p.tasks[t.tid] == t { // not renamed, not deleted meanwhile
@@ -1110,7 +1097,7 @@ func (t *Task) failKick(prefix string, err error) {
 	}
 }
 
-func (t *Task) stopSession(s Session) {
+func (t *Task) stopSession(s *Session) {
 	t.lock()
 	t.stopping = true
 	t.unlock()
@@ -1136,21 +1123,20 @@ func (t *Task) StopAgent() error {
 // is done in the background, a task waiting on it waiting on nothing it needs.
 func (t *Task) probeContextParts(c *Container) {
 	t.lock()
-	name := t.info.Model
-	agent, model := t.agentL()
+	model := t.info.Model
 	// The reviewer's window is its own, and starts empty every time (see
 	// review.go): what it holds says nothing about the task's conversation.
-	if t.sessionReview || (t.info.Window != nil && t.info.Window.Model == name) {
+	if t.sessionReview || (t.info.Window != nil && t.info.Window.Model == model) {
 		t.unlock()
 		return
 	}
 	system := t.systemPromptL()
 	t.unlock()
-	p, ok := agent.Window(c, model, system)
+	p, ok := probeContext(c, model, system)
 	if !ok {
 		return
 	}
-	p.Model = name // in the task's own words, which is what the guard above reads
+	p.Model = model
 	t.lock()
 	t.info.Window = &p
 	t.p.m.saveL()
@@ -1875,17 +1861,9 @@ func (t *Task) bundleChanges() ([]change, error) {
 // --- parked tasks: put away, and picked up again ---
 
 // archived is what a parked task keeps besides its bundle, compressed into
-// one archive: what its agents remember, the chat log, the files the user
-// attached, and the services' last output.
-var archived = archivedNames()
-
-func archivedNames() []string {
-	names := []string{"chat.jsonl", "uploads", "services"}
-	for _, p := range providers {
-		names = append(names, p.Name())
-	}
-	return names
-}
+// one archive: claude's state, the chat log, the files the user attached, and
+// the services' last output.
+var archived = []string{"claude", "chat.jsonl", "uploads", "services"}
 
 // park puts a finished or muted task's data away, so that a task nobody looks
 // at costs as little disk as it can: the workspace goes — with its work kept
@@ -2620,7 +2598,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 	mounts, checkout := t.mountsL(), t.p.dir()
 	t.unlock()
 	_, caches := t.declarations(cf)
-	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), agentDir: t.agentDir, servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir()), cacheDir: t.p.cacheDir(), caches: caches, mounts: mounts, checkout: checkout})
+	return ensureContainer(containerOpts{name: t.containerName(), image: tag, toolbox: toolbox, repoDir: t.repoDir(), claudeDir: t.claudeDir(), servicesDir: t.servicesDir(), uploadsDir: t.uploadsDir(), nestDir: nestDir(t.dir()), cacheDir: t.p.cacheDir(), caches: caches, mounts: mounts, checkout: checkout})
 }
 
 // mountsL are the project's host files this task gets: those for all tasks,
@@ -2686,7 +2664,7 @@ func (t *Task) Reload() error {
 
 // --- the agent session ---
 
-func (t *Task) ensureSession() (Session, error) {
+func (t *Task) ensureSession() (*Session, error) {
 	t.lock()
 	if s := t.session; s != nil {
 		t.unlock()
@@ -2694,7 +2672,7 @@ func (t *Task) ensureSession() (Session, error) {
 	}
 	f := t.sessionFlight
 	if f == nil {
-		f = &flight[Session]{done: make(chan struct{})}
+		f = &flight[*Session]{done: make(chan struct{})}
 		t.sessionFlight = f
 		go func() {
 			f.val, f.err = t.startSession()
@@ -2709,7 +2687,7 @@ func (t *Task) ensureSession() (Session, error) {
 	return f.val, f.err
 }
 
-func (t *Task) startSession() (Session, error) {
+func (t *Task) startSession() (*Session, error) {
 	c, err := t.up()
 	if err != nil {
 		return nil, err
@@ -2717,9 +2695,8 @@ func (t *Task) startSession() (Session, error) {
 	t.lock()
 	t.sessionBudget, t.sessionSystem = t.info.Budget, t.systemPromptL()
 	t.sessionReview = t.info.Phase == PhaseReview
-	agent, model := t.agentL()
 	opts := SessionOpts{
-		Container: c, Model: model, System: t.systemPromptL(), Resume: t.info.Started,
+		Container: c, Model: t.info.Model, System: t.systemPromptL(), Resume: t.info.Started,
 		OnEntry:  t.addEntry,
 		OnUpdate: t.updateEntry,
 		OnTurnStart: func() {
@@ -2732,8 +2709,7 @@ func (t *Task) startSession() (Session, error) {
 	// The reviewer is the same machinery with another mind in it: its own
 	// system prompt and model, and a session that is nobody's (see review.go).
 	if t.sessionReview {
-		agent, opts.Model = splitModel(cmp.Or(t.info.ReviewModel, t.info.Model))
-		opts.System, opts.Review, opts.Resume = reviewSystem, true, false
+		opts.Model, opts.System, opts.Review, opts.Resume = cmp.Or(t.info.ReviewModel, t.info.Model), reviewSystem, true, false
 	}
 	if t.info.Budget != nil {
 		left := max(0.01, *t.info.Budget-t.info.Spent)
@@ -2744,13 +2720,13 @@ func (t *Task) startSession() (Session, error) {
 		t.p.m.saveL()
 	}
 	t.unlock()
-	var s Session
+	var s *Session
 	ready := make(chan struct{})
 	opts.OnExit = func(code int, errTail string) {
 		<-ready
 		t.onSessionExit(s, code, errTail)
 	}
-	s, err = agent.Start(opts)
+	s, err = startClaude(opts)
 	close(ready)
 	if err != nil {
 		return nil, err
@@ -3060,7 +3036,7 @@ func (t *Task) endRunL(changes string) {
 	t.unlock()
 }
 
-func (t *Task) onSessionExit(s Session, code int, errTail string) {
+func (t *Task) onSessionExit(s *Session, code int, errTail string) {
 	t.lock()
 	defer t.unlock()
 	if t.session == s {

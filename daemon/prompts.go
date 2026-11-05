@@ -6,7 +6,7 @@ import (
 )
 
 // systemPrompt goes to the agent's own system prompt (--append-system-prompt, see
-// claudeScript and piScript), so it stands above the agent's whole conversation.
+// claudeScript), so it stands above the agent's whole conversation.
 // A scratch task's agent gets scratchPrompt instead: the same rules, under
 // another account of what /work is. A scheduled run's starts from
 // scheduledIntro: the same rules, with nobody to talk to. One whose work merges

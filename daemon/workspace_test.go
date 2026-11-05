@@ -38,8 +38,7 @@ func testTask(t *testing.T) (*Task, string) {
 	gitRun(t, origin, "commit", "--quiet", "-m", "add a.txt")
 
 	data := filepath.Join(dir, "data")
-	m := &Manager{projects: map[string]*Project{}, dataDir: data, configFile: filepath.Join(data, "config.json"), saveCh: make(chan []byte, 1), hub: hub.New(nil),
-		models: map[string][]string{}, modelsFailed: map[string]bool{}} // a host with a toolbox asks its agents for their models
+	m := &Manager{projects: map[string]*Project{}, dataDir: data, configFile: filepath.Join(data, "config.json"), saveCh: make(chan []byte, 1), hub: hub.New(nil)}
 	p := &Project{m: m, pid: "project", info: &ProjectInfo{Dir: origin, Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}, defaultBranch: "main", alone: map[string]bool{}}
 	m.projects[p.pid] = p
 	task := newTask(p, "1", &TaskInfo{Phase: PhaseAgent})
@@ -104,7 +103,7 @@ func TestDropAndPickUp(t *testing.T) {
 	if exists(task.repoDir()) {
 		t.Error("the clone survived the merge")
 	}
-	if !exists(task.agentDir(claudeCLI{})) || !exists(task.chatFile()) {
+	if !exists(task.claudeDir()) || !exists(task.chatFile()) {
 		t.Error("the conversation did not survive the merge")
 	}
 
@@ -467,7 +466,7 @@ func TestCloseKeepsABundle(t *testing.T) {
 	if task.info.Phase != PhaseClosed || exists(task.repoDir()) || !exists(task.bundleFile()) {
 		t.Fatalf("phase %s, workspace left: %v, bundle: %v", task.info.Phase, exists(task.repoDir()), exists(task.bundleFile()))
 	}
-	if !exists(task.archiveFile()) || exists(task.chatFile()) || exists(task.agentDir(claudeCLI{})) {
+	if !exists(task.archiveFile()) || exists(task.chatFile()) || exists(task.claudeDir()) {
 		t.Error("the data was not compressed")
 	}
 	if task.p.m.hub.Get("projects", "project", "tasks", task.tid, "worktree") != nil {
@@ -502,7 +501,7 @@ func TestCloseKeepsABundle(t *testing.T) {
 	if exists(filepath.Join(repo, "b.txt")) {
 		t.Error("the work was moved onto the latest branch")
 	}
-	if exists(task.bundleFile()) || exists(task.archiveFile()) || !exists(task.chatFile()) || !exists(task.agentDir(claudeCLI{})) {
+	if exists(task.bundleFile()) || exists(task.archiveFile()) || !exists(task.chatFile()) || !exists(task.claudeDir()) {
 		t.Error("the task's data did not come back out of the archive")
 	}
 	log := readFile(task.chatFile())

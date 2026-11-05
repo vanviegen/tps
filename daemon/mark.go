@@ -33,11 +33,8 @@ import (
 
 // Mark is one save point, carried by the chat entry that shows it.
 type Mark struct {
-	Commit string `json:"commit"` // the step the point made on stepsBranch
-	// Transcript, relative to the agent's state dir → the length it had. The
-	// JSON name is the one every save point on disk carries: a point whose
-	// lengths cannot be read back deletes transcripts instead of cutting them.
-	Sessions map[string]int64 `json:"claude,omitempty"`
+	Commit string           `json:"commit"`           // the step the point made on stepsBranch
+	Claude map[string]int64 `json:"claude,omitempty"` // transcript, relative to the claude dir → the length it had
 }
 
 // How long the transcripts must hold still to count as written out, and how
@@ -54,17 +51,17 @@ const (
 // words: reverting to it would cut away the very answer it was made at, and
 // the agent would pick the conversation back up without the analysis the user
 // is answering. So the lengths are only taken once the files have gone quiet.
-func (t *Task) settleTranscripts(p Provider) {
+func (t *Task) settleTranscripts() {
 	t.lock()
 	running := t.session != nil
 	t.unlock()
 	if !running {
 		return // nothing is writing; whatever is there is all there is
 	}
-	lengths := t.transcripts(p)
+	lengths := t.transcripts()
 	for deadline := time.Now().Add(transcriptWait); time.Now().Before(deadline); {
 		time.Sleep(transcriptQuiet)
-		now := t.transcripts(p)
+		now := t.transcripts()
 		if maps.Equal(now, lengths) {
 			return
 		}
@@ -72,12 +69,11 @@ func (t *Task) settleTranscripts(p Provider) {
 	}
 }
 
-// transcripts measures every session transcript the task has for this agent.
-// Paths are relative to its state dir, so they survive being copied into a
-// fork's.
-func (t *Task) transcripts(p Provider) map[string]int64 {
-	dir := t.agentDir(p)
-	paths, err := filepath.Glob(filepath.Join(dir, p.Transcripts()))
+// transcripts measures every session transcript the task has. Paths are
+// relative to the claude dir, so they survive being copied into a fork's.
+func (t *Task) transcripts() map[string]int64 {
+	dir := t.claudeDir()
+	paths, err := filepath.Glob(filepath.Join(dir, claudeTranscripts))
 	if err != nil || len(paths) == 0 {
 		return nil
 	}
@@ -94,15 +90,15 @@ func (t *Task) transcripts(p Provider) map[string]int64 {
 	return lengths
 }
 
-// rewindTranscripts puts an agent's state dir back to what a mark measured: every
+// rewindTranscripts puts a claude dir back to what a mark measured: every
 // transcript is cut to the length it had then, and one that did not exist yet
 // goes. Nothing else of the dir is touched — its config and caches say
 // nothing about the conversation.
 //
 // No agent may be running on it: a live process writes at the offset it holds
 // and would tear a hole in the file behind it.
-func rewindTranscripts(p Provider, dir string, lengths map[string]int64) error {
-	paths, err := filepath.Glob(filepath.Join(dir, p.Transcripts()))
+func rewindTranscripts(dir string, lengths map[string]int64) error {
+	paths, err := filepath.Glob(filepath.Join(dir, claudeTranscripts))
 	if err != nil {
 		return err
 	}
@@ -258,9 +254,8 @@ func (t *Task) mark(by, summary string) error {
 	if !made && (by == "Human" || by == "Rebase") {
 		return nil
 	}
-	agent, _ := t.agent()
-	t.settleTranscripts(agent)
-	m := &Mark{Commit: head, Sessions: t.transcripts(agent)}
+	t.settleTranscripts()
+	m := &Mark{Commit: head, Claude: t.transcripts()}
 	e := newEntry("mark")
 	// Its own id, which UsePoint names it by; the tool
 	// call ids entries otherwise carry cannot collide with it.
@@ -398,8 +393,7 @@ func (t *Task) revert(chat chatPoint, work *chatPoint, upTo []byte, prompt strin
 			return err
 		}
 	}
-	agent, _ := t.agent()
-	if err := rewindTranscripts(agent, t.agentDir(agent), chat.Mark.Sessions); err != nil {
+	if err := rewindTranscripts(t.claudeDir(), chat.Mark.Claude); err != nil {
 		return err
 	}
 	t.chatMu.Lock()
@@ -415,7 +409,7 @@ func (t *Task) revert(chat chatPoint, work *chatPoint, upTo []byte, prompt strin
 	// commitMessageFile) — and with it whether the work is ready.
 	t.info.Pending = nil // what was waiting was waiting for a turn that is now undone
 	// A point from before the agent ever ran leaves no session to resume.
-	t.info.Started = len(chat.Mark.Sessions) > 0
+	t.info.Started = len(chat.Mark.Claude) > 0
 	t.info.Context = 0 // the conversation is another length now; the next turn measures it
 	if prompt != "" {
 		t.queueL("point", prompt)
@@ -521,15 +515,14 @@ func (t *Task) fork(chat chatPoint, work *chatPoint, log []byte, prompt string) 
 	if err := copyTree(t.uploadsDir(), f.uploadsDir()); err != nil {
 		return f.tid, err
 	}
-	agent, _ := t.agent()
-	if err := copyTree(t.agentDir(agent), f.agentDir(agent)); err != nil {
+	if err := copyTree(t.claudeDir(), f.claudeDir()); err != nil {
 		return f.tid, err
 	}
-	if err := rewindTranscripts(agent, f.agentDir(agent), chat.Mark.Sessions); err != nil {
+	if err := rewindTranscripts(f.claudeDir(), chat.Mark.Claude); err != nil {
 		return f.tid, err
 	}
 	f.lock()
-	f.info.Started = len(f.transcripts(agent)) > 0
+	f.info.Started = len(f.transcripts()) > 0
 	f.p.m.saveL()
 	f.unlock()
 	f.note(fmt.Sprintf("Forked from %q, at its save point %q", src.Title, oneLine(chat.Text, 60)))

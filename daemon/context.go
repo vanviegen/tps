@@ -8,12 +8,10 @@ import (
 	"time"
 )
 
-// What fills an agent's context window, and where it stops filling: the two
-// things the dashboard's gauge needs, whichever agent the task runs (see
-// Provider.Window). The types are shared; the asking below is claude's. Its
-// `/context` is a local command — no API call, no cost — that prints a table
-// of what its window holds and how much of it is left, so TPS asks for one and
-// reads it. The asking is done by a throwaway claude of its own in the task's
+// What fills claude's context window, and where it stops filling: the two
+// things the dashboard's gauge needs. Claude's `/context` is a local command —
+// no API call, no cost — that prints a table of what its window holds and how
+// much of it is left, so TPS asks for one and reads it. The asking is done by a throwaway claude of its own in the task's
 // container, on the model the task's agent runs on: a second process cannot
 // disturb the conversation the agent is having, where a command sent into that
 // conversation would be a turn in it.
@@ -52,9 +50,9 @@ type ContextWindow struct {
 // probeContext asks the claude in a container to break its context down.
 func probeContext(c *Container, model, system string) (ContextWindow, bool) {
 	// The default model is claude's own: pass no --model at all (see
-	// claudeCLI.Start). Which model the window that comes back was measured for
+	// startClaude). Which model the window that comes back was measured for
 	// is the caller's to record, in the words it asked in (see probeContextParts).
-	if model == defaultModel {
+	if model == DefaultModel {
 		model = ""
 	}
 	r, err := runCmd([]string{"podman", "exec",

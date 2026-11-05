@@ -258,37 +258,23 @@ async function changeProject(pid: string, tid: string, $t: any, to: string): Pro
 const SAME_MODEL = 'Same as agent model';
 
 /**
- * A model as a task's settings hold it, "claude: fable", with a name that
- * points at no provider read as claude's, as the daemon does (see splitModel).
- */
-function fullModel(name: string): string {
-	return name.includes(': ') ? name : 'claude: ' + name;
-}
-
-/**
  * The models to choose from for one of the task's two model settings: what the
- * agents on the project's host offer, plus whatever the task is set to, so a
- * model that host no longer lists still shows. Each is labeled by its name and
- * then the provider it belongs to, "fable (claude)", and so ordered.
+ * claude on the project's host offers, plus whatever the task is set to, so a
+ * model that host no longer lists still shows.
  */
-function modelOptions(pid: string, $t: any, field = 'model'): { value: string; label: string }[] {
+function modelOptions(pid: string, $t: any, field = 'model'): string[] {
 	const host = $state.hosts[$state.projects[pid]?.host];
 	const models = new Set<string>(host?.models ?? $state.models ?? []);
-	if ($t[field]) models.add(fullModel($t[field]));
-	return [...models]
-		.map(value => {
-			const at = value.indexOf(': ');
-			return { value, label: `${value.slice(at + 2)} (${value.slice(0, at)})` };
-		})
-		.sort((a, b) => a.label.localeCompare(b.label));
+	if ($t[field]) models.add($t[field]);
+	return [...models];
 }
 
-/** Why models are missing from the list, where one of the agents could not be asked. */
+/** Why the list is the built-in one rather than what claude offers, if it is. */
 function modelsError(pid: string): string {
 	const hid = $state.projects[pid]?.host;
 	const host = $state.hosts[hid];
 	if (!host?.modelsError) return '';
-	return `on ${hostName(hid)}, ${host.modelsError} — so its models are missing here`;
+	return `claude on ${hostName(hid)} could not be asked which models it offers, so this is the built-in list: ${host.modelsError}`;
 }
 
 /**
@@ -299,12 +285,12 @@ function modelsError(pid: string): string {
  */
 export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
 	// The two models stand together: a task is often worth a different mind from
-	// the one that reads its work over. Under either, why an agent's models are
-	// missing from the list, where they are.
+	// the one that reads its work over. Under either, the reason its list is the
+	// built-in one, if it is not claude's own.
 	A(() => S.select({
 		label: 'Agent model', options: () => modelOptions(pid, $t), help: modelsError(pid) || undefined,
 		bind: {
-			get value() { return fullModel($t.model || 'default'); },
+			get value() { return $t.model || 'default'; },
 			set value(model: string) { if (model) save({ model }); },
 		},
 	}));
@@ -316,7 +302,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		help: modelsError(pid) || undefined,
 		inputAttrs: $t.reviewModel ? undefined : 'font-style:italic',
 		bind: {
-			get value() { return $t.reviewModel ? fullModel($t.reviewModel) : SAME_MODEL; },
+			get value() { return $t.reviewModel || SAME_MODEL; },
 			set value(model: string) { if (model) save({ reviewModel: model === SAME_MODEL ? '' : model }); },
 		},
 	}));

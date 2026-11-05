@@ -15,8 +15,7 @@ func TestSessionEvents(t *testing.T) {
 	var entries []*ChatEntry
 	var updates []*ChatEntry
 	var ends []TurnEnd
-	s := &claudeSession{pending: map[string]*ChatEntry{}}
-	s.agentProc = &agentProc{opts: SessionOpts{
+	s := &Session{pending: map[string]*ChatEntry{}, opts: SessionOpts{
 		OnEntry:   func(e *ChatEntry) { entries = append(entries, e) },
 		OnUpdate:  func(e *ChatEntry) { updates = append(updates, e) },
 		OnTurnEnd: func(e TurnEnd) { ends = append(ends, e) },
@@ -127,8 +126,7 @@ func TestLimitLine(t *testing.T) {
 	}
 
 	var end TurnEnd
-	s := &claudeSession{pending: map[string]*ChatEntry{}}
-	s.agentProc = &agentProc{opts: SessionOpts{
+	s := &Session{pending: map[string]*ChatEntry{}, opts: SessionOpts{
 		OnEntry:   func(*ChatEntry) {},
 		OnUpdate:  func(*ChatEntry) {},
 		OnTurnEnd: func(e TurnEnd) { end = e },
@@ -232,8 +230,7 @@ func TestAuthGone(t *testing.T) {
 	}
 
 	var end TurnEnd
-	s := &claudeSession{pending: map[string]*ChatEntry{}}
-	s.agentProc = &agentProc{opts: SessionOpts{
+	s := &Session{pending: map[string]*ChatEntry{}, opts: SessionOpts{
 		OnEntry:   func(*ChatEntry) {},
 		OnUpdate:  func(*ChatEntry) {},
 		OnTurnEnd: func(e TurnEnd) { end = e },
@@ -296,8 +293,7 @@ func TestLoginFailed(t *testing.T) {
 func TestCompaction(t *testing.T) {
 	var entries []*ChatEntry
 	var ends []TurnEnd
-	s := &claudeSession{pending: map[string]*ChatEntry{}}
-	s.agentProc = &agentProc{opts: SessionOpts{
+	s := &Session{pending: map[string]*ChatEntry{}, opts: SessionOpts{
 		OnEntry:   func(e *ChatEntry) { entries = append(entries, e) },
 		OnUpdate:  func(*ChatEntry) {},
 		OnTurnEnd: func(e TurnEnd) { ends = append(ends, e) },
@@ -433,7 +429,11 @@ func TestCompactTurn(t *testing.T) {
 // A turn being stopped is the last one: a message queued during it, which the
 // agent takes up the moment the turn ends, is not let through.
 func TestStopDropsNextTurn(t *testing.T) {
-	cmd := exec.Command("printf", `working\nend\nnext\nmore\n`)
+	cmd := exec.Command("printf", "%s\n",
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}`,
+		`{"type":"result"}`,
+		`{"type":"system","subtype":"init"}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"more"}]}}`)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -441,16 +441,18 @@ func TestStopDropsNextTurn(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	p := &agentProc{cmd: cmd, stdout: stdout, exited: make(chan struct{}), opts: SessionOpts{OnExit: func(int, string) {}}}
-	p.turnActive.Store(true)
-	p.stopping.Store(true)
-	var lines []string
-	p.run(func(line []byte) {
-		lines = append(lines, string(line))
-		p.turnActive.Store(string(line) != "end")
-	})
-	<-p.exited
-	if strings.Join(lines, " ") != "working end" {
-		t.Errorf("lines read: %q", lines)
+	var said []string
+	s := &Session{cmd: cmd, stdout: stdout, exited: make(chan struct{}), pending: map[string]*ChatEntry{}, opts: SessionOpts{
+		OnEntry:     func(e *ChatEntry) { said = append(said, e.K+":"+e.Text) },
+		OnTurnStart: func() { said = append(said, "start") },
+		OnTurnEnd:   func(TurnEnd) {},
+		OnExit:      func(int, string) {},
+	}}
+	s.turnActive.Store(true)
+	s.stopping.Store(true)
+	s.run()
+	<-s.exited
+	if len(said) != 2 || said[0] != "text:working" || !strings.HasPrefix(said[1], "result:") {
+		t.Errorf("what the session took in: %q", said)
 	}
 }

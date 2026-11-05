@@ -15,14 +15,13 @@ import (
 	"sync"
 )
 
-// The toolbox: code-server, the agent CLIs and a tiny init, downloaded once
-// per host and mounted read-only into every task container at /tps. Images
-// stay free of anything TPS-specific, and updating the tools (bump the
-// versions here, or a provider's in its own file) never needs an image
-// rebuild. Layout: bin/{code-server,claude,pi,tini}, the releases that are
-// more than a binary under directories of their own, and two things of ours:
-// the default Containerfile.dev, and this binary as guest-tool
-// (see guesttool.go), refreshed whenever the daemon is a new build.
+// The toolbox: code-server, claude and a tiny init, downloaded once per host
+// and mounted read-only into every task container at /tps. Images stay free
+// of anything TPS-specific, and updating the tools (bump the versions here, or
+// claude's in claude.go) never needs an image rebuild. Layout:
+// bin/{code-server,claude,tini}, the code-server release under code-server/,
+// and two things of ours: the default Containerfile.dev, and this binary as
+// guest-tool (see guesttool.go), refreshed whenever the daemon is a new build.
 const (
 	codeServerVersion = "4.135.0"
 	tiniVersion       = "0.19.0"
@@ -30,16 +29,10 @@ const (
 
 // toolboxKey names the exact set of tools a toolbox holds, so that a container
 // says which one it runs on and a bumped version is a new directory.
-func toolboxKey() string {
-	key := "code-server-" + codeServerVersion + "_tini-" + tiniVersion
-	for _, p := range providers {
-		key += "_" + p.Name() + "-" + p.Version()
-	}
-	return key
-}
+var toolboxKey = "code-server-" + codeServerVersion + "_claude-" + claudeVersion + "_tini-" + tiniVersion
 
 func toolboxRoot() string    { return filepath.Join(home(), ".local", "share", "tps", "toolbox") }
-func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey()) }
+func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey) }
 func toolboxInstalled() bool { return exists(toolboxDir()) }
 
 // claudeBin is the claude binary in this host's toolbox.
@@ -83,7 +76,7 @@ func ensureToolbox() (string, error) {
 	if ps, err := runCmd([]string{"podman", "ps", "--format", `{{index .Labels "tps.config"}}`}, RunOpts{}); err == nil {
 		entries, _ := os.ReadDir(toolboxRoot())
 		for _, e := range entries {
-			if e.Name() != toolboxKey() && !strings.HasPrefix(e.Name(), ".") && !strings.Contains(ps.Out, `"`+e.Name()+`"`) { // dot: a download under way
+			if e.Name() != toolboxKey && !strings.HasPrefix(e.Name(), ".") && !strings.Contains(ps.Out, `"`+e.Name()+`"`) { // dot: a download under way
 				os.RemoveAll(filepath.Join(toolboxRoot(), e.Name()))
 			}
 		}
@@ -108,10 +101,8 @@ func downloadToolbox(dir string) error {
 	}); err != nil {
 		return err
 	}
-	for _, p := range providers {
-		if err := p.Install(dir); err != nil {
-			return fmt.Errorf("installing %s: %w", p.Name(), err)
-		}
+	if err := installClaude(dir); err != nil {
+		return fmt.Errorf("installing claude: %w", err)
 	}
 	return os.Symlink("../code-server/bin/code-server", filepath.Join(bin, "code-server"))
 }

@@ -20,8 +20,8 @@ import (
 // user/steering messages go in over stdin, events come out and are condensed
 // into chat entries. The process stays alive between turns, so follow-up
 // messages are instant; after it dies, Resume picks the conversation back up
-// from the state in the mounted state directory. Which CLI it is, and what
-// its events look like, is its provider's (see provider.go).
+// from the state in the mounted state directory. What its events look like is
+// claude's (see claude.go).
 
 const killScript = `
 p=$(cat /tmp/tps-agent.pid 2>/dev/null) && [ -n "$p" ] || exit 0
@@ -63,15 +63,15 @@ func newEntry(k string) *ChatEntry {
 
 // entry is newEntry for what this session says, which is the reviewer's or the
 // task's agent's own.
-func (p *agentProc) entry(k string) *ChatEntry {
+func (s *Session) entry(k string) *ChatEntry {
 	e := newEntry(k)
-	e.Rev = p.opts.Review
+	e.Rev = s.opts.Review
 	return e
 }
 
 type SessionOpts struct {
 	Container *Container
-	Model     string // the provider's own name for it, without the provider (see splitModel)
+	Model     string
 	System    string
 	Resume    bool // pick the task's most recent session back up
 	// Review: this session is the reviewer's rather than the task's own (see
@@ -91,23 +91,9 @@ type SessionOpts struct {
 	OnExit      func(code int, errTail string)
 }
 
-// Session is a task's conversation with a running agent.
-type Session interface {
-	// Send puts a message to the agent: a turn of its own, or steering for the
-	// turn under way.
-	Send(text string)
-	TurnActive() bool
-	// Stop interrupts the current turn, then makes sure the process is gone.
-	// Returns only after the exit was processed (OnExit has run).
-	Stop()
-	// Kill ends just the client process (the container side dies with the container).
-	Kill()
-}
-
-// agentProc is the process itself: a podman exec into the task's container,
-// fed JSON lines on stdin and read line by line. What those lines say is the
-// provider's to know.
-type agentProc struct {
+// Session is a task's conversation with a running agent: a podman exec into
+// the task's container, fed JSON lines on stdin and read line by line.
+type Session struct {
 	turnActive atomic.Bool
 	stopping   atomic.Bool
 	cmd        *exec.Cmd
@@ -118,17 +104,25 @@ type agentProc struct {
 	errTail    string
 	opts       SessionOpts
 	exited     chan struct{}
+
+	costReported float64               // cumulative session cost of the last result event
+	pending      map[string]*ChatEntry // tool calls awaiting their result
+	context      int64                 // tokens the last request sent, which is what claude currently remembers
+	summary      int64                 // tokens the turn under way summarised the conversation down to (see TurnEnd)
+	lastText     string                // the latest message of the turn under way (see TurnEnd)
+	limited      bool                  // that message was claude reporting a usage limit
+	limitAt      time.Time             // and when it says that limit resets
+	noLogin      bool                  // the turn ran into claude being unable to authenticate at all
 }
 
-// newAgentProc starts the CLI in the task's container, with the environment
-// its start script reads. The session reading its output is built around the
-// process and then set going with run.
-func newAgentProc(opts SessionOpts, env []string, script string) (*agentProc, error) {
+// newSession starts claude in the task's container, with the environment its
+// start script reads, and reads its events until it exits.
+func newSession(opts SessionOpts, env []string) (*Session, error) {
 	args := []string{"exec", "-i"}
 	for _, e := range env {
 		args = append(args, "-e", e)
 	}
-	args = append(args, opts.Container.Name, "bash", "-lc", script)
+	args = append(args, opts.Container.Name, "bash", "-lc", claudeScript)
 	cmd := exec.Command("podman", args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -145,80 +139,67 @@ func newAgentProc(opts SessionOpts, env []string, script string) (*agentProc, er
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	p := &agentProc{cmd: cmd, stdin: stdin, stdout: stdout, opts: opts, exited: make(chan struct{})}
+	s := &Session{cmd: cmd, stdin: stdin, stdout: stdout, opts: opts, exited: make(chan struct{}), pending: map[string]*ChatEntry{}}
 	go func() {
 		buf := make([]byte, 64<<10)
 		for {
 			n, err := stderr.Read(buf)
 			if n > 0 {
-				p.errMu.Lock()
-				p.errTail += string(buf[:n])
-				if len(p.errTail) > 4000 {
-					p.errTail = p.errTail[len(p.errTail)-4000:]
+				s.errMu.Lock()
+				s.errTail += string(buf[:n])
+				if len(s.errTail) > 4000 {
+					s.errTail = s.errTail[len(s.errTail)-4000:]
 				}
-				p.errMu.Unlock()
+				s.errMu.Unlock()
 			}
 			if err != nil {
 				return
 			}
 		}
 	}()
-	return p, nil
+	s.run()
+	return s, nil
 }
 
-// run reads the CLI's events, one line at a time, until it exits.
-func (p *agentProc) run(onLine func(line []byte)) {
+// run reads claude's events, one line at a time, until it exits.
+func (s *Session) run() {
 	go func() {
-		sc := bufio.NewScanner(p.stdout)
+		sc := bufio.NewScanner(s.stdout)
 		sc.Buffer(make([]byte, 1<<20), 256<<20)
 		for sc.Scan() {
 			// The turn being stopped has ended: a message that came in during it
 			// would start the next one, and nothing of that is wanted.
-			if p.stopping.Load() && !p.turnActive.Load() {
+			if s.stopping.Load() && !s.turnActive.Load() {
 				continue
 			}
 			if line := strings.TrimSpace(sc.Text()); line != "" {
-				onLine([]byte(line))
+				s.onLine([]byte(line))
 			}
 		}
-		code := exitCode(p.cmd.Wait())
-		p.turnActive.Store(false)
-		p.errMu.Lock()
-		tail := strings.TrimSpace(p.errTail)
-		p.errMu.Unlock()
-		p.opts.OnExit(code, tail)
-		close(p.exited)
+		code := exitCode(s.cmd.Wait())
+		s.turnActive.Store(false)
+		s.errMu.Lock()
+		tail := strings.TrimSpace(s.errTail)
+		s.errMu.Unlock()
+		s.opts.OnExit(code, tail)
+		close(s.exited)
 	}()
 }
 
-func (p *agentProc) TurnActive() bool { return p.turnActive.Load() }
+func (s *Session) TurnActive() bool { return s.turnActive.Load() }
 
-// stop sends the CLI whatever it takes for an interrupt, then makes sure the
-// process is gone.
-func (p *agentProc) stop(interrupt any) {
-	p.stopping.Store(true)
-	p.write(interrupt)
-	for i := 0; i < 40 && p.turnActive.Load(); i++ {
-		time.Sleep(100 * time.Millisecond)
-	}
-	// The podman exec client can't signal into the container; kill from within.
-	go p.opts.Container.Exec(killScript)
-	time.Sleep(300 * time.Millisecond)
-	p.Kill()
-	<-p.exited
-}
-
-func (p *agentProc) Kill() {
-	if p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
+// Kill ends just the client process (the container side dies with the container).
+func (s *Session) Kill() {
+	if s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
 	}
 }
 
-func (p *agentProc) write(msg any) {
+func (s *Session) write(msg any) {
 	raw, _ := json.Marshal(msg)
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	_, _ = p.stdin.Write(append(raw, '\n'))
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_, _ = s.stdin.Write(append(raw, '\n'))
 }
 
 // --- what a turn amounts to ---
@@ -330,29 +311,18 @@ func firstOf(input map[string]any, keys ...string) any {
 }
 
 // toolBits gives a tool call's description and main argument, for the one-line
-// rendering. The tools are each agent's own, and are named and shaped a little
-// differently by each, so both spellings of the handful worth rendering
-// specially are read here.
+// rendering.
 func toolBits(name string, input map[string]any) (text, arg string) {
 	text = str(input["description"])
-	path := firstOf(input, "file_path", "path")
 	var a any
-	switch strings.ToLower(name) {
-	case "bash":
+	switch name {
+	case "Bash":
 		a = input["command"]
-	case "edit":
-		from, to := str(input["old_string"]), str(input["new_string"])
-		// An agent that takes several replacements in the one call names them
-		// under edits; the first stands for the lot.
-		if edits, ok := input["edits"].([]any); ok && len(edits) > 0 {
-			if first, ok := edits[0].(map[string]any); ok {
-				from, to = str(first["oldText"]), str(first["newText"])
-			}
-		}
-		a = fmt.Sprintf("%s: %s → %s", str(path), oneLine(from, 40), oneLine(to, 40))
-	case "write":
-		a = fmt.Sprintf("%s ← %s", str(path), oneLine(input["content"], 60))
-	case "grep":
+	case "Edit":
+		a = fmt.Sprintf("%s: %s → %s", str(input["file_path"]), oneLine(input["old_string"], 40), oneLine(input["new_string"], 40))
+	case "Write":
+		a = fmt.Sprintf("%s ← %s", str(input["file_path"]), oneLine(input["content"], 60))
+	case "Grep":
 		a = str(input["pattern"])
 		if p := str(input["path"]); p != "" {
 			a = a.(string) + " in " + p

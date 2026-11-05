@@ -45,7 +45,7 @@ func Serve(buildID string) error {
 	// a task publishes its own (see systemPromptL), which a task's log shows at
 	// its top (the reviewer's own hangs on the note that
 	// starts a review, being written afresh for each one).
-	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "modelsError": "asking the agent CLIs…",
+	h := hub.New(map[string]any{"projects": map[string]any{}, "models": FallbackModels, "modelsError": "asking claude…",
 		"build": buildID, "protocol": hub.Protocol, "home": home(), "agentPrompt": systemPrompt})
 	m := NewManager(h, exit)
 	h.Cmds = m.Cmds()

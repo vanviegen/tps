@@ -4,65 +4,58 @@ import (
 	"strings"
 )
 
-// The models offered in a task's settings are every provider's, each named by
-// the provider it belongs to: "claude: sonnet", "pi: z-ai/glm-5.3-flash". Each
-// CLI is asked on this host for the models it takes, and answers for its own
-// share of the list; "<provider>: default" leaves the choice to the CLI's own
-// configuration, and leads that share.
+// The models offered in a task's settings are the ones the claude CLI on this
+// host says it takes (see claudeModels). "default" leaves the choice to
+// claude's own configuration, leads the list, and is what a new task gets.
 
-// FallbackModels is what a task's settings offer until the CLIs have answered,
-// and when asking them fails: each provider's own default.
-var FallbackModels = fallbackModels()
+// DefaultModel is the model a new task starts with: claude's own default.
+const DefaultModel = "default"
 
-func fallbackModels() []string {
-	models := make([]string, len(providers))
-	for i, p := range providers {
-		models[i] = modelName(p, defaultModel)
-	}
-	return models
-}
+// FallbackModels is what a task's settings offer until claude has answered,
+// and when asking it fails.
+var FallbackModels = []string{DefaultModel}
 
-// refreshModels asks the CLIs this host has which models they offer and
-// publishes them, next to why one of them could not be asked: a task settings
-// dropdown that silently shows the fallback tells nobody what went wrong. The
-// binaries live in the toolbox, so this waits for that download; a ticker
-// keeps trying until every CLI has answered, and one that has is not asked
-// again.
+// refreshModels asks this host's claude which models it offers and publishes
+// them, next to why it could not: a task settings dropdown that silently shows
+// the fallback tells nobody what went wrong. The claude binary lives in the
+// toolbox, so this waits for that download; a ticker keeps trying until claude
+// answers.
 func (m *Manager) refreshModels() {
 	m.modelsMu.Lock()
 	defer m.modelsMu.Unlock()
-	if len(m.models) == len(providers) {
+	if m.modelsFound {
 		return
 	}
 	if !toolboxInstalled() {
-		m.setModelsError("the agent CLIs have not been downloaded on this host yet")
+		m.setModelsError("claude has not been downloaded on this host yet")
 		return
 	}
-	var models, failed []string
-	for _, p := range providers {
-		list, answered := m.models[p.Name()]
-		if !answered {
-			var err error
-			if list, err = p.Models(); err != nil {
-				failed = append(failed, p.Name()+" could not be asked which models it offers: "+err.Error())
-				if !m.modelsFailed[p.Name()] { // once: the retries would fill the log
-					m.modelsFailed[p.Name()] = true
-					logf("Asking %s which models it offers failed (retrying): %v", p.Name(), err)
-				}
-				continue
-			}
-			m.models[p.Name()] = list
-			logf("Models offered by %s: %s", p.Name(), strings.Join(list, ", "))
+	models, err := claudeModels()
+	if err != nil {
+		m.setModelsError(err.Error())
+		if !m.modelsFailed { // once: the retries would fill the log
+			m.modelsFailed = true
+			logf("Asking claude which models it offers failed (retrying): %v", err)
 		}
-		models = append(models, modelName(p, defaultModel))
-		for _, name := range list {
-			models = append(models, modelName(p, name))
+		return
+	}
+	m.modelsFound = true
+	logf("Models offered by claude: %s", strings.Join(models, ", "))
+	m.setModelsError("")
+	m.hub.Set([]string{"models"}, append([]string{DefaultModel}, models...))
+}
+
+// bareModel reads a model setting written by a TPS that named the agent CLI
+// in it, "claude: sonnet", as the model alone; one of another CLI's is
+// claude's default.
+func bareModel(name string) string {
+	if cli, model, ok := strings.Cut(name, ": "); ok {
+		if cli != "claude" {
+			return DefaultModel
 		}
+		return model
 	}
-	if len(models) > 0 { // nothing answered yet: the fallback list stays
-		m.hub.Set([]string{"models"}, models)
-	}
-	m.setModelsError(strings.Join(failed, "; "))
+	return name
 }
 
 func (m *Manager) setModelsError(msg string) {
@@ -79,16 +72,6 @@ func firstLine(s string) string {
 		line = line[:200]
 	}
 	return line
-}
-
-// titleOf reads an agent's answer to titlePrompt: the title, or "" when it
-// replied rather than named — its first 60 characters would say nothing.
-func titleOf(out string) string {
-	answer := strings.Trim(strings.TrimSpace(out), `"'`)
-	if strings.Contains(answer, "\n") || len([]rune(answer)) > 80 {
-		return ""
-	}
-	return head(answer, 60)
 }
 
 // draftTitle is what a task is called until the agent has thought about it:

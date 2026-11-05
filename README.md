@@ -1,6 +1,6 @@
 # TPS
 
-TPS is your all-in-one dashboard for having Claude Code or pi (experimental) work on many tasks across many
+TPS is your all-in-one dashboard for having Claude Code work on many tasks across many
 projects at once. For each task you get an agent chat and a VS Code instance
 side-by-side, backed by its own lightweight sandbox container and repository.
 

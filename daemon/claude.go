@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// The claude provider: Claude Code, run in a task's container as one long
-// `claude -p` talking stream-json on both ends (see agent.go), and asked on
-// the host for the models it takes and for a task's title.
+// Claude Code, run in a task's container as one long `claude -p` talking
+// stream-json on both ends (see agent.go), and asked on the host for the
+// models it takes and for a task's title.
 
 const claudeVersion = "2.1.280"
 
@@ -33,7 +33,7 @@ const (
 // while is a TPS service instead (see guesttool.go), which the user can see
 // and the task does not wait on.
 //
-// CLAUDE_CODE_DISABLE_BACKGROUND_TASKS (see Start) takes the run_in_background
+// CLAUDE_CODE_DISABLE_BACKGROUND_TASKS (see startClaude) takes the run_in_background
 // parameter off Bash and off subagents, and stops a command that hits its
 // timeout being moved to the background rather than killed; the tools denied
 // below are the ones that schedule or stream on their own.
@@ -47,12 +47,8 @@ exec /tps/bin/claude -p --input-format stream-json --output-format stream-json -
 	${TPS_BUDGET:+--max-budget-usd "$TPS_BUDGET"} $TPS_EXTRA
 `
 
-type claudeCLI struct{}
-
-func (claudeCLI) Name() string    { return "claude" }
-func (claudeCLI) Version() string { return claudeVersion }
-
-func (claudeCLI) Install(dir string) error {
+// installClaude puts claude in a toolbox being downloaded, as bin/claude.
+func installClaude(dir string) error {
 	arch, ok := map[string]string{"amd64": "x64", "arm64": "arm64"}[runtime.GOARCH]
 	if !ok {
 		return fmt.Errorf("no claude build for %s", runtime.GOARCH)
@@ -63,12 +59,12 @@ func (claudeCLI) Install(dir string) error {
 	})
 }
 
-// Mounts: the task's own claude directory as its config dir, and the host's
-// claude login, shared with every task (see login.go). The daemon's claude
-// directory is where claude in the container keeps its credentials, while its
-// config dir stays the task's own. The directory, not the one file, as claude
-// writes it by replacing it and locks beside it.
-func (claudeCLI) Mounts(dir string) []string {
+// claudeMounts: the task's own claude directory as its config dir, and the
+// host's claude login, shared with every task (see login.go). The daemon's
+// claude directory is where claude in the container keeps its credentials,
+// while its config dir stays the task's own. The directory, not the one file,
+// as claude writes it by replacing it and locks beside it.
+func claudeMounts(dir string) []string {
 	args := []string{
 		"-v", dir + ":" + claudeMount,
 		"-e", "CLAUDE_CONFIG_DIR=" + claudeMount,
@@ -82,13 +78,14 @@ func (claudeCLI) Mounts(dir string) []string {
 	return args
 }
 
-func (claudeCLI) Transcripts() string { return filepath.Join("projects", "*", "*.jsonl") }
+// claudeTranscripts are claude's session files in its config dir, as a glob.
+// They are append-only, so a save point is a length in each of them (see
+// mark.go).
+var claudeTranscripts = filepath.Join("projects", "*", "*.jsonl")
 
-func (claudeCLI) Window(c *Container, model, system string) (ContextWindow, bool) {
-	return probeContext(c, model, system)
-}
-
-func (claudeCLI) Start(opts SessionOpts) (Session, error) {
+// startClaude starts claude in a task's container, its events turned into
+// what opts asks for.
+func startClaude(opts SessionOpts) (*Session, error) {
 	extra, budget := "", ""
 	if opts.Resume {
 		extra = "--continue"
@@ -104,7 +101,7 @@ func (claudeCLI) Start(opts SessionOpts) (Session, error) {
 	}
 	// The default model is claude's own: pass no --model at all.
 	model := opts.Model
-	if model == defaultModel {
+	if model == DefaultModel {
 		model = ""
 	}
 	env := []string{
@@ -116,36 +113,31 @@ func (claudeCLI) Start(opts SessionOpts) (Session, error) {
 		"TPS_EXTRA=" + extra,
 		"TPS_BUDGET=" + budget,
 	}
-	p, err := newAgentProc(opts, env, claudeScript)
-	if err != nil {
-		return nil, err
-	}
-	s := &claudeSession{agentProc: p, pending: map[string]*ChatEntry{}}
-	p.run(s.onLine)
-	return s, nil
+	return newSession(opts, env)
 }
 
-type claudeSession struct {
-	*agentProc
-	costReported float64               // cumulative session cost of the last result event
-	pending      map[string]*ChatEntry // tool calls awaiting their result
-	context      int64                 // tokens the last request sent, which is what claude currently remembers
-	summary      int64                 // tokens the turn under way summarised the conversation down to (see TurnEnd)
-	lastText     string                // the latest message of the turn under way (see TurnEnd)
-	limited      bool                  // that message was claude reporting a usage limit
-	limitAt      time.Time             // and when it says that limit resets
-	noLogin      bool                  // the turn ran into claude being unable to authenticate at all
-}
-
-func (s *claudeSession) Send(text string) {
+// Send puts a message to claude: a turn of its own, or steering for the turn
+// under way.
+func (s *Session) Send(text string) {
 	s.turnActive.Store(true)
 	s.lastText = ""
 	s.limited, s.limitAt, s.noLogin = false, time.Time{}, false
 	s.write(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": text}}}})
 }
 
-func (s *claudeSession) Stop() {
-	s.stop(map[string]any{"type": "control_request", "request_id": "stop", "request": map[string]any{"subtype": "interrupt"}})
+// Stop interrupts the current turn, then makes sure the process is gone.
+// Returns only after the exit was processed (OnExit has run).
+func (s *Session) Stop() {
+	s.stopping.Store(true)
+	s.write(map[string]any{"type": "control_request", "request_id": "stop", "request": map[string]any{"subtype": "interrupt"}})
+	for i := 0; i < 40 && s.turnActive.Load(); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	// The podman exec client can't signal into the container; kill from within.
+	go s.opts.Container.Exec(killScript)
+	time.Sleep(300 * time.Millisecond)
+	s.Kill()
+	<-s.exited
 }
 
 // --- stream-json events → chat entries ---
@@ -199,14 +191,14 @@ type block struct {
 	IsError   bool            `json:"is_error"`
 }
 
-func (s *claudeSession) onLine(line []byte) {
+func (s *Session) onLine(line []byte) {
 	var ev event
 	if json.Unmarshal(line, &ev) == nil {
 		s.onEvent(&ev)
 	}
 }
 
-func (s *claudeSession) onEvent(ev *event) {
+func (s *Session) onEvent(ev *event) {
 	switch ev.Type {
 	case "assistant":
 		if ev.Message == nil {
@@ -339,14 +331,14 @@ func (s *claudeSession) onEvent(ev *event) {
 
 // --- the models claude offers, and what it calls a task ---
 
-// The models a task can pick under "claude" are the ones the claude CLI on
-// this host says it takes: `claude -p /model` is a local slash command (no API
-// call) that prints them.
+// The models a task can pick are the ones the claude CLI on this host says it
+// takes: `claude -p /model` is a local slash command (no API call) that prints
+// them.
 
 var availableRe = regexp.MustCompile(`\bAvailable:[ \t]*([^\n]+)`)
 var modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@:\[\]/-]*$`)
 
-func (claudeCLI) Models() ([]string, error) {
+func claudeModels() ([]string, error) {
 	r, err := runCmd(askArgs("/model"), RunOpts{Dir: home(), Env: askEnv(), Timeout: 60 * time.Second})
 	models := parseModels(r.Out + "\n" + r.Err)
 	if models == nil {
@@ -363,14 +355,14 @@ func (claudeCLI) Models() ([]string, error) {
 //	Usage: /model <name>. Available: sonnet, opus, …, default, or a full model ID.
 //
 // Whatever is not a bare name (the trailing "or a full model ID") is dropped,
-// as is "default", which every provider's list leads with anyway.
+// as is "default", which the list leads with anyway.
 func parseModels(out string) []string {
 	m := availableRe.FindStringSubmatch(out)
 	if m == nil {
 		return nil
 	}
 	var models []string
-	seen := map[string]bool{defaultModel: true}
+	seen := map[string]bool{DefaultModel: true}
 	for _, part := range strings.Split(m[1], ",") {
 		name := strings.Trim(strings.TrimSpace(part), ".")
 		if !modelRe.MatchString(name) || seen[name] {
@@ -382,17 +374,21 @@ func parseModels(out string) []string {
 	return models
 }
 
-// Title asks this host's claude for a task title: haiku, as naming one is
-// little work, and a one-shot -p run, as there is nothing to discuss. It
+// generateTitle asks this host's claude for a task title: haiku, as naming one
+// is little work, and a one-shot -p run, as there is nothing to discuss. It
 // answers "" when it can't be asked (no toolbox yet, no network) or won't say
 // anything usable; the stand-in title then simply stays.
-func (claudeCLI) Title(description string) string {
+func generateTitle(description string) string {
 	r, err := runCmd(askArgs(titlePrompt(description), "--model", "haiku"), RunOpts{Dir: home(), Env: askEnv(), Timeout: 30 * time.Second})
 	if err != nil {
 		logf("asking claude for a task title failed: %v", err)
 		return ""
 	}
-	return titleOf(r.Out)
+	answer := strings.Trim(strings.TrimSpace(r.Out), `"'`)
+	if strings.Contains(answer, "\n") || len([]rune(answer)) > 80 {
+		return "" // a reply, not a title: its first 60 characters would say nothing
+	}
+	return head(answer, 60)
 }
 
 // askArgs: a one-shot errand for this host's claude. Naming a task and asking
@@ -455,7 +451,7 @@ var authWords = regexp.MustCompile(`(?i)failed to authenticate|oauth (session|to
 func authGone(text string) bool { return text != "" && authWords.MatchString(text) }
 
 // parseReset reads the clock claude names in that message: "4:40pm (UTC)", in
-// UTC because that is the zone the process is given (see claudeCLI.Start) —
+// UTC because that is the zone the process is given (see startClaude) —
 // claude words these in its own locale and zone, and only the zone is ours to
 // pin. A reset it dates instead ("Mar 5, 4:40pm") is more than a day out,
 // which is no wait TPS takes on anyway, so the clock is all that is read.
