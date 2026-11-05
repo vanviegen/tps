@@ -9,7 +9,7 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
-import { drawTaskPages, drawViewRequest } from './pages.ts';
+import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
 import { autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectName, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
@@ -644,7 +644,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
 		A(() => { if ($t.suggestion) drawSuggestion(pid, tid, $t.suggestion); });
-		drawViewRequest(`${pid}/${tid}`, $t);
+		A(() => { if ($t.userText) drawStrip('primary', $t.userText); });
 		// A host that cannot run agents (claude wanting a sign-in, say) says so here too, with the way out.
 		A(() => drawHostNotice($state.projects[pid]?.host));
 		A(() => {

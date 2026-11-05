@@ -278,12 +278,12 @@ func resetService(dir string) {
 // resetServices forgets the runs of every service: for a container about to
 // be replaced, whose processes go with it. The commands stay, declared or ad
 // hoc, so every service the task has can be started again in the new one. The
-// requests go too, with whatever was waiting on them, and the view requested
-// (see views.go).
+// requests go too, with whatever was waiting on them, and the text shown to
+// the user (see usertext.go).
 func resetServices(dir string) {
 	_ = os.MkdirAll(dir, 0o755)
 	_ = os.RemoveAll(filepath.Join(dir, requestsDir))
-	_ = os.Remove(filepath.Join(dir, viewFile))
+	_ = os.Remove(filepath.Join(dir, userTextFile))
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.IsDir() && serviceNameRe.MatchString(e.Name()) {
@@ -447,8 +447,8 @@ func (t *Task) anyRunningL() bool {
 // syncServicesL reads the services' state off disk and publishes what
 // changed; with logs, their output tails too (for a task someone is looking
 // at). A service seen running that ended badly on its own gets a note in
-// the chat, as the agent's or the user's run of it would deserve. The view
-// the container requests is read along with them (see views.go).
+// the chat, as the agent's or the user's run of it would deserve. The text
+// the container shows the user is read along with them (see usertext.go).
 func (t *Task) syncServicesL(logs bool) {
 	if t.status != StatusUp || t.container == nil {
 		return
@@ -464,7 +464,7 @@ func (t *Task) syncServicesL(logs bool) {
 		}
 	}
 	t.pubL("services", t.servicesL())
-	t.syncViewL()
+	t.syncUserTextL()
 	t.syncSettingsL()
 	if !logs {
 		return
@@ -488,9 +488,7 @@ func (t *Task) syncServicesL(logs bool) {
 // clearServicesL is for a container gone: nothing runs, and nothing is shown.
 func (t *Task) clearServicesL() {
 	t.services = nil
-	t.view = nil
-	t.pubL("view", nil)
-	t.seenViewL() // the page it flagged went with it
+	t.pubL("userText", nil)
 	t.pubL("services", nil)
 	t.pubL("serviceLogs", nil)
 	t.logsPublished = nil

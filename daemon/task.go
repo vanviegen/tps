@@ -209,9 +209,6 @@ type Task struct {
 	services      []serviceState    // their state and that of the ad hoc ones, as last read (see services.go)
 	logsPublished map[string]bool   // the services whose output tail the dashboard has
 	orBusy        bool              // an OpenRouter key is being made for the agent (see openrouter.go)
-	view          *viewRequest      // the page the container asks the user to look at, as last read (see views.go)
-	viewRead      bool              // it has been read since the daemon started
-	viewNew       bool              // it was requested while nobody had the task open
 	settingsShown string            // the project's settings as last written for the tool to read (see syncSettingsL)
 }
 

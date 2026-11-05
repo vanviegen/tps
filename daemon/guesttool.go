@@ -17,7 +17,7 @@ import (
 
 // /tps/guest-tool: what a task's agent reaches for from inside its container.
 // That is the task's services — starting, stopping and watching them —
-// OpenRouter keys (see openrouter.go), pages for the user (see views.go), and
+// OpenRouter keys (see openrouter.go), a text for the user (see usertext.go), and
 // tasks of other projects (see board.go).
 // It is the tps binary itself, copied into the toolbox under that name (see
 // ensureToolbox) and dispatched on it (see GuestToolInvoked). Both the agent
@@ -110,17 +110,10 @@ Other commands:
                            suggestion standing, its answer told you the next
                            time you are sent in.
 
-  request-human-views [<port> [path]]
-                           Ask the user to look at a page this container
-                           serves: a review app, a report, screenshots. Every
-                           port with an EXPOSE line in Containerfile.dev that
-                           answers HTTP is a tab beside VS Code in the
-                           dashboard; this opens that port's tab at the path
-                           (/ by default), and says so at the bottom of the
-                           chat. Returns right away: a port not answering yet
-                           is switched to once it does. A new request replaces
-                           the last; it goes with the container. Without
-                           arguments, withdraws it.
+  show-user-text [<text>]  Show the user a text at the bottom of the task's
+                           chat, in markdown: where to look at a review app,
+                           say. A new text replaces the last; it goes with the
+                           container. Without a text, removes it.
 
   projects                 The projects on this host, each by the name the
                            commands below take.
@@ -189,8 +182,8 @@ func guestToolMain(args []string) int {
 		err = st.logs(rest)
 	case "openrouter":
 		return st.openRouter(rest)
-	case "request-human-views":
-		err = st.requestViews(rest)
+	case "show-user-text":
+		err = st.showUserText(rest)
 	case "projects":
 		return st.projects(rest)
 	case "create-task":

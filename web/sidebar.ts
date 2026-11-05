@@ -7,7 +7,7 @@ import { $state } from './conn.ts';
 import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
 import { closeBase, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
-import { drawBadge, drawTaskIcon, hostName, hostPath, newPage, pathTo, phaseOrder, projectColor, requested, selection, taskTip, taskTitle } from './util.ts';
+import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, requested, selection, taskTip, taskTitle } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -173,7 +173,7 @@ function waiting(hid: string): number {
 	let count = 0;
 	for (const $p of Object.values($state.projects) as any[]) {
 		if ($p.host !== hid) continue;
-		for (const $t of Object.values($p.tasks ?? {}) as any[]) if ($t.phase === 'human' || newPage($t)) count++;
+		for (const $t of Object.values($p.tasks ?? {}) as any[]) if ($t.phase === 'human') count++;
 	}
 	return count;
 }
@@ -247,7 +247,7 @@ function drawScratch(pid: string, $p: any): void {
 function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
-	if (newPage($t) || requested($t)) return true;
+	if (requested($t)) return true;
 	if ($t.phase === 'muted') return false;
 	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
 }
@@ -257,8 +257,8 @@ function drawTask(pid: string, tid: string, $t: any): void {
 		S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
 			return taskMenuItems(pid, tid, $t, [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }]);
 		}});
-		// Yours to act on: it waits for you, has a page for you, or it is a plan you have yet to start.
-		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan' || newPage($t)));
+		// Yours to act on: it waits for you, or it is a plan you have yet to start.
+		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan'));
 		A(() => {
 			const { pid: shown, tid: shownTid } = selection();
 			A('.tps-current=', shown === pid && shownTid === tid);
