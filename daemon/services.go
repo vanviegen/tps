@@ -16,9 +16,9 @@ import (
 
 // Services: the named, long-running commands of a task — the project's dev
 // server, its test suite, a screenshot review app — each run detached in the
-// task's container by /tps/bin/tps-guest-tool (see guesttool.go),
-// whether the agent or the dashboard asked for it. Containerfile.dev declares
-// the ones a project comes with: its CMD is the service 'app', and a LABEL
+// task's container by /tps/guest-tool (see guesttool.go), whether the agent
+// or the dashboard asked for it. Containerfile.dev declares the ones a
+// project comes with: its CMD is the service 'app', and a LABEL
 // tps.service.<name>="command" declares another. Ad hoc ones need no
 // declaration. Every service is a directory under the task's services dir,
 // mounted at /services in the container; the daemon writes the declared
@@ -44,14 +44,13 @@ const cacheLabel = "tps.cache"
 // deploy.go).
 const deployLabel = "tps.deploy"
 
-// checkLabel declares the project's check — its test suite, as a rule — which
-// work has to pass to land: the merge train runs it (see train.go), and what a
-// task's own run of it passed on is recorded (see tested.go). It is a label of
-// its own rather than a service of some name, so that no project gets a merge
-// gate it never asked for; in the tasks, it is the service checkService.
-const checkLabel = "tps.check"
+// testLabel declares the project's test — its test suite, as a rule — which
+// work has to pass to land: the merge train runs it (see train.go). It is a
+// label of its own rather than a service of some name, so that no project gets
+// a merge gate it never asked for; in the tasks, it is the service testService.
+const testLabel = "tps.test"
 
-const checkService = "check"
+const testService = "test"
 
 var serviceNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$`)
 
@@ -83,17 +82,17 @@ func containerfileServices(text string) []declaredService {
 
 // containerDecl is what a Containerfile declares to TPS.
 type containerDecl struct {
-	services      []declaredService
-	caches        []string
-	check, deploy string // the commands of checkLabel and deployLabel
+	services     []declaredService
+	caches       []string
+	test, deploy string // the commands of testLabel and deployLabel
 }
 
 // containerfileDeclarations reads what a Containerfile declares to TPS, all of
 // it in its final stage: the services — its CMD (the last one, as in the
 // image) as 'app', and every tps.service.<name> label, in order; a label named
-// app replaces the CMD's entry, and the check is the service checkService — the
-// cache directories (see cacheLabel), and the commands that check and deploy
-// the project (see checkLabel and deployLabel).
+// app replaces the CMD's entry, and the test is the service testService — the
+// cache directories (see cacheLabel), and the commands that test and deploy
+// the project (see testLabel and deployLabel).
 func containerfileDeclarations(text string) (d containerDecl) {
 	var cmd []string
 	var labels []declaredService
@@ -128,8 +127,8 @@ func containerfileDeclarations(text string) (d containerDecl) {
 					d.deploy = strings.TrimSpace(kv[1])
 					continue
 				}
-				if kv[0] == checkLabel && strings.TrimSpace(kv[1]) != "" {
-					d.check = strings.TrimSpace(kv[1])
+				if kv[0] == testLabel && strings.TrimSpace(kv[1]) != "" {
+					d.test = strings.TrimSpace(kv[1])
 					continue
 				}
 				name := strings.TrimPrefix(kv[0], serviceLabelPrefix)
@@ -143,8 +142,8 @@ func containerfileDeclarations(text string) (d containerDecl) {
 	if line := shellLine(cmd); line != "" {
 		d.services = append(d.services, declaredService{cmdService, line})
 	}
-	if d.check != "" {
-		labels = append(labels, declaredService{checkService, d.check})
+	if d.test != "" {
+		labels = append(labels, declaredService{testService, d.test})
 	}
 	for _, l := range labels {
 		if i := indexService(d.services, l.Name); i >= 0 {
@@ -279,10 +278,12 @@ func resetService(dir string) {
 // resetServices forgets the runs of every service: for a container about to
 // be replaced, whose processes go with it. The commands stay, declared or ad
 // hoc, so every service the task has can be started again in the new one. The
-// questions put to a human go too, with whatever was waiting on them.
+// requests go too, with whatever was waiting on them, and the URLs set (see
+// urls.go).
 func resetServices(dir string) {
 	_ = os.MkdirAll(dir, 0o755)
 	_ = os.RemoveAll(filepath.Join(dir, requestsDir))
+	_ = os.RemoveAll(filepath.Join(dir, urlsDir))
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.IsDir() && serviceNameRe.MatchString(e.Name()) {
@@ -446,9 +447,8 @@ func (t *Task) anyRunningL() bool {
 // syncServicesL reads the services' state off disk and publishes what
 // changed; with logs, their output tails too (for a task someone is looking
 // at). A service seen running that ended badly on its own gets a note in
-// the chat, as the agent's or the user's run of it would deserve; a run of
-// the test service that ended is recorded (see recordTest). The questions
-// the container puts to a human are read along with them (see ask.go).
+// the chat, as the agent's or the user's run of it would deserve. The URLs
+// the container sets are read along with them (see urls.go).
 func (t *Task) syncServicesL(logs bool) {
 	if t.status != StatusUp || t.container == nil {
 		return
@@ -459,16 +459,12 @@ func (t *Task) syncServicesL(logs bool) {
 	}
 	t.services = readServices(t.servicesDir(), t.declared)
 	for _, s := range t.services {
-		if s.Name == checkService && !t.job() && s.Ended != 0 && (t.info.Tested == nil || t.info.Tested.At != s.Ended) {
-			t.info.Tested = &TestRun{At: s.Ended}
-			t.p.m.saveL()
-			go t.recordTest(s.Ended)
-		} else if was[s.Name] == "running" && s.Status == "exited" && s.Code != nil && *s.Code != 0 {
+		if was[s.Name] == "running" && s.Status == "exited" && s.Code != nil && *s.Code != 0 {
 			t.serviceNote(s, fmt.Sprintf("service %s exited (%d)", s.Name, *s.Code))
 		}
 	}
 	t.pubL("services", t.servicesL())
-	t.syncAsksL()
+	t.syncURLsL()
 	t.syncSettingsL()
 	if !logs {
 		return
@@ -492,8 +488,9 @@ func (t *Task) syncServicesL(logs bool) {
 // clearServicesL is for a container gone: nothing runs, and nothing is shown.
 func (t *Task) clearServicesL() {
 	t.services = nil
-	t.asks = nil
-	t.pubL("asks", nil)
+	t.urls = nil
+	t.pubL("urls", nil)
+	t.seenURLsL() // the pages it flagged went with it
 	t.pubL("services", nil)
 	t.pubL("serviceLogs", nil)
 	t.logsPublished = nil
@@ -507,14 +504,14 @@ func (t *Task) guestTool(args ...string) error {
 	if err != nil {
 		return err
 	}
-	argv := append([]string{"podman", "exec", c.Name, "bash", "-lc", `exec /tps/bin/` + guestToolName + ` "$@"`, guestToolName}, args...)
+	argv := append([]string{"podman", "exec", c.Name, "bash", "-lc", `exec ` + guestToolPath + ` "$@"`, guestToolPath}, args...)
 	r, err := runCmd(argv, RunOpts{Timeout: 30 * time.Second, NoCheck: true})
 	if err == nil && r.Code != 0 && r.Code != 124 {
-		err = fmt.Errorf("`%s %s` failed (%d)", guestToolName, strings.Join(args, " "), r.Code)
+		err = fmt.Errorf("`%s %s` failed (%d)", guestToolPath, strings.Join(args, " "), r.Code)
 	}
 	if err != nil {
 		if msg := strings.TrimSpace(r.Err + "\n" + r.Out); msg != "" {
-			return errors.New(strings.TrimPrefix(msg, guestToolName+": "))
+			return errors.New(strings.TrimPrefix(msg, guestToolPath+": "))
 		}
 		return err
 	}

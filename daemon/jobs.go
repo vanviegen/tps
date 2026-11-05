@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"cmp"
-	"errors"
+	"fmt"
 	"time"
 )
 
@@ -10,11 +10,11 @@ import (
 // merge train (see train.go) and the deploy (see deploy.go). Each is a task
 // like any other where it can be: a clone of the project to work in, a
 // container from its Containerfile.dev, services that are the job's steps
-// (the test, the deploy) with their consoles, questions for a human (see
-// ask.go), and a log that tells what happened. No agent works in one and
-// nobody else's work does either: its workspace is reset to the tip of the
-// branch whenever it runs, so the dashboard leaves out what tasks of the
-// user's are for, and so do the commands (see Cmds). It is made the first
+// (the test, the deploy) with their consoles, and a log that tells what
+// happened. No agent works in one and nobody else's work does either: its
+// workspace is reset to the tip of the branch whenever it runs, so the
+// dashboard leaves out what tasks of the user's are for, and so do the
+// commands (see Cmds). It is made the first
 // time it is needed, sits in Done while it has nothing to do, in Merge while
 // it runs, and with the human when it failed. A train the daemon went down
 // during runs again; a deploy is the user's to ask for again (see init).
@@ -74,12 +74,12 @@ func (t *Task) reset(commit string) (string, error) {
 }
 
 // runJob runs one of the job's services to its end — a run of it still going
-// from before is stopped first — and answers how it ended. The note says what
-// the run is for, and opens its console.
-func (t *Task) runJob(name, note string) (serviceState, error) {
+// from before is stopped first — and answers why it failed, "" where it
+// exited 0. The note says what the run is for, and opens its console.
+func (t *Task) runJob(name, note string) (why string) {
 	_ = t.guestTool("stop", name) // nothing to stop, mostly
 	if err := t.guestTool("start", name, "0"); err != nil {
-		return serviceState{}, err
+		return err.Error()
 	}
 	t.serviceNote(readService(t.servicesDir(), name), note)
 	for {
@@ -87,12 +87,17 @@ func (t *Task) runJob(name, note string) (serviceState, error) {
 		t.lock()
 		up := t.status == StatusUp
 		t.unlock()
-		s := readService(t.servicesDir(), name)
-		if s.Status == "exited" || s.Status == "stopped" {
-			return s, nil
-		}
-		if !up || s.Status == "idle" {
-			return s, errors.New("its container went away while it ran")
+		switch s := readService(t.servicesDir(), name); {
+		case s.Status == "stopped":
+			return "it was stopped"
+		case s.Status == "exited" && s.Code == nil:
+			return "it left no exit code"
+		case s.Status == "exited" && *s.Code != 0:
+			return fmt.Sprintf("exit code %d", *s.Code)
+		case s.Status == "exited":
+			return ""
+		case !up || s.Status == "idle":
+			return "its container went away while it ran"
 		}
 	}
 }

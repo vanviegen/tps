@@ -84,13 +84,7 @@ func (t *Task) beginReview() {
 	said := t.userSaid()
 	// The user's own edits are the steps mark names "Human".
 	edited, _ := git(t.repoDir(), "log", "--format=%h", "--grep=^Human$", base+".."+stepsBranch)
-	tests := testsNone
-	if containerfileDeclarations(t.containerfile()).check != "" {
-		tests = testsNotPassed
-		if tree, err := writeTree(t.repoDir()); err == nil && t.tested(tree) {
-			tests = testsPassed
-		}
-	}
+	tests := containerfileDeclarations(t.containerfile()).test != ""
 	t.lock()
 	t.setReviewL("") // what is about to be said replaces what was said before
 	t.setPhaseL(PhaseReview)

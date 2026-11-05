@@ -128,7 +128,6 @@ type TaskInfo struct {
 	PhaseAt       int64          `json:"phaseAt,omitempty"`           // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string       `json:"startAfter,omitempty"`        // tids this task follows: it leaves Plan by itself once they are all done
 	LimitUntil    int64          `json:"limitUntil,omitempty"`        // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
-	Tested        *TestRun       `json:"tested,omitempty"`            // the last run of the test service (see tested.go)
 	Landing       string         `json:"landing,omitempty"`           // the commit the task is to become, while it waits for the merge train (see train.go)
 	Stamp         string         `json:"stamp,omitempty"`             // what the commits it lands carry as their TPS-Task trailer (see branch.go)
 	Schedule      *Schedule      `json:"schedule,omitempty"`          // a scheduled task: it stays in Plan, and runs as tasks of its own (see schedule.go)
@@ -210,7 +209,9 @@ type Task struct {
 	services      []serviceState    // their state and that of the ad hoc ones, as last read (see services.go)
 	logsPublished map[string]bool   // the services whose output tail the dashboard has
 	orBusy        bool              // an OpenRouter key is being made for the agent (see openrouter.go)
-	asks          []askRequest      // the questions the container has open for a human (see ask.go)
+	urls          []taskURL         // the pages the container puts in front of the user, as last read (see urls.go)
+	urlsRead      bool              // they have been read since the daemon started
+	urlsNew       bool              // one was set while nobody had the task open
 	settingsShown string            // the project's settings as last written for the tool to read (see syncSettingsL)
 }
 
@@ -1513,7 +1514,6 @@ func (t *Task) landed(note, commit string) {
 	t.lock()
 	t.info.CommitMessage = ""
 	t.info.ReviewLoop = 0
-	t.info.Tested = nil
 	t.setReviewL("")
 	// The workspace these were about is gone; a task picked up after the merge
 	// gets a fresh clone, and hears about that instead.

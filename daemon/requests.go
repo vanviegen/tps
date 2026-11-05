@@ -11,13 +11,13 @@ import (
 )
 
 // Requests: how the tool asks the daemon for something and waits for the
-// answer — a question for the user (see ask.go), OpenRouter spending (see
-// openrouter.go), or something about the host's projects (see board.go). The
-// container reaches the daemon through nothing but the services dir, so a
-// request is a file there, requestsDir/<id>.json, holding its kind and body,
-// and its answer is <id>.answer beside it, written by the daemon on its
-// services tick or whenever the answer comes in after. The tool takes both away
-// once it has the answer. Being files, they outlive a daemon restart, which
+// answer — OpenRouter spending (see openrouter.go), or something about the
+// host's projects (see board.go). The container reaches the daemon through
+// nothing but the services dir, so a request is a file there,
+// requestsDir/<id>.json, holding its kind and body, and its answer is
+// <id>.answer beside it, written by the daemon on its services tick or
+// whenever the answer comes in after. The tool takes both away once it has the
+// answer. Being files, they outlive a daemon restart, which
 // the containers do too; a container that goes takes its requests with it (see
 // resetServices).
 

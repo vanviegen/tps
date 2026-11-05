@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, externalLink, folderGit2, gitMerge, menu, plus, refreshCw, rocket, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, folderGit2, gitMerge, menu, plus, refreshCw, rocket, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, attachButton, drawRefs, removeRef, uploadFiles } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
@@ -9,9 +9,10 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
+import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
-import { drawLog, drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { asks, autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, portUrl, projectName, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
+import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
+import { autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectName, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -527,7 +528,7 @@ function drawScheduleFields($t: any, save: (patch: object) => void): void {
 /**
  * What sits above the log, on one line: the project, the task's title — in
  * full, with what it was asked, in its tooltip — a button per service running
- * or recently ended and per port something listens on, the merge button while
+ * or recently ended, the merge button while
  * the work is ready to merge, and the menu of everything else.
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
@@ -539,7 +540,6 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 				[taskTitle($t), ($t.description ?? '').trim()].filter(Boolean).join('\n\n')) });
 		});
 		drawServiceButtons(pid, tid, $t);
-		drawPortButtons($t);
 		A(() => {
 			if (!canMerge(pid, $t)) return;
 			S.iconButton({ icon: gitMerge, ariaLabel: 'Merge…', attrs: 'fg:$s-success', key: 'mod+shift+g',
@@ -616,7 +616,6 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	const zone = A('div display:flex flex-direction:column gap:$3 flex:1 min-width:0 min-height:0', () => {
 		drawTaskHeader(pid, tid, $t);
 		drawChat(pid, tid, $t, () => drawTaskSettings(pid, tid, $t));
-		drawAsks(pid, tid, $t);
 		if (isJob($t)) return drawJobBar(pid, tid, $t);
 		A(() => {
 			if ($t.phase === 'closed') {
@@ -670,66 +669,6 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		if (!A.peek(() => isSchedule($t))) drawInputBar(pid, tid, $t);
 	}) as HTMLElement;
 	acceptFiles(zone, area, files => uploadFiles(pid, tid, files));
-}
-
-interface AskField { kind: 'text' | 'secret' | 'select'; prompt: string; choices?: string[] }
-interface AskButton { text: string; color?: string; url?: string; port?: number; id?: string }
-interface Ask { id: string; question: string; fields?: AskField[]; buttons?: AskButton[] }
-
-/**
- * The questions something in the task's container puts to the user (see
- * ask.go), each a strip of its own: the question, a field per thing to fill
- * in, and its buttons, which open a link or a port, answer, or both. A script
- * waits on the answer, whatever the task's phase.
- */
-function drawAsks(pid: string, tid: string, $t: any): void {
-	A(() => {
-		for (const ask of ($t.asks ?? []) as Ask[]) drawAsk(pid, tid, $t, ask);
-	});
-}
-
-// What has been filled in for each open question, by its id: the strips are
-// drawn anew whenever the task's questions are published again (a reconnect,
-// say), and what was typed must outlive that.
-const $askValues: Record<string, string[]> = A.proxy({});
-
-function drawAsk(pid: string, tid: string, $t: any, ask: Ask): void {
-	const fields = ask.fields ?? [];
-	const $values = A.peek(() => {
-		if (!$askValues[ask.id]) $askValues[ask.id] = fields.map(() => '');
-		return $askValues[ask.id];
-	});
-	// A field would fill with the strip's colour: let the tint show through.
-	const inputAttrs = 'background:transparent';
-	A('div.s-s.warning.tonal p:$2 display:flex flex-direction:column gap:$2', () => {
-		A('div font-weight:600 white-space:pre-wrap rich=', ask.question);
-		fields.forEach((f, i) => {
-			const bind = A.ref($values, i);
-			// A choice made hides a placeholder: the prompt stays beside the drop-down instead.
-			if (f.kind === 'select') A('div display:flex align-items:center gap:$2', () => {
-				A('span text=', f.prompt);
-				S.select({ placeholder: 'Choose…', options: f.choices ?? [], bind, attrs: 'flex:1', inputAttrs });
-			});
-			else if (f.kind === 'secret') S.textline({ type: 'password', placeholder: f.prompt, bind, inputAttrs });
-			else S.textarea({ placeholder: f.prompt, bind, inputAttrs });
-		});
-		A('div display:flex flex-wrap:wrap align-items:center gap:$2', () => {
-			(ask.buttons ?? []).forEach((b, i) => A(() => {
-				const p = b.port ? ($t.ports ?? []).find((p: any) => p.port === b.port) : undefined;
-				const url = b.port ? p && portUrl(p) : b.url;
-				S.button({ content: b.text, icon: url || b.port ? externalLink : undefined,
-					attrs: `.small .${b.color ?? (i ? 'neutral' : 'primary')} white-space:normal text-align:left`,
-					disabled: !!b.port && !p && b.id == null,
-					tooltip: b.port && !p ? `Port ${b.port} is not forwarded: Containerfile.dev needs an EXPOSE line for it` : undefined,
-					click: () => {
-						if (url) window.open(url, '_blank');
-						if (b.id == null) return;
-						void cmd('answerAsk', { pid, tid, id: ask.id, button: i, fields: A.peek(() => [...$values]) });
-						delete $askValues[ask.id];
-					} });
-			}));
-		});
-	});
 }
 
 /**
@@ -918,12 +857,12 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
  * arrival (see useTask) asks the daemon for.
  */
 export function drawTaskCode(pid: string, tid: string, $t: any, left: string): void {
-	A(() => {
+	drawTaskPages(`${pid}/${tid}`, $t, left, top => {
 		if ($t.codePort) {
 			// code-server's remote authority is the Host header, which the proxy
 			// passes on unchanged. A restarted code-server has a new start time,
 			// and the frame is reloaded for it.
-			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left);
+			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left, top);
 		} else if ($t.status === 'error' || $t.codeError) {
 			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
 				A('p fg:$s-danger text=', $t.status === 'error' ? `Workspace error: ${$t.statusDetail || 'unknown'}` : `VS Code failed to start: ${$t.codeError}`);

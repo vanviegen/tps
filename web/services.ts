@@ -8,14 +8,14 @@ import { cmd, ELLIPSIS, portUrl } from './util.ts';
  * A task's services: the named, long-running commands in its container —
  * the project's dev server (the Containerfile's CMD, as 'app'), a test suite,
  * a review app — declared by Containerfile.dev or started ad hoc, by the
- * agent (tps-guest-tool) or from here. The task's menu lists them, and the
+ * agent (/tps/guest-tool) or from here. The task's menu lists them, and the
  * header has a button for each one running or recently ended (see
  * drawServiceButtons); a service opens a console with its output and the
  * buttons to start, stop and restart it. The ports the container forwards
- * are in the task's menu too, and in the header while something listens on
- * one (see drawPortButtons). A service belongs to the task,
- * not to its container: a replaced container ends what ran, and leaves every
- * service idle with the command it runs, ready to start again.
+ * are in the task's menu too, and those answering HTTP are tabs beside VS Code
+ * (see pages.ts). A service belongs to the task, not to its container: a
+ * replaced container ends what ran, and leaves every service idle with the
+ * command it runs, ready to start again.
  */
 export interface Service {
 	name: string;
@@ -108,21 +108,6 @@ export function drawServiceButtons(pid: string, tid: string, $t: any): void {
 	});
 }
 
-/**
- * A button per forwarded port something listens on, its number set small
- * below a globe where it answers HTTP — green, opening it in a new tab — or
- * else below a port, saying where on this machine the port is reached.
- */
-export function drawPortButtons($t: any): void {
-	A(() => {
-		for (const p of ($t.ports ?? []) as Port[]) {
-			if (!p.open) continue;
-			headerButton(p.live ? globe : ethernetPort, p.live ? 'fg:$s-success' : '', String(p.port), `Port ${p.port}`, portTip(p),
-				() => p.live ? window.open(portUrl(p), '_blank') : S.alert(portWhere(p)));
-		}
-	});
-}
-
 /** A header button of an icon with a caption below it, both in one colour. */
 function headerButton(icon: typeof play, attrs: string, caption: string, ariaLabel: string, tooltip: string, click: () => void): void {
 	S.iconButton({
@@ -151,7 +136,6 @@ export function portItems($t: any): S.MenuEntry[] {
 	}));
 }
 
-const portWhere = (p: Port) => `Port ${p.port} of the container is forwarded to ${location.hostname}:${p.host}.`;
 const portLabel = (p: Port) => `${p.port} → ${p.host}`;
 const portTip = (p: Port) => p.live ? 'Open in a new tab' : p.open ? 'Something listens here, but does not answer HTTP' : 'Nothing listens here yet';
 

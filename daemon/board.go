@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Other projects: 'tps-guest-tool projects', 'create-task' and 'await-task'
+// Other projects: '/tps/guest-tool projects', 'create-task' and 'await-task'
 // let an agent see the other projects on its host, put a task in one (in Plan,
 // for the user to look at and start), and wait for that task to be merged and
 // deployed — a fix it needs in an upstream library, say. They are requests of
@@ -115,7 +115,7 @@ func (st *guestTool) awaitTask(args []string) int {
 	for {
 		ans, err := st.askBoard(BoardRequest{Cmd: "status", Task: task})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", guestToolName, err)
+			fmt.Fprintf(os.Stderr, "%s: %v\n", guestToolPath, err)
 			return 1
 		}
 		if first == "" {
@@ -136,7 +136,7 @@ func (st *guestTool) awaitTask(args []string) int {
 			fmt.Printf("%s: closed without merging\n", ans.Text)
 			return 1
 		case !time.Now().Before(deadline):
-			fmt.Printf("%s: %s, still. '%s await-task %s %s <seconds>' waits some more.\n", ans.Text, state, guestToolName, task, until)
+			fmt.Printf("%s: %s, still. '%s await-task %s %s <seconds>' waits some more.\n", ans.Text, state, guestToolPath, task, until)
 			return 124
 		}
 		time.Sleep(min(boardPoll, time.Until(deadline)))

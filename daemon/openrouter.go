@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// An agent may ask for OpenRouter spending with 'tps-guest-tool openrouter
+// An agent may ask for OpenRouter spending with '/tps/guest-tool openrouter
 // <usd>': to reach models its own agent does not offer, or to test something
 // that calls an LLM API. What it gets is the task's key, made on this host's
 // OpenRouter account with the management key the user set for the host at the

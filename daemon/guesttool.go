@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-// tps-guest-tool: what a task's agent reaches for from inside its container.
+// /tps/guest-tool: what a task's agent reaches for from inside its container.
 // That is the task's services — starting, stopping and watching them —
-// OpenRouter keys (see openrouter.go), questions for the user (see ask.go), and
+// OpenRouter keys (see openrouter.go), pages for the user (see urls.go), and
 // tasks of other projects (see board.go).
 // It is the tps binary itself, copied into the toolbox under that name (see
 // ensureToolbox) and dispatched on it (see GuestToolInvoked). Both the agent
@@ -37,16 +37,14 @@ import (
 // on to the child, which takes TERM the normal way), so a stop of the whole
 // group still leaves a code behind.
 
-const guestToolName = "tps-guest-tool"
+// Where a task's container has the tool: always called by this full path, as
+// /tps is on no PATH but the agent's own.
+const guestToolPath = "/tps/guest-tool"
 
 // The environment variable that tells the binary it is the wrapper of a service.
 const serviceWrapEnv = "TPS_SERVICE_WRAP"
 
-// The environment variable that names the service a process runs under, for
-// the questions it puts to a human (see askHuman).
-const serviceEnv = "TPS_SERVICE"
-
-const guestToolUsage = `Usage: tps-guest-tool <command> ...
+const guestToolUsage = `Usage: /tps/guest-tool <command> ...
 
 Services: commands run as named services of this task, detached from your
 shell, with their output kept, and listed in the TPS dashboard (the play
@@ -110,36 +108,17 @@ Other commands:
                            suggestion standing, its answer told you the next
                            time you are sent in.
 
-  ask-human <question> [--input <prompt>]... [--secret <prompt>]...
-            [--select <prompt> [--choice <label>]...]...
-            [--button <text> [--id <id>] [--color <color>]
-                             [--url <url> | --port <port>]]...
-                           Put a question to the user in the dashboard, and
-                           wait for the answer: for a script that needs a
-                           human's judgment or input, such as a test whose
-                           screenshots someone has to accept, or a deploy that
-                           wants a one-time password. An agent asks its
-                           questions in the chat instead. The question is rich
-                           text: *italic*, **bold**, [link](url); links, as a
-                           --url, are http(s) only. --input adds a text area
-                           and --secret a hidden field, each showing its prompt
-                           until it is filled in; --select adds a drop-down of
-                           the --choice labels after it, its prompt beside it.
-                           Each --button is a button, in a colour of primary,
-                           neutral, success, warning or danger; one with a
-                           --url opens it, one with a --port opens that port of
-                           this container. Pressing a button with an --id
-                           answers the question with it; a button with neither
-                           --url nor --port has its text as its id. The exit
-                           code is the index of the button pressed (so the
-                           first means yes). Printed are its id and then each
-                           field's value, in the order given, a line each, with
-                           every backslash and newline in them escaped as \\
-                           and \n: read -r takes them line by line, and printf
-                           '%b' undoes the escapes. At least one button needs
-                           an id. Changes made to /work while a run of the
-                           'check' service waits on a question are the human's,
-                           and do not void the run.
+  set-url <id> [url]       Show the user a web page, as a tab named after the id
+                           beside VS Code in the dashboard, switched to right
+                           away: a review app, a report, screenshots to look
+                           at. A URL on localhost is this container's, and
+                           reaches the dashboard through the port's EXPOSE line
+                           in Containerfile.dev. Every such port that answers
+                           HTTP has a tab of its own already, port_<port>: set
+                           that id to open another page of it, or to switch to
+                           it. Without a URL, the tab goes away (a port's goes
+                           back to its own page). The tabs go with the
+                           container.
 
   projects                 The projects on this host, each by the name the
                            commands below take.
@@ -168,7 +147,7 @@ func GuestToolInvoked(args []string) (handled bool, code int) {
 	if dir := os.Getenv(serviceWrapEnv); dir != "" {
 		return true, serviceWrap(dir, args[1:])
 	}
-	if filepath.Base(args[0]) == guestToolName {
+	if filepath.Base(args[0]) == filepath.Base(guestToolPath) {
 		return true, guestToolMain(args[1:])
 	}
 	if len(args) > 1 && args[1] == "guest" {
@@ -208,8 +187,8 @@ func guestToolMain(args []string) int {
 		err = st.logs(rest)
 	case "openrouter":
 		return st.openRouter(rest)
-	case "ask-human":
-		return st.askHuman(rest)
+	case "set-url":
+		err = st.setURL(rest)
 	case "projects":
 		return st.projects(rest)
 	case "create-task":
@@ -241,7 +220,7 @@ func (st *guestTool) dir(name string) (string, error) {
 // fail is how a command that answers with an exit code reports what went
 // wrong with it, rather than with the service.
 func (st *guestTool) fail(err error) int {
-	fmt.Fprintf(os.Stderr, "%s: %v\n", guestToolName, err)
+	fmt.Fprintf(os.Stderr, "%s: %v\n", guestToolPath, err)
 	return 2
 }
 
@@ -314,9 +293,6 @@ func (st *guestTool) launch(name string, argv []string) error {
 	}
 	resetService(dir)
 	_ = os.WriteFile(filepath.Join(dir, "argv"), []byte(strings.Join(argv, "\x00")+"\x00"), 0o644)
-	if name == checkService {
-		noteTree(dir, "start")
-	}
 	log, err := os.OpenFile(filepath.Join(dir, "log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
@@ -331,7 +307,7 @@ func (st *guestTool) launch(name string, argv []string) error {
 	}
 	defer ready.Close()
 	wrap := exec.Command(self, argv...)
-	wrap.Env = append(termEnv(os.Environ()), serviceWrapEnv+"="+dir, serviceEnv+"="+name)
+	wrap.Env = append(termEnv(os.Environ()), serviceWrapEnv+"="+dir)
 	wrap.Stdout, wrap.Stderr = log, log // stdin: /dev/null
 	wrap.ExtraFiles = []*os.File{readyW}
 	wrap.Dir, _ = os.Getwd()
@@ -356,8 +332,8 @@ func (st *guestTool) wait(dir, name string, seconds int) int {
 	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
 	for serviceAlive(dir) {
 		if !time.Now().Before(deadline) {
-			fmt.Printf("'%s' is still running. Its output so far is in %s/log (%s logs %s),\n", name, dir, guestToolName, name)
-			fmt.Printf("and '%s await %s <seconds>' waits for it to end.\n", guestToolName, name)
+			fmt.Printf("'%s' is still running. Its output so far is in %s/log (%s logs %s),\n", name, dir, guestToolPath, name)
+			fmt.Printf("and '%s await %s <seconds>' waits for it to end.\n", guestToolPath, name)
 			return 124
 		}
 		time.Sleep(300 * time.Millisecond)
@@ -449,7 +425,7 @@ func serviceWrap(dir string, argv []string) int {
 	}
 	code := shellExitCode(err)
 	if code == 127 {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", guestToolName, err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", guestToolPath, err)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "exit"), []byte(strconv.Itoa(code)+"\n"), 0o644)
 	return code

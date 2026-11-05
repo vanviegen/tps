@@ -13,7 +13,7 @@ import (
 )
 
 // Agents help set projects up, so they read the project's settings with
-// 'tps-guest-tool settings', and suggest changes with 'tps-guest-tool settings
+// '/tps/guest-tool settings', and suggest changes with '/tps/guest-tool settings
 // suggest': a suggestion waits in the task for the user to accept or reject,
 // the tool waiting with it. The daemon keeps settingsFile in the task's
 // services dir current (see syncSettingsL); a suggestion is a request of the

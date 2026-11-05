@@ -233,7 +233,7 @@ const defaultContainerfile = `# Dev container image for this project (Containerf
 # A LABEL tps.cache="/path /other/path" line names directories TPS keeps per
 # project and mounts into every task's container, so package and build caches
 # (npm's, pip's, Go's, cargo's) carry over from one task to the next. A LABEL
-# tps.check="command" line declares what work must pass to be merged (the test
+# tps.test="command" line declares what work must pass to be merged (the test
 # suite, say), and a LABEL tps.deploy="command" line how the project is deployed.
 
 FROM docker.io/library/debian:bookworm-slim

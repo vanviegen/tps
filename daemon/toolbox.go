@@ -21,7 +21,7 @@ import (
 // versions here, or a provider's in its own file) never needs an image
 // rebuild. Layout: bin/{code-server,claude,pi,tini}, the releases that are
 // more than a binary under directories of their own, and two things of ours:
-// the default Containerfile.dev, and this binary as bin/tps-guest-tool
+// the default Containerfile.dev, and this binary as guest-tool
 // (see guesttool.go), refreshed whenever the daemon is a new build.
 const (
 	codeServerVersion = "4.135.0"
@@ -85,7 +85,7 @@ func ensureToolbox() (string, error) {
 			return "", err
 		}
 	}
-	if err := installGuestTool(filepath.Join(dir, "bin")); err != nil {
+	if err := installGuestTool(dir); err != nil {
 		return "", err
 	}
 	// Containers are labeled with the key of the toolbox they run on.
@@ -202,22 +202,25 @@ func refreshGuestTool() {
 	defer toolboxMu.Unlock()
 	entries, _ := os.ReadDir(toolboxRoot())
 	for _, e := range entries {
-		bin := filepath.Join(toolboxRoot(), e.Name(), "bin")
-		if !e.IsDir() || !exists(bin) {
+		dir := filepath.Join(toolboxRoot(), e.Name())
+		if !e.IsDir() || !exists(filepath.Join(dir, "bin")) {
 			continue
 		}
-		if err := installGuestTool(bin); err != nil {
-			logf("refreshing %s in %s: %v", guestToolName, e.Name(), err)
+		if err := installGuestTool(dir); err != nil {
+			logf("refreshing %s in %s: %v", guestToolPath, e.Name(), err)
 		}
+		// A copy of an older build on the agents' PATH would take questions
+		// for a human (ask-human) that nobody answers any more.
+		_ = os.Remove(filepath.Join(dir, "bin", "tps-guest-tool"))
 	}
 }
 
-// installGuestTool puts this binary in the toolbox as tps-guest-tool
+// installGuestTool puts this binary in the toolbox as guest-tool
 // (see guesttool.go), unless the same build is there already. It goes in
 // under a temporary name and is renamed over the old one: a wrapper still
 // running the old copy keeps its inode, and the file of a running program
 // cannot be written to in place anyway.
-func installGuestTool(bin string) error {
+func installGuestTool(dir string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -232,7 +235,7 @@ func installGuestTool(bin string) error {
 		return err
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
-	tool := filepath.Join(bin, guestToolName)
+	tool := filepath.Join(dir, filepath.Base(guestToolPath))
 	if readFile(tool+".sha256") == sum && exists(tool) {
 		return nil
 	}

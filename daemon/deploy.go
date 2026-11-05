@@ -14,8 +14,7 @@ import (
 // user asks, and after every merge where the project says so (AutoDeploy). A
 // deploy needs what the host has and the image does not: the host's files the
 // project's settings name for the deploy are mounted into that task's
-// container alone (see Task.mountsL). One that needs a person — a one-time
-// password, say — asks with ask-human (see ask.go). Where the last deploy is
+// container alone (see Task.mountsL). Where the last deploy is
 // on the branch, and so which tasks it holds, is the board's to work out (see
 // branch.go).
 
@@ -97,17 +96,10 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	if containerfileDeclarations(jt.containerfile()).deploy == "" {
 		return fail("Containerfile.dev declares no deploy any more")
 	}
-	s, err := jt.runJob(deployService, "deploying "+p.defaultBranch+" at "+sha[:min(len(sha), 10)])
+	why := jt.runJob(deployService, "deploying "+p.defaultBranch+" at "+sha[:min(len(sha), 10)])
 	log := serviceLogTail(jt.servicesDir(), deployService)
-	switch {
-	case err != nil:
-		return fail(err.Error(), log)
-	case s.Status == "stopped":
-		return fail("it was stopped", log)
-	case s.Code == nil:
-		return fail("it left no exit code", log)
-	case *s.Code != 0:
-		return fail(fmt.Sprintf("exit code %d", *s.Code), log)
+	if why != "" {
+		return fail(why, log)
 	}
 	jt.note("Deployed ✔", log)
 	p.deployed(sha)

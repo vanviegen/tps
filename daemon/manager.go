@@ -223,6 +223,9 @@ func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 			}
 			t.viewers = count
 			t.touchL()
+			if count > 0 {
+				t.seenURLsL()
+			}
 			if count > 0 && t.info.Requested != "" { // seen to
 				t.info.Requested = ""
 				m.saveL()
@@ -760,7 +763,7 @@ func (m *Manager) sweep() {
 				overdue = append(overdue, t)
 			}
 		} else if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown &&
-			len(t.asks) == 0 && !(t.job() && t.info.Phase == PhaseMerge) { // a question, or a job's run, waits on what runs in there
+			!(t.job() && t.info.Phase == PhaseMerge) { // a job's run waits on what runs in there
 			idle = append(idle, t)
 		}
 	}
@@ -957,13 +960,9 @@ type ref struct {
 	Fork  bool   `json:"fork"`
 	Turn  int    `json:"turn"` // chatTurn: which, counting what the user said
 	// What a dashboard attaches to a message (see uploads.go).
-	Files []ChatFile `json:"files"`
-	// answerAsk: the question answered, the button pressed, and what the fields hold (see ask.go).
-	ID     string   `json:"id"`
-	Button int      `json:"button"`
-	Fields []string `json:"fields"`
-	Commit string   `json:"commit"` // deploy: what to deploy, the tip for none
-	Path   string   `json:"path"`   // openInCode: the file to open
+	Files  []ChatFile `json:"files"`
+	Commit string     `json:"commit"` // deploy: what to deploy, the tip for none
+	Path   string     `json:"path"`   // openInCode: the file to open
 }
 
 func decode(raw json.RawMessage) (ref, map[string]any, error) {
@@ -1119,10 +1118,7 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"restartService":   withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
 		"reloadTask":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
 		"openInCode":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.OpenInCode(r.Path) }),
-		"answerAsk": withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) {
-			return nil, t.AnswerAsk(r.ID, r.Button, r.Fields)
-		}),
-		"deploy": withProject(func(p *Project, r ref, partial map[string]any) (any, error) { return nil, p.Deploy(r.Commit) }),
+		"deploy":           withProject(func(p *Project, r ref, partial map[string]any) (any, error) { return nil, p.Deploy(r.Commit) }),
 		// Reverting and forking are one command: both put a save point's state
 		// somewhere, and only differ in where (see UsePoint). The reply names
 		// the task it landed in, so the dashboard can go there.

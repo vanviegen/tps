@@ -34,13 +34,13 @@ func TestContainerfileServices(t *testing.T) {
 	if d := containerfileDeclarations("FROM x\nLABEL tps.deploy=\"./ship.sh prod\"\n"); d.deploy != "./ship.sh prod" || d.services != nil {
 		t.Errorf("deploy: %q, services %v", d.deploy, d.services)
 	}
-	// The check is a label of its own, and the service 'check' in the tasks; a
+	// The test is a label of its own, and the service 'test' in the tasks; a
 	// service of that name declared otherwise is a service like any other.
-	if d := containerfileDeclarations("FROM x\nLABEL tps.check=\"make test\" tps.service.check=old\n"); d.check != "make test" || !slices.Equal(d.services, []declaredService{{"check", "make test"}}) {
-		t.Errorf("check: %q, services %v", d.check, d.services)
+	if d := containerfileDeclarations("FROM x\nLABEL tps.test=\"make test\" tps.service.test=old\n"); d.test != "make test" || !slices.Equal(d.services, []declaredService{{"test", "make test"}}) {
+		t.Errorf("test: %q, services %v", d.test, d.services)
 	}
-	if d := containerfileDeclarations("FROM x\nLABEL tps.service.check=\"make test\"\n"); d.check != "" {
-		t.Errorf("a service named check is no check: %q", d.check)
+	if d := containerfileDeclarations("FROM x\nLABEL tps.service.test=\"make test\"\n"); d.test != "" {
+		t.Errorf("a service named test is no test: %q", d.test)
 	}
 	if containerfileServices(defaultContainerfile) != nil {
 		t.Error("no CMD")

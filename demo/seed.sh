@@ -218,12 +218,12 @@ point() {
 # snip #2 — merged: the change that added the dev container.
 chat snip 2 10
 say 0 '"k":"user","text":"Tasks cant run the tests, since the image has no python. Add a Containerfile.dev, with the test suite as a service, and a first test for the key generator."'
-say 9 '"k":"thinking","text":"python:3.12-slim has bash and a shell; it needs git and a uid 1000 user for TPS.","detail":"python:3.12-slim has bash and a shell; it needs git and a uid 1000 user for TPS.\n\nThe slim images have no user at 1000, so useradd it. The tests go in a tps.check LABEL, and the server port in EXPOSE."'
+say 9 '"k":"thinking","text":"python:3.12-slim has bash and a shell; it needs git and a uid 1000 user for TPS.","detail":"python:3.12-slim has bash and a shell; it needs git and a uid 1000 user for TPS.\n\nThe slim images have no user at 1000, so useradd it. The tests go in a tps.test LABEL, and the server port in EXPOSE."'
 say 4 '"k":"tool","id":"c1","name":"Read","text":"snip.py","arg":"snip.py","res":"94 lines"'
 say 6 '"k":"tool","id":"c2","name":"Write","text":"Containerfile.dev","arg":"Containerfile.dev","res":"wrote 14 lines"'
 say 31 '"k":"tool","id":"c3","name":"Write","text":"test_snip.py","arg":"test_snip.py","res":"wrote 17 lines"'
 say 12 '"k":"tool","id":"c4","name":"Bash","text":"run the tests","arg":"python3 -m unittest discover -v","res":"Ran 2 tests in 0.004s — OK"'
-say 8 '"k":"text","text":"Added `Containerfile.dev` (python 3.12, git, a uid 1000 user) with the test suite as the project'"'"'s check (`tps.check`) and port 8000 exposed, plus `test_snip.py` covering the key length and that a taken key is never handed out twice. Both tests pass."'
+say 8 '"k":"text","text":"Added `Containerfile.dev` (python 3.12, git, a uid 1000 user) with the test suite as the project'"'"'s test (`tps.test`) and port 8000 exposed, plus `test_snip.py` covering the key length and that a taken key is never handed out twice. Both tests pass."'
 say 2 '"k":"result","text":"turn finished · 71s · $0.34"'
 say 3 '"k":"note","text":"merged into main as 1 commit"'
 
@@ -272,7 +272,7 @@ chat standup 4 0
 say 0 '"k":"user","text":"Add `standup say`: read today'"'"'s notes aloud, for the days I join the call from my phone. Use a text-to-speech model through OpenRouter."'
 say 7 '"k":"thinking","text":"Before wiring a model in, try one: that takes a key, and the budget left is too little.","detail":"Before wiring a model in, try one or two voices on a real note: that takes an OpenRouter key, and the task has too little OpenRouter budget left for a few minutes of audio."'
 say 4 '"k":"tool","id":"g1","name":"Read","text":"standup.js","arg":"standup.js","res":"76 lines"'
-say 6 '"k":"tool","id":"g2","name":"Bash","text":"ask for an OpenRouter key","arg":"tps-guest-tool openrouter 2"'
+say 6 '"k":"tool","id":"g2","name":"Bash","text":"ask for an OpenRouter key","arg":"/tps/guest-tool openrouter 2"'
 say 1 '"k":"note","text":"the agent asks for $2 of OpenRouter spending, more than the task'"'"'s OpenRouter budget has left"'
 
 # snip #7 — closed without merging. Its workspace is made the way an older TPS

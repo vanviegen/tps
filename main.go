@@ -27,7 +27,7 @@ var webFS embed.FS
 
 func main() {
 	log.SetFlags(log.Ltime)
-	// The guest tool: this binary under the name tps-guest-tool, copied into task containers.
+	// The guest tool: this binary as /tps/guest-tool, copied into task containers.
 	if handled, code := daemon.GuestToolInvoked(os.Args); handled {
 		os.Exit(code)
 	}

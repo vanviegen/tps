@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { check, circle, folderGit2, gitMerge, globe, hourglass, listTodo, messageCircleQuestion, monitor, rocket, scanEye, server, sparkles, trainFront, user } from 'staffa/icons.js';
+import { appWindow, check, circle, folderGit2, gitMerge, globe, hourglass, listTodo, monitor, rocket, scanEye, server, sparkles, trainFront, user } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state, send } from './conn.ts';
 
@@ -56,9 +56,9 @@ export function isFinished($t: any): boolean {
 	return $t.phase === 'done' || $t.phase === 'closed';
 }
 
-/** Whether something in the task's container waits on a question for the user (see ask.go). */
-export function asks($t: any): boolean {
-	return !!$t.asks?.length;
+/** Whether the task's container put a page in front of the user since they last had the task open (see daemon/urls.go). */
+export function newPage($t: any): boolean {
+	return !!$t.urlsNew;
 }
 
 /** Whether the task is a plan an agent asked for (see daemon/board.go) that the user has yet to open. */
@@ -278,7 +278,7 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 
 /** Where the task stands, in one line: its phase, whether claude is on it, and what its workspace is doing. */
 export function taskTip(pid: string, $t: any): string {
-	if (asks($t)) return `Asks you: ${$t.asks[0].question}`;
+	if (newPage($t)) return 'Has a page for you to look at';
 	if (requested($t)) return `Asked for by ${$t.requested}: look it over, and start it`;
 	if (isJob($t)) return $t.phase === 'merge' ? 'Running' : $t.phase === 'human' ? 'Failed: see its log' : 'Idle';
 	const phase = $t.phase === 'muted' ? 'Started: its work and conversation are kept. Pick it back up to carry on where it was left.'
@@ -292,9 +292,10 @@ export function taskTip(pid: string, $t: any): string {
  * the task, the merge icon while a merge runs, an hourglass while it waits
  * (for the tasks it follows, or for claude's usage limit to reset) — colored
  * by the container status. A job wears its own icon whatever its phase, red
- * when it failed. A question for the user outranks all of that: a speech
- * bubble, in the warning colour and breathing, as the one thing to act on; and
- * so, sparkling, does a plan an agent asked for that the user has yet to open.
+ * when it failed. A page for the user to look at outranks all of that: a
+ * window, glowing in the warning colour and breathing, as the one thing to act
+ * on; and so, sparkling, does a plan an agent asked for that the user has yet
+ * to open.
  *
  * `tip: false` is for where something around it already tells that story — the
  * collapsed sidebar, whose rows carry it themselves. `busy: false` keeps the
@@ -306,14 +307,14 @@ export function taskTip(pid: string, $t: any): string {
 export function drawTaskIcon(pid: string, $t: any, { tip = true, busy = true, color }: { tip?: boolean; busy?: boolean; color?: string } = {}): void {
 	A(() => {
 		const activity = taskActivity(pid, $t);
-		const asking = asks($t), asked = requested($t);
-		const icon = asking ? messageCircleQuestion : asked ? sparkles : JOB_ICONS[$t.job] ?? (autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle);
+		const asking = newPage($t), asked = requested($t);
+		const icon = asking ? appWindow : asked ? sparkles : JOB_ICONS[$t.job] ?? (autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle);
 		// The phase's own icon throughout, breathing while something is going on
 		// (see taskBusy). A spinner's glyph is for a spinner; this one does not turn.
 		const alive = asking || asked || (busy && taskBusy($t));
 		const fg = asking || asked ? '$s-warning' : isJob($t) && $t.phase === 'human' ? '$s-danger'
 			: color && activity.color !== 'danger' ? color : `$s-${activity.color}`;
-		A(`span display:inline-flex flex-shrink:0 fg:${fg}`, asked ? 'filter: drop-shadow(0 0 3px currentColor);' : '', () => {
+		A(`span display:inline-flex flex-shrink:0 fg:${fg}`, asking || asked ? 'filter: drop-shadow(0 0 3px currentColor);' : '', () => {
 			if (tip) S.addTooltip({ tip: () => A('text=', taskTip(pid, $t)) });
 			icon({ size: '1.1em', attrs: alive ? busyAttrs(icon) : undefined });
 		});

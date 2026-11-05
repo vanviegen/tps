@@ -1,6 +1,7 @@
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
 import { claimKeyInCode } from './code.ts';
+import { showTab, taskTabs } from './pages.ts';
 import { closeBase, sortedProjects } from './projects.ts';
 import { addTask } from './task.ts';
 import { isFinished, pathTo, phaseOrder, PHASE_LABELS, projectName, selection, taskTitle, type Phase } from './util.ts';
@@ -41,12 +42,13 @@ interface Destination { value: string; label: string }
 
 /**
  * The entries that are not a place to go: creating a task in a project, which
- * is CREATE and the project id, and closing its directory, CLOSE and the id.
- * Every other value is a path, and a path begins with a slash, so neither can
- * be taken for one.
+ * is CREATE and the project id, closing its directory, CLOSE and the id, and
+ * switching the open task to a tab, TAB and the tab's id. Every other value is
+ * a path, and a path begins with a slash, so none can be taken for one.
  */
 const CREATE = 'create:';
 const CLOSE = 'close:';
+const TAB = 'tab:';
 
 /**
  * Everywhere the palette can take you, in the order the board would show it:
@@ -67,7 +69,8 @@ const CLOSE = 'close:';
  * of letters of a task name lands there without a like-named task elsewhere
  * standing in front of it. Its board heads the list, so ctrl-L Enter is the
  * way out of VS Code, which otherwise owns the keyboard. While its directory
- * is on screen, closing that takes the place of opening it.
+ * is on screen, closing that takes the place of opening it; the task on
+ * screen has its tabs (see pages.ts) listed under it.
  */
 function destinations(): Destination[] {
 	const { pid: here, tid: open } = selection();
@@ -90,6 +93,9 @@ function destinations(): Destination[] {
 		for (const [tid, $t] of tasks) {
 			const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 			out.push({ value: pathTo(pid, tid), label: `${name} › ${taskTitle($t)} · ${phase}` });
+			if (pid === here && tid === open) {
+				for (const tab of taskTabs($t)) out.push({ value: TAB + tab.id, label: `${name} › ${taskTitle($t)} › ${tab.title}` });
+			}
 		}
 	}
 	return blocks.flat();
@@ -109,6 +115,7 @@ function showPalette(): void {
 					close();
 					if (value.startsWith(CREATE)) void addTask(value.slice(CREATE.length));
 					else if (value.startsWith(CLOSE)) closeBase(value.slice(CLOSE.length));
+					else if (value.startsWith(TAB)) showTab(`${selection().pid}/${selection().tid}`, value.slice(TAB.length));
 					else void route.go(value);
 				},
 			};
