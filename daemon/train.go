@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -147,6 +148,13 @@ func (p *Project) trainRound(batch []*Task) {
 		p.m.mu.Lock()
 		p.testing, p.retrain = riders, false
 		p.m.mu.Unlock()
+		for i, t := range riders {
+			text := "The merge train tests it on the latest " + branch
+			if others := slices.Delete(slices.Clone(riders), i, i+1); len(others) > 0 {
+				text += ", along with " + taskNames(others)
+			}
+			t.note(text)
+		}
 		why := jt.runJob(testService, fmt.Sprintf("testing %s on the latest %s", names, branch))
 		log := serviceLogTail(jt.servicesDir(), testService)
 		p.m.mu.Lock()

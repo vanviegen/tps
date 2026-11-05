@@ -1459,7 +1459,11 @@ func (t *Task) merge(repo, message string) error {
 	}
 	t.info.Landing = sha
 	t.p.m.saveL()
+	busy := t.p.training
 	t.unlock()
+	if busy {
+		t.note("Waiting for the merge train, which is busy")
+	}
 	t.p.startTrain()
 	return nil
 }
