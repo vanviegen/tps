@@ -378,8 +378,8 @@ func parseModels(out string) []string {
 // is little work, and a one-shot -p run, as there is nothing to discuss. It
 // answers "" when it can't be asked (no toolbox yet, no network) or won't say
 // anything usable; the stand-in title then simply stays.
-func generateTitle(description string) string {
-	r, err := runCmd(askArgs(titlePrompt(description), "--model", "haiku"), RunOpts{Dir: home(), Env: askEnv(), Timeout: 30 * time.Second})
+func generateTitle(description, subjects string) string {
+	r, err := runCmd(askArgs(titlePrompt(description, subjects), "--model", "haiku"), RunOpts{Dir: home(), Env: askEnv(), Timeout: 30 * time.Second})
 	if err != nil {
 		logf("asking claude for a task title failed: %v", err)
 		return ""

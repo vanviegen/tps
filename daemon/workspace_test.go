@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -130,15 +131,17 @@ func TestDropAndPickUp(t *testing.T) {
 	}
 }
 
-// A /compact picks a merged task back up as a message does, but as the
+// A /compact picks a closed task back up as a message does, but as the
 // human's: compacting asks nothing of the agent.
-func TestCompactPicksUpAMergedTask(t *testing.T) {
+func TestCompactPicksUpAClosedTask(t *testing.T) {
 	task, _ := testTask(t)
 	if err := task.ensureWorkspace(); err != nil {
 		t.Fatal(err)
 	}
 	writeWork(t, task, "b.txt", "two\n")
-	mergeAndLand(t, task, "add b.txt")
+	if err := task.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := task.SendChat("/compact"); err != nil {
 		t.Fatal(err)
 	}
@@ -694,6 +697,27 @@ func TestCommitMessageMeansReady(t *testing.T) {
 	if got := gitRun(t, origin, "log", "--format=%s", "-1"); got != "Say it twice" {
 		t.Errorf("the merge: %q", got)
 	}
+	if task.info.Title != "Say it twice" {
+		t.Errorf("the task is named %q, not after its commit", task.info.Title)
+	}
+
+	// Picked up after the merge, it carries on in a follow-up, and stays merged.
+	f, err := task.workable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f == task || task.info.Phase != PhaseDone {
+		t.Fatalf("the merged task was picked up itself, and is %s", task.info.Phase)
+	}
+	if f.info.Title != "Follow-up: Say it twice" || f.info.Phase != PhaseHuman {
+		t.Errorf("the follow-up is %q, in %s", f.info.Title, f.info.Phase)
+	}
+	if !slices.ContainsFunc(f.info.Pending, func(n PendingNote) bool { return n.Key == "merged" }) {
+		t.Error("the follow-up's agent is not told about the merge")
+	}
+	if got := readFile(filepath.Join(f.repoDir(), "a.txt")); got != "not yet\n" || !exists(f.chatFile()) {
+		t.Errorf("the follow-up's clone has %q, chat log there: %v", got, exists(f.chatFile()))
+	}
 }
 
 // A scratch task turned into a project lands in a repository of its own that
@@ -784,7 +808,7 @@ func TestExportImport(t *testing.T) {
 }
 
 // An agent asking to carry on after the merge waits for the deploy of its
-// work, not for one of what came before it.
+// work, not for one of what came before it, and then does so in a follow-up.
 func TestContinueAfterDeploy(t *testing.T) {
 	task, origin := testTask(t)
 	p := task.p
@@ -802,13 +826,13 @@ func TestContinueAfterDeploy(t *testing.T) {
 	if task.info.AwaitDeploy != merged || task.info.Continue {
 		t.Fatalf("waiting for %q, want %q", task.info.AwaitDeploy, merged)
 	}
-	task.info.Phase = PhaseHuman // picked up meanwhile, so the news waits for its next turn
+	tasks := len(p.tasks)
 	p.carryOn(before, "deployed what came before")
-	if task.info.AwaitDeploy == "" {
+	if task.info.AwaitDeploy == "" || len(p.tasks) != tasks {
 		t.Error("a deploy that does not hold the work sent the agent back in")
 	}
 	p.carryOn(merged, "deployed it")
-	if task.info.AwaitDeploy != "" || !strings.Contains(task.info.Pending[len(task.info.Pending)-1].Text, "deployed it") {
-		t.Errorf("after its deploy: waiting for %q, pending %v", task.info.AwaitDeploy, task.info.Pending)
+	if task.info.AwaitDeploy != "" || len(p.tasks) != tasks+1 || task.info.Phase != PhaseDone {
+		t.Errorf("after its deploy: waiting for %q, %d tasks, the merged one %s", task.info.AwaitDeploy, len(p.tasks), task.info.Phase)
 	}
 }

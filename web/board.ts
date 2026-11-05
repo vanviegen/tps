@@ -364,34 +364,35 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 			S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
 				return taskMenuItems(pid, tid, $t, [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }]);
 			}});
+			// The title runs on as text does, so a long one takes the card's whole
+			// width: what goes with it sits inline, at its start and its end.
 			S.box({ attrs: `cursor:pointer border-left: 3px solid ${projectColor($state.projects[pid])};`, contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
-				A('div display:flex align-items:center gap:$2 font-weight:600', () => {
-					A(() => { if (saysMore(pid, $t)) drawTaskIcon(pid, $t, { color: keepsWork($t) ? '$s-warning' : undefined }); });
-					A('span flex:1 text=', taskTitle($t));
-					drawLiveLink($t);
-				});
-				A('div display:flex flex-wrap:wrap gap:$2', () => {
-					A('small text=', A.ref($t, 'model'));
+				A('div', () => {
+					A(() => { if (saysMore(pid, $t)) A('span vertical-align:-0.15em mr:$1', () => drawTaskIcon(pid, $t, { color: keepsWork($t) ? '$s-warning' : undefined })); });
+					// The space after it, rather than a margin on what follows, is where
+					// the line may break, and is gone where it does.
+					A('span text=', taskTitle($t) + ' ');
 					A(() => {
 						const cost = costText($t);
-						if (cost) A('small text=', cost);
+						if (cost) A('small display:inline-block fg:$s-muted mr:$2 text=', cost);
 					});
 					A(() => {
 						if (!contextSlices($t)) return;
-						A('small display:inline-flex align-items:center fg:$s-muted', () => {
+						A('small display:inline-flex vertical-align:-0.15em mr:$2 fg:$s-muted', () => {
 							S.addTooltip({ tip: () => drawContextTip($t) });
 							drawContextRing($t, '1.1em');
 						});
 					});
-					A(() => {
-						if (isSchedule($t)) A('small fg:$s-muted text=', scheduleText($t));
-						else if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
-						else if ($t.openrouterAsk) A('small fg:$s-warning #⚠ Asks for OpenRouter budget');
-						else if ($t.suggestion) A('small fg:$s-warning #⚠ Suggests project settings');
-						else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
-						else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');
-						else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
-					});
+					A('span display:inline-flex vertical-align:-0.15em', () => drawLiveLink($t));
+				});
+				A(() => {
+					if (isSchedule($t)) A('small fg:$s-muted text=', scheduleText($t));
+					else if (autoStarts($t)) A('small text=', taskActivity(pid, $t).text);
+					else if ($t.openrouterAsk) A('small fg:$s-warning #⚠ Asks for OpenRouter budget');
+					else if ($t.suggestion) A('small fg:$s-warning #⚠ Suggests project settings');
+					else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
+					else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');
+					else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
 				});
 			}});
 			// After the box, which a margin would push down were it not the first child.

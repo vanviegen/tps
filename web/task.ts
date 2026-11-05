@@ -96,8 +96,17 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 		return true;
 	}
 	if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
-	void cmd('moveTask', { pid, tid, phase });
+	void cmd('moveTask', { pid, tid, phase }).then(to => follow(pid, tid, to));
 	return true;
+}
+
+/**
+ * Goes along to the task the daemon answers it acted on, where that is another
+ * — the follow-up a merged task is picked up in (see followUp in
+ * daemon/mark.go) — and the one it was asked of is the one open.
+ */
+function follow(pid: string, tid: string, to: unknown): void {
+	if (typeof to === 'string' && to !== tid && A.peek(selection).tid === tid) void route.go(pathTo(pid, to));
 }
 
 /**
@@ -615,7 +624,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			if ($t.phase === 'done') {
 				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
 				A('div.s-s.success.tonal p:$2 text=',
-					`✔ Merged into ${branch}. Messaging the agent picks the task back up: it keeps everything it `
+					`✔ Merged into ${branch}. Messaging the agent carries on in a follow-up task: the agent keeps everything it `
 					+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
 				return;
 			}
@@ -789,7 +798,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		clearTimeout(timer);
 		stored = '';
 		if (!planSent) void cmd('updateTask', { pid, tid, draft: '' });
-		void cmd('chat', { pid, tid, text });
+		void cmd('chat', { pid, tid, text }).then(to => follow(pid, tid, to));
 	};
 	const bar = A('div display:flex flex-direction:column gap:$2', () => {
 		A(() => A(working + '=', taskBusy($t)));
@@ -814,13 +823,14 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 					// than about this message belongs where the eye already is when nothing
 					// is being typed. Nothing is measured before the agent has run, and an
 					// empty ring would be a button over nothing. A finished task shows the
-					// window it was left with, and compacting it picks the task back up.
+					// window it was left with, and compacting it picks the task back up (a
+					// merged one, in a follow-up).
 					else if (contextSlices($t)) S.iconButton({
 						icon: () => drawContextRing($t, '1.4rem'),
 						ariaLabel: 'Compact the agent’s memory',
 						attrs: size + 'fg:$s-muted',
 						tooltip: () => drawContextTip($t, 'Click to have it do that now.'),
-						click: () => void cmd('chat', { pid, tid, text: '/compact' }),
+						click: () => void cmd('chat', { pid, tid, text: '/compact' }).then(to => follow(pid, tid, to)),
 					});
 				});
 			},
@@ -872,7 +882,7 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
  * kept in Plan (its work kept beside it). Its workspace is gone either way,
  * and its conversation kept, so picking it back up — by a message to the
  * agent, or by hand here — clones the branch again, puts the kept work back if
- * there is any, and carries on.
+ * there is any, and carries on; a merged one does that in a follow-up task.
  */
 export function drawDonePanel(pid: string, tid: string, $t: any): void {
 	const branch = $state.projects[pid]?.defaultBranch ?? 'main';
@@ -893,9 +903,9 @@ export function drawDonePanel(pid: string, tid: string, $t: any): void {
 				? `Its work is kept, ${files} off ${branch}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
 				: `It had no work to keep; its conversation is kept. Pick it back up to give it a fresh clone of ${branch} and carry on.`}`
 			: `This task's work is on ${branch}, and its workspace is gone. The conversation is kept: message the agent `
-				+ `to pick the task back up in a fresh clone of ${branch}, or take it on yourself.`);
+				+ `to carry on in a follow-up task, with a fresh clone of ${branch}, or take that on yourself.`);
 		A('div display:flex gap:$2 flex-wrap:wrap', () => {
-			S.button({ content: 'Pick up as human', icon: user, attrs: '.small', click: () => void cmd('moveTask', { pid, tid, phase: 'human' }) });
+			S.button({ content: 'Pick up as human', icon: user, attrs: '.small', click: () => void cmd('moveTask', { pid, tid, phase: 'human' }).then(to => follow(pid, tid, to)) });
 			S.button({ content: 'Delete task…', icon: trash2, attrs: '.small .neutral', click: () => void deleteTask(pid, tid, $t) });
 		});
 	}});

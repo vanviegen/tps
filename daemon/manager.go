@@ -1101,22 +1101,34 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		}),
 		"rejectOpenRouter": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RejectOpenRouter() }),
 		"openTask":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { t.Open(); return nil, nil }),
-		"chat":             withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.SendChat(r.Text) }),
-		"attach":           withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
-		"preview":          withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
-		"chatTurn":         withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
-		"stopAgent":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
-		"mergeTask":        withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
-		"rebaseTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
-		"moveTask":         withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.MoveTo(r.Phase) }),
-		"runSchedule":      withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunNow() }),
-		"deleteTask":       withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
-		"runService":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
-		"stopService":      withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
-		"restartService":   withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
-		"reloadTask":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
-		"openInCode":       withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.OpenInCode(r.Path) }),
-		"deploy":           withProject(func(p *Project, r ref, partial map[string]any) (any, error) { return nil, p.Deploy(r.Commit) }),
+		"chat": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			t, err := t.workable()
+			if err != nil {
+				return nil, err
+			}
+			return t.tid, t.SendChat(r.Text)
+		}),
+		"attach":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Attach(r.Files) }),
+		"preview":    withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
+		"chatTurn":   withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
+		"stopAgent":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
+		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
+		"rebaseTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
+		"moveTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
+			t, err := t.workable()
+			if err != nil {
+				return nil, err
+			}
+			return t.tid, t.MoveTo(r.Phase)
+		}),
+		"runSchedule":    withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunNow() }),
+		"deleteTask":     withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Delete() }),
+		"runService":     withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RunService(r.Name) }),
+		"stopService":    withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopService(r.Name) }),
+		"restartService": withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.RestartService(r.Name) }),
+		"reloadTask":     withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Reload() }),
+		"openInCode":     withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.OpenInCode(r.Path) }),
+		"deploy":         withProject(func(p *Project, r ref, partial map[string]any) (any, error) { return nil, p.Deploy(r.Commit) }),
 		// Reverting and forking are one command: both put a save point's state
 		// somewhere, and only differ in where (see UsePoint). The reply names
 		// the task it landed in, so the dashboard can go there.

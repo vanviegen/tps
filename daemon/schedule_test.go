@@ -87,7 +87,7 @@ func TestScheduledRuns(t *testing.T) {
 	if run == nil {
 		t.Fatal("no run was started")
 	}
-	if want := info.Title + " " + now.Format(time.DateOnly); run.info.Title != want || run.info.Description != "tidy up" || run.info.OnAccept != AnswerMerge {
+	if want := runMark + info.Title + " " + now.Format(time.DateOnly); run.info.Title != want || run.info.Description != "tidy up" || run.info.OnAccept != AnswerMerge {
 		t.Errorf("the run is %+v, not titled %q", run.info, want)
 	}
 	run.starting.Lock() // its workspace was tried

@@ -28,6 +28,10 @@ type Schedule struct {
 	LastRun  string  `json:"lastRun,omitempty"`  // the day it last came up, as time.DateOnly
 }
 
+// runMark starts a run's title, whatever it is renamed to (see
+// setCommitMessageL), so the board tells runs from the tasks people started.
+const runMark = "📅 "
+
 var errScheduled = errors.New("A scheduled task stays in Plan: each of its runs is a task of its own")
 
 var timeOfDayRe = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
@@ -126,7 +130,7 @@ func (t *Task) RunNow() error {
 // startRunL makes a run of scheduled task t and sends its agent off.
 func (p *Project) startRunL(t *Task, now time.Time) *Task {
 	run := p.addTaskL(&TaskInfo{
-		Title: t.info.Title + " " + now.Format(time.DateOnly), TitleAsked: true, Description: t.info.Description, Scheduled: t.tid,
+		Title: runMark + t.info.Title + " " + now.Format(time.DateOnly), TitleAsked: true, Description: t.info.Description, Scheduled: t.tid,
 		Model: t.info.Model, ReviewModel: t.info.ReviewModel, OnReady: t.info.OnReady, OnAccept: t.info.OnAccept,
 		ReviewLoops: copyPtr(t.info.ReviewLoops), Budget: copyPtr(t.info.Budget), ORBudget: copyPtr(t.info.ORBudget),
 		Phase: PhasePlan, PhaseAt: now.UnixMilli(),

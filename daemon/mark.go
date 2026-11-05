@@ -544,6 +544,58 @@ func (t *Task) fork(chat chatPoint, work *chatPoint, log []byte, prompt string) 
 	return f.tid, nil
 }
 
+// workable is the task to work on in this one's stead: itself, unless it is
+// merged. A merged task stays as it is, on the board as in the git log, so
+// picking it up makes a follow-up instead (see followUp).
+func (t *Task) workable() (*Task, error) {
+	t.lock()
+	merged := t.info.Phase == PhaseDone
+	t.unlock()
+	if merged {
+		return t.followUp()
+	}
+	return t, nil
+}
+
+// followUp carries a merged task on in a task of its own, whose work becomes a
+// commit of its own: the conversation, the agent's memory and the uploads, with
+// a fresh clone of the branch to work in, and the notes waiting for the agent
+// (that its work was merged, how the deploy went).
+func (t *Task) followUp() (*Task, error) {
+	defer t.p.m.work()()
+	// Read from the files, and compressed again after (see park).
+	if err := t.unarchive(); err != nil {
+		return nil, err
+	}
+	defer t.park()
+	t.lock()
+	src := *t.info
+	title := "Follow-up: " + src.Title
+	f := t.p.newForkL(&src, title)
+	f.info.Pending = slices.Clone(src.Pending)
+	t.unlock()
+	if err := os.MkdirAll(f.dir(), 0o755); err != nil {
+		return f, err
+	}
+	for from, to := range map[string]string{t.chatFile(): f.chatFile(), t.uploadsDir(): f.uploadsDir(), t.claudeDir(): f.claudeDir()} {
+		if err := copyTree(from, to); err != nil {
+			return f, err
+		}
+	}
+	f.lock()
+	f.info.Started = len(f.transcripts()) > 0
+	f.p.m.saveL()
+	f.unlock()
+	f.note(fmt.Sprintf("Follows up on %q, which is merged: the workspace is a fresh clone of %s", src.Title, t.p.defaultBranch))
+	if err := f.ensureWorkspace(); err != nil {
+		return f, err
+	}
+	f.loadChat()
+	t.note(fmt.Sprintf("Followed up on in %q", title))
+	go f.refreshChanges()
+	return f, nil
+}
+
 // copyTree copies a directory, if it is there at all.
 func copyTree(from, to string) error {
 	if !exists(from) {

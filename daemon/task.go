@@ -783,8 +783,10 @@ func (t *Task) ensureTitleL(desc string) {
 	if t.info.Title != stand {
 		return // named by hand already: leave it be
 	}
+	dir, branch := t.p.dir(), t.p.defaultBranch
 	go func() {
-		title := generateTitle(desc)
+		subjects, _ := git(dir, "log", "-n", "10", "--format=%s", branch)
+		title := generateTitle(desc, subjects)
 		t.lock()
 		defer t.unlock()
 		if title != "" && t.info.Title == stand && t.p.tasks[t.tid] == t { // not renamed, not deleted meanwhile
@@ -1212,7 +1214,7 @@ func (t *Task) MoveTo(phase Phase) error {
 			if err := t.Assign("human", ""); err != nil {
 				return err
 			}
-		case PhaseDone, PhaseClosed: // muted, it stays parked as it is
+		case PhaseClosed: // muted, it stays parked as it is
 			if phase == PhaseHuman {
 				if err := t.reopen(); err != nil {
 					return err
@@ -1264,12 +1266,20 @@ const commitMessageFile = ".tps-commit-message"
 // setCommitMessageL records what the file says, which is also whether the
 // work is ready to merge: the dashboard offers the merge while it says anything.
 // Work that is no longer ready takes back the agent's wish to carry on after
-// its merge (see continueFile).
+// its merge (see continueFile). A task is named after the commit it is to
+// become, whatever it was called before, so the board and the git log agree.
 func (t *Task) setCommitMessageL(message string) {
 	if message != t.info.CommitMessage {
 		t.info.CommitMessage = message
 		if message == "" {
 			t.info.Continue = false
+		}
+		if summary, _, _ := strings.Cut(message, "\n"); strings.TrimSpace(summary) != "" {
+			t.info.Title = strings.TrimSpace(summary)
+			if t.info.Scheduled != "" {
+				t.info.Title = runMark + t.info.Title
+			}
+			t.pubL("title", t.info.Title)
 		}
 		t.p.m.saveL()
 		t.pubL("commitMessage", nonEmpty(message))
@@ -1533,21 +1543,19 @@ func (t *Task) landed(note, commit string) {
 const continueFile = ".tps-continue-after-merge"
 
 // carryOn sends the agent back in after the merge, as it asked (see
-// continueFile) — or, the task having been picked up meanwhile, leaves the
-// news for its next turn.
+// continueFile): in a follow-up, the merged task staying as it is.
 func (t *Task) carryOn(prompt string) {
 	t.lock()
 	t.info.AwaitDeploy = ""
 	t.p.m.saveL()
-	done := t.info.Phase == PhaseDone
-	if !done {
-		t.queueL("carryOn", prompt)
-	}
 	t.unlock()
-	if done {
-		t.note("The agent asked to carry on after the merge; sending it back in")
-		t.kick(prompt)
+	t.note("The agent asked to carry on after the merge; it does so in a follow-up")
+	f, err := t.followUp()
+	if err != nil {
+		t.noteErr("The follow-up failed", err)
+		return
 	}
+	f.kick(prompt)
 }
 
 // Rebase brings the workspace onto the latest default branch without merging
