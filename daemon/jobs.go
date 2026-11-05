@@ -62,8 +62,8 @@ func (t *Task) reset(commit string) (string, error) {
 	}
 	repo, branch := t.repoDir(), t.p.defaultBranch
 	for _, args := range [][]string{
-		{"fetch", "--quiet", "origin"},
-		{"checkout", "--quiet", "--force", "-B", branch, cmp.Or(commit, "origin/"+branch)},
+		{"fetch", "--quiet", hostRemote},
+		{"checkout", "--quiet", "--force", "-B", branch, cmp.Or(commit, hostRemote+"/"+branch)},
 		{"clean", "--quiet", "-fd"},
 	} {
 		if _, err := git(repo, args...); err != nil {

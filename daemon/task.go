@@ -1298,11 +1298,11 @@ func (t *Task) freshen() error {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
 	repo := t.repoDir()
-	if _, err := git(repo, "fetch", "--quiet", "origin"); err != nil {
+	if _, err := git(repo, "fetch", "--quiet", hostRemote); err != nil {
 		return err
 	}
 	defer fetchDeployed(repo)
-	if gitOK(repo, "merge-base", "--is-ancestor", "origin/"+t.p.defaultBranch, "HEAD") {
+	if gitOK(repo, "merge-base", "--is-ancestor", hostRemote+"/"+t.p.defaultBranch, "HEAD") {
 		return nil
 	}
 	changes, err := t.changes()
@@ -1310,7 +1310,7 @@ func (t *Task) freshen() error {
 		return err
 	}
 	for _, args := range [][]string{
-		{"reset", "--quiet", "--hard", "origin/" + t.p.defaultBranch},
+		{"reset", "--quiet", "--hard", hostRemote + "/" + t.p.defaultBranch},
 		{"update-ref", "refs/heads/" + stepsBranch, "HEAD"},
 	} {
 		if _, err := git(repo, args...); err != nil {
@@ -1643,7 +1643,7 @@ func stageAll(repo string) (env []string, cleanup func(), err error) {
 // base is the commit of the default branch that the work up to a commit —
 // HEAD's, a step's — stands on.
 func (t *Task) base(repo, of string) (string, error) {
-	return git(repo, "merge-base", of, "origin/"+t.p.defaultBranch)
+	return git(repo, "merge-base", of, hostRemote+"/"+t.p.defaultBranch)
 }
 
 // plant merges the latest default branch into the last step, in the working
@@ -1659,7 +1659,7 @@ func (t *Task) plant(repo string) ([]string, error) {
 		return nil, err
 	}
 	var conflicts []string
-	onto := "origin/" + branch
+	onto := hostRemote + "/" + branch
 	_, err := git(repo, "merge", "--quiet", "--no-commit", onto)
 	if out, _ := git(repo, "diff", "--name-only", "-z", "--diff-filter=U"); out != "" {
 		conflicts, err = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00"), nil
@@ -1687,14 +1687,14 @@ func (t *Task) plant(repo string) ([]string, error) {
 // sides (see doubledFiles), which are as much the agent's to look at.
 func (t *Task) replant(repo string) (conflicts, doubled []string, err error) {
 	branch := t.p.defaultBranch
-	if _, err := git(repo, "fetch", "--quiet", "origin"); err != nil {
+	if _, err := git(repo, "fetch", "--quiet", hostRemote); err != nil {
 		return nil, nil, err
 	}
 	fetchDeployed(repo)
 	if err := t.mark("Human", ""); err != nil {
 		return nil, nil, err
 	}
-	target, err := git(repo, "rev-parse", "origin/"+branch)
+	target, err := git(repo, "rev-parse", hostRemote+"/"+branch)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1769,7 +1769,7 @@ func (t *Task) markedFiles(repo string) ([]string, error) {
 		return nil, err
 	}
 	defer cleanup()
-	marker := "^>>>>>>> origin/" + regexp.QuoteMeta(t.p.defaultBranch)
+	marker := "^>>>>>>> " + hostRemote + "/" + regexp.QuoteMeta(t.p.defaultBranch)
 	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--name-only", "-z", "-E", "-G" + marker, base}, RunOpts{Env: env})
 	if err != nil || r.Out == "" {
 		return nil, err
@@ -1883,7 +1883,7 @@ func (t *Task) park() {
 	if t.hasWorkspace() {
 		if phase != PhaseDone {
 			repo := t.repoDir()
-			_, err := git(repo, "fetch", "--quiet", "origin")
+			_, err := git(repo, "fetch", "--quiet", hostRemote)
 			var tip string
 			if err == nil {
 				err = t.mark("Human", "") // the tree as it is left is a point to come back to
@@ -2254,10 +2254,11 @@ func (t *Task) refreshBehind() {
 
 // --- workspace (clone + container) ---
 
-// clone makes the workspace, unless it is there already. The caller holds cloneMu.
+// clone makes the workspace, unless it is there already, and gives it the
+// project checkout's remotes (see matchRemotes). The caller holds cloneMu.
 func (t *Task) clone() error {
 	if t.hasWorkspace() {
-		return nil
+		return matchRemotes(t.repoDir(), t.p.dir())
 	}
 	// Something is in its place that is not a clone (see hasWorkspace): it is
 	// no workspace to anyone, and the path has to be free for git.
@@ -2282,12 +2283,64 @@ func (t *Task) clone() error {
 	if err := t.setIdentity(tmp); err != nil {
 		return err
 	}
+	if err := matchRemotes(tmp, t.p.dir()); err != nil {
+		return err
+	}
 	if err := showSteps(tmp, t.p.defaultBranch); err != nil {
 		return err
 	}
 	fetchDeployed(tmp)
 	t.seed(tmp)
 	return os.Rename(tmp, t.repoDir())
+}
+
+// hostRemote is a workspace's remote for the project's checkout on the host,
+// which TPS fetches the default branch and deployedRef from.
+const hostRemote = "host"
+
+// matchRemotes gives a workspace the remotes of the project's checkout, so
+// that 'origin' in a task or a deploy is the user's own origin; the checkout
+// itself is hostRemote. A fresh clone (or one an older TPS made) has the
+// checkout as origin still, and has it renamed first.
+func matchRemotes(repo, project string) error {
+	if !gitOK(repo, "remote", "get-url", hostRemote) {
+		if _, err := git(repo, "remote", "rename", "origin", hostRemote); err != nil {
+			return err
+		}
+	}
+	remotes := func(dir string) string {
+		out, _ := git(dir, "config", "--local", "--get-regexp", `^remote\.`) // none: exit code 1
+		var keep []string
+		for _, line := range strings.Split(out, "\n") {
+			if line != "" && !strings.HasPrefix(line, "remote."+hostRemote+".") {
+				keep = append(keep, line)
+			}
+		}
+		return strings.Join(keep, "\n")
+	}
+	want := remotes(project)
+	if remotes(repo) == want {
+		return nil
+	}
+	names, err := git(repo, "remote")
+	if err != nil {
+		return err
+	}
+	for _, name := range strings.Fields(names) {
+		if name != hostRemote {
+			if _, err := git(repo, "remote", "remove", name); err != nil {
+				return err
+			}
+		}
+	}
+	for _, line := range strings.Split(want, "\n") {
+		if key, value, ok := strings.Cut(line, " "); ok {
+			if _, err := git(repo, "config", "--add", key, value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // showSteps has VS Code's Source Control Graph show the steps next to the

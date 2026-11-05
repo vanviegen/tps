@@ -150,5 +150,5 @@ func (p *Project) deployedCommit() string {
 // fetchDeployed brings the project's deployedRef into a workspace, where
 // there is one: most projects never deploy, so a missing one is no failure.
 func fetchDeployed(repo string) {
-	_, _ = git(repo, "fetch", "--quiet", "origin", "+"+deployedRef+":"+deployedRef)
+	_, _ = git(repo, "fetch", "--quiet", hostRemote, "+"+deployedRef+":"+deployedRef)
 }

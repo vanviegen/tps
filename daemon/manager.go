@@ -584,7 +584,7 @@ func (m *Manager) TurnIntoProject(t *Task, dir, name string) (*Project, *Task, e
 		return nil, nil, err
 	}
 	if moved.hasWorkspace() {
-		if _, err := git(moved.repoDir(), "remote", "set-url", "origin", p.dir()); err != nil {
+		if _, err := git(moved.repoDir(), "remote", "set-url", hostRemote, p.dir()); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -656,7 +656,10 @@ func (m *Manager) Import(dir, staging string, info *ProjectInfo) (*Project, erro
 	info.Dir = dir
 	for tid := range info.Tasks {
 		if repo := filepath.Join(staging, tid, "repo"); exists(filepath.Join(repo, ".git")) {
-			if _, err := git(repo, "remote", "set-url", "origin", dir); err != nil {
+			if err := matchRemotes(repo, dir); err != nil {
+				return nil, err
+			}
+			if _, err := git(repo, "remote", "set-url", hostRemote, dir); err != nil {
 				return nil, err
 			}
 		}

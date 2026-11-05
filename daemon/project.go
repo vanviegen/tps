@@ -175,6 +175,11 @@ func (p *Project) init() error {
 		p.tasks[tid] = t
 		p.m.mu.Unlock()
 		t.loadChat()
+		if t.hasWorkspace() {
+			if err := matchRemotes(t.repoDir(), p.dir()); err != nil {
+				t.noteErr("Giving the workspace the project's remotes failed", err)
+			}
+		}
 		p.m.mu.Lock()
 		agentPhase := info.Phase == PhaseMerge || info.Phase == PhaseAgent
 		switch {

@@ -42,7 +42,9 @@ and your test suite can gate what lands.
 <tr><td width="320"><img src="doc/features/deploys.png" width="320" alt=""></td><td>
 
 **Deploys.** Point TPS at your deploy script and the Done column shows what is
-live and what isn't. Deploy, or roll back, with a click. Releasing some other
+live and what isn't. Deploy, or roll back, with a click: the script runs in a
+clean checkout with your checkout's remotes, so `git push origin` goes where it
+would from yours. Releasing some other
 way? Run `git update-ref refs/tps/deployed <commit>` in the project's checkout
 on each release, and the column (and the agents, minding version numbers) know
 what went out.

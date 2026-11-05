@@ -281,6 +281,37 @@ func TestIdentityReachesWorkspaces(t *testing.T) {
 	}
 }
 
+func TestWorkspaceHasTheProjectsRemotes(t *testing.T) {
+	task, origin := testTask(t)
+	gitRun(t, origin, "remote", "add", "origin", "git@example.com:me/project.git")
+	gitRun(t, origin, "remote", "set-url", "--push", "origin", "git@example.com:me/push.git")
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	repo := task.repoDir()
+	if got := gitRun(t, repo, "remote", "get-url", "--push", "origin"); got != "git@example.com:me/push.git" {
+		t.Errorf("the workspace pushes to %q", got)
+	}
+	if got := gitRun(t, repo, "remote", "get-url", hostRemote); got != origin {
+		t.Errorf("the workspace's %s is %q", hostRemote, got)
+	}
+	gitRun(t, origin, "remote", "remove", "origin")
+	gitRun(t, origin, "remote", "add", "upstream", "git@example.com:them/project.git")
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRun(t, repo, "remote"); got != "host\nupstream" {
+		t.Errorf("after the project's remotes changed, the workspace has %q", got)
+	}
+	commitUpstream(t, origin, "upstream", map[string]string{"b.txt": "b\n"})
+	if err := task.freshen(); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(filepath.Join(repo, "b.txt")) {
+		t.Error("the workspace was not brought onto the project's branch")
+	}
+}
+
 // commitUpstream lands a change on the project's branch behind the task's back.
 func commitUpstream(t *testing.T, origin, message string, files map[string]string) {
 	t.Helper()
@@ -744,7 +775,7 @@ func TestExportImport(t *testing.T) {
 	if moved == nil || readFile(filepath.Join(moved.repoDir(), "b.txt")) != "work\n" {
 		t.Fatal("the task's work did not come along")
 	}
-	if got := gitRun(t, moved.repoDir(), "remote", "get-url", "origin"); got != dir {
+	if got := gitRun(t, moved.repoDir(), "remote", "get-url", hostRemote); got != dir {
 		t.Errorf("the workspace clones %s", got)
 	}
 	if _, err := m.PrepareImport(dir); err == nil {
