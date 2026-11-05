@@ -35,35 +35,47 @@ type nest struct {
 	cancel context.CancelFunc
 }
 
-var (
-	podmanOnce sync.Once
-	podmanSock string
-	podmanSvc  *exec.Cmd // our own podman system service, when the host runs none
-	podmanErr  error
-)
+var podman struct {
+	sync.Mutex
+	sock string
+	svc  *exec.Cmd // our own podman system service, when the host runs none
+}
 
 // podmanAPI is the podman API socket on this host: the one CONTAINER_HOST
 // names, if it answers (podman's own way of being pointed at a service; in a
 // TPS task container it is the task's docker socket, which is what lets TPS
 // run inside TPS), else the user's podman.socket when systemd runs one, else
-// a service of our own that dies with the daemon.
+// a service of our own that dies with the daemon. The socket is picked anew
+// whenever the last one stops answering, as a service of our own may die or
+// have its socket removed while the daemon runs.
 func podmanAPI() (string, error) {
-	podmanOnce.Do(func() {
-		if sock, ok := strings.CutPrefix(os.Getenv("CONTAINER_HOST"), "unix://"); ok && podnester.SocketAnswers(sock) {
-			podmanSock = sock
-			return
+	podman.Lock()
+	defer podman.Unlock()
+	if podman.sock != "" && podnester.SocketAnswers(podman.sock) {
+		return podman.sock, nil
+	}
+	if podman.svc != nil {
+		_ = podman.svc.Process.Kill()
+		_ = podman.svc.Wait()
+		podman.sock, podman.svc = "", nil
+	}
+	if sock, ok := strings.CutPrefix(os.Getenv("CONTAINER_HOST"), "unix://"); ok && podnester.SocketAnswers(sock) {
+		podman.sock = sock
+		return sock, nil
+	}
+	socks := []string{filepath.Join(home(), ".local", "share", "tps", "podman.sock")}
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		socks = append([]string{filepath.Join(dir, "podman", "podman.sock")}, socks...)
+	}
+	var err error
+	for _, sock := range socks {
+		var svc *exec.Cmd
+		if svc, err = podnester.EnsureService(sock); err == nil {
+			podman.sock, podman.svc = sock, svc
+			return sock, nil
 		}
-		if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
-			sock := filepath.Join(dir, "podman", "podman.sock")
-			if _, err := podnester.EnsureService(sock); err == nil {
-				podmanSock = sock
-				return
-			}
-		}
-		podmanSock = filepath.Join(home(), ".local", "share", "tps", "podman.sock")
-		podmanSvc, podmanErr = podnester.EnsureService(podmanSock)
-	})
-	return podmanSock, podmanErr
+	}
+	return "", err
 }
 
 // nestFor is the proxy serving a task container's socket, started if it
