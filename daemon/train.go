@@ -17,18 +17,28 @@ import (
 // moves the branch there if it passes — or right away, where the project has
 // none. A batch that fails is taken apart, its tasks tested one at a time from
 // then on; a task that fails alone gets its agent sent in, its workspace
-// already holding what was tested.
+// already holding what was tested. A task merged while a batch is tested
+// stops that test, unless the project says otherwise (KeepTrain), so that the
+// next round takes it along.
 
 // startTrain sees to it that the train runs. One that runs already looks for
-// waiting tasks again before it stops, so there is nothing to tell it.
+// waiting tasks again before it stops; one testing a batch the next round
+// would add tasks to has that test stopped, where the project wants that.
 func (p *Project) startTrain() {
 	p.m.mu.Lock()
-	defer p.m.mu.Unlock()
-	if p.training {
+	if !p.training {
+		p.training = true
+		p.m.mu.Unlock()
+		go p.runTrain()
 		return
 	}
-	p.training = true
-	go p.runTrain()
+	stop := p.testing != nil && !p.retrain && !p.info.KeepTrain && len(p.trainBatchL()) > len(p.testing)
+	p.retrain = p.retrain || stop
+	jt := p.tasks[trainTid]
+	p.m.mu.Unlock()
+	if stop {
+		go jt.guestTool("stop", testService)
+	}
 }
 
 func (p *Project) runTrain() {
@@ -134,8 +144,19 @@ func (p *Project) trainRound(batch []*Task) {
 	case containerfileDeclarations(jt.containerfile()).test == "":
 		jt.note(fmt.Sprintf("%s: Containerfile.dev declares no test (LABEL %s); nothing to run", names, testLabel))
 	default:
+		p.m.mu.Lock()
+		p.testing, p.retrain = riders, false
+		p.m.mu.Unlock()
 		why := jt.runJob(testService, fmt.Sprintf("testing %s on the latest %s", names, branch))
 		log := serviceLogTail(jt.servicesDir(), testService)
+		p.m.mu.Lock()
+		retrain := p.retrain
+		p.testing = nil
+		p.m.mu.Unlock()
+		if why != "" && retrain {
+			jt.note(fmt.Sprintf("Stopped the test of %s to take the tasks merged since along", names))
+			return
+		}
 		if why != "" {
 			if len(riders) > 1 {
 				jt.note(fmt.Sprintf("The test of %s did not pass (%s); testing them one at a time", names, why), log)

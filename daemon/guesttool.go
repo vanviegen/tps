@@ -91,7 +91,9 @@ Other commands:
                            credit.
 
   settings                 Print the project's settings as JSON: name, color,
-                           autoDeploy (whether every merge deploys), mounts
+                           autoDeploy (whether every merge deploys),
+                           restartTrain (whether a merge restarts the test of
+                           the ones before it, to be tested along), mounts
                            (the host's files its containers get: path, write,
                            allTasks), seeds (paths in the project's own
                            checkout that git ignores, such as node_modules or a

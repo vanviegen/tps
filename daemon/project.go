@@ -40,10 +40,13 @@ type ProjectInfo struct {
 	NextTask int                  `json:"nextTask,omitempty"`
 	Tasks    map[string]*TaskInfo `json:"tasks"`
 
-	// Whether a merge deploys by itself (see deploy.go), the host's files the
-	// containers of its tasks get (see Task.mountsL), and what of its checkout
-	// their workspaces start with (see Task.seed).
+	// Whether a merge deploys by itself (see deploy.go), whether a task merged
+	// while the train tests others waits for that test to end rather than
+	// restarting it (see startTrain), the host's files the containers of its
+	// tasks get (see Task.mountsL), and what of its checkout their workspaces
+	// start with (see Task.seed).
 	AutoDeploy   bool     `json:"autoDeploy,omitempty"`
+	KeepTrain    bool     `json:"keepTrain,omitempty"`
 	Mounts       []Mount  `json:"mounts,omitempty"`
 	Seeds        []string `json:"seeds,omitempty"`
 	DeployMounts []string `json:"deployMounts,omitempty"` // the deploy's paths in projects.json saved by 0.4, moved into Mounts on load
@@ -70,6 +73,8 @@ type Project struct {
 	head          string      // the default branch's tip at the last refreshMeta; a new one dates every workspace
 
 	training     bool            // the merge train runs (see train.go)
+	testing      []*Task         // the tasks it runs the test for, if it does
+	retrain      bool            // and has stopped that test, to take more tasks along
 	alone        map[string]bool // tasks of a batch that failed, tested one at a time from then on
 	deploy       string          // what Containerfile.dev on the default branch declares as the deploy (see deploy.go)
 	deploying    bool            // a deploy runs
@@ -215,6 +220,7 @@ func (p *Project) init() error {
 // pubSetup publishes the settings on what reaches its containers.
 func (p *Project) pubSetup() {
 	p.pub("autoDeploy", p.info.AutoDeploy)
+	p.pub("restartTrain", !p.info.KeepTrain)
 	p.pub("mounts", p.info.Mounts)
 	p.pub("seeds", p.info.Seeds)
 }
@@ -373,6 +379,9 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	}
 	if auto, ok := partial["autoDeploy"].(bool); ok {
 		p.info.AutoDeploy = auto
+	}
+	if restart, ok := partial["restartTrain"].(bool); ok {
+		p.info.KeepTrain = !restart
 	}
 	if mounts, ok := partial["mounts"].([]Mount); ok {
 		p.info.Mounts = mounts

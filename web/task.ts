@@ -668,6 +668,7 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
 		...s.name === undefined ? [] : [`Name: ${s.name}`],
 		...s.color === undefined ? [] : [`Colour: ${s.color}`],
 		...s.autoDeploy === undefined ? [] : [`Deploy after every merge: ${s.autoDeploy ? 'yes' : 'no'}`],
+		...s.restartTrain === undefined ? [] : [`Restart the merge train for a new merge: ${s.restartTrain ? 'yes' : 'no'}`],
 		...(s.mounts ?? []).map((m: any) => `Host file, ${mount(m)}`),
 		...(s.seeds ?? []).map((path: string) => `Seed: ${path}`),
 		...Object.entries(s.defaults ?? {}).map(([key, v]) => `Default ${key}: ${v ?? 'none'}`),
@@ -680,6 +681,7 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
 			const current = (key: string, of: any) => key in suggestion ? of : undefined;
 			const before = lines({
 				name: current('name', $p.name), color: current('color', $p.color), autoDeploy: current('autoDeploy', !!$p.autoDeploy),
+				restartTrain: current('restartTrain', $p.restartTrain),
 				mounts: current('mounts', $p.mounts), seeds: current('seeds', $p.seeds),
 				defaults: Object.fromEntries(Object.keys(suggestion.defaults ?? {}).map(key => [key, $p.defaults?.[key]])),
 			});
