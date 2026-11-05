@@ -55,6 +55,7 @@ export function hostState(hid: string, $h: any): HostState {
 		case 'connecting': return { color: 'neutral', icon: plug, text: 'Connecting…', ok: false };
 		case 'updating': return { color: 'neutral', icon: download, text: 'Updating the daemon…', ok: false };
 		case 'stopped': return { color: 'neutral', icon: serverOff, text: 'The daemon is stopped', ok: false, action: connect };
+		case 'unavailable': return { color: 'danger', icon: serverOff, text: `Unavailable · ${$h.error.split('\n')[0]}`, ok: false, action: { label: 'Unavailable', run: () => unavailableDialog(hid) } };
 		default: return { color: 'danger', icon: serverCrash, text: `${$h.status}${$h.error ? ' · ' + $h.error : ''}`, ok: false, action: connect };
 	}
 	// Connected: whatever the daemon there has to say for itself.
@@ -276,6 +277,17 @@ function signInDialog(hid: string): void {
 				S.textline({ label: 'Code', bind: A.ref($form, 'code') });
 			},
 			actions: () => S.button({ content: 'Sign in', icon: check, type: 'submit' }),
+		});
+	}});
+}
+
+/** Why a host cannot run TPS, in full, with the way to try again once that is dealt with. */
+function unavailableDialog(hid: string): void {
+	void S.dialog({ header: () => A('text=', `${hostName(hid)} is unavailable`), attrs: 'w:40rem', content: close => {
+		A('p mt:0 #TPS cannot run projects on this host. Other hosts work as they are.');
+		A('pre white-space:pre-wrap overflow:auto max-height:20rem m:0 text=', $state.hosts?.[hid]?.error ?? '');
+		A('div display:flex justify-content:flex-end mt:$3', () => {
+			S.button({ content: 'Try again', icon: refreshCw, click: () => { void cmd('connectHost', { hid }); close(); } });
 		});
 	}});
 }

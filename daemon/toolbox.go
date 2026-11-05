@@ -45,15 +45,6 @@ func toolboxInstalled() bool { return exists(toolboxDir()) }
 // claudeBin is the claude binary in this host's toolbox.
 func claudeBin() string { return filepath.Join(toolboxDir(), "bin", "claude") }
 
-// ClaudeBin is that binary for the dashboard, which signs hosts in with it
-// (see ui/login.go): the toolbox is fetched for it, as for a task.
-func ClaudeBin() (string, error) {
-	if _, err := ensureToolbox(); err != nil {
-		return "", err
-	}
-	return claudeBin(), nil
-}
-
 var toolboxMu sync.Mutex
 
 // ensureToolbox downloads the toolbox if this host lacks it, and removes

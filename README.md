@@ -124,51 +124,45 @@ shortcuts for what you do all day.
 
 ## Installing
 
-TPS runs on Linux, any distribution. Every machine that runs projects needs:
-
-- **podman**, 4 or later, set up rootless (the distro package normally does
-  that), and **git**;
-- a **login for the agent you run**: for Claude Code, a host without one says
-  so in the sidebar, and its page signs you in through your browser (or set
-  `ANTHROPIC_API_KEY`). For pi, it is the `~/.pi/agent` you log in with on that
-  host. TPS brings both CLIs itself.
-
-A host over SSH works best with lingering on (`loginctl enable-linger`), so its
-agents keep working while you are disconnected; TPS tells you when it is off.
-
-To let a machine wake from suspend for scheduled tasks, allow your user
-`rtcwake` without a password, once:
-
-```sh
-echo "$USER ALL=(root) NOPASSWD: $(command -v rtcwake)" | sudo tee /etc/sudoers.d/tps-rtcwake
-```
-
-Every task's container counts toward one inotify limit: your user's on the
-host, 128 instances on many distributions, which file watchers in a few tasks
-use up. Raise it once:
-
-```sh
-echo fs.inotify.max_user_instances=4096 | sudo tee /etc/sysctl.d/90-tps-inotify.conf && sudo sysctl --system
-```
-
 Download a release into a bin directory of your own and start it:
 
 ```sh
-mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/tps https://github.com/vanviegen/tps/releases/latest/download/tps-linux-$(uname -m)
-chmod +x ~/.local/bin/tps
-~/.local/bin/tps --auto-start
+curl -fsSL --create-dirs -o ~/.local/bin/tps https://github.com/vanviegen/tps/releases/latest/download/tps-$(uname -s | tr A-Z a-z)-$(uname -m)
+chmod +x ~/.local/bin/tps && ~/.local/bin/tps --auto-start  # optionally: --auto-update
 ```
 
 `--auto-start` makes TPS start at every login; the dashboard is at
-<http://localhost:4820/>. To update, run the same `curl`, or add
-`--auto-update` and TPS installs new releases itself.
+<http://localhost:4820/>. You may want to *install* it as a web app from your browser.
+To update, run the same `curl`, or add `--auto-update` and TPS installs new releases itself.
 
 ### Use it as an app
 
 Install the dashboard as an app: in a Chromium browser, click *Install* in the
-address bar. TPS gets a window of its own, and in fullscreen (F11) VS Code gets
-all its keys, ctrl-w included.
+address bar. TPS gets a window of its own, and VS Code gets all its keys, ctrl-w included.
+
+### Projects hosts
+
+Projects run on hosts: this machine, and any you add over SSH, on which TPS
+installs itself. A host is Linux, any distribution, with **podman** 4 or later
+set up rootless (the distro package normally does that) and **git**. Where
+this machine cannot be one, macOS for one, the dashboard says why and works
+with the hosts you add. WSL 2 on Windows may well do as a host (with systemd
+enabled in `/etc/wsl.conf`), but that is untried.
+
+Optionally, once per host:
+
+```sh
+loginctl enable-linger
+echo "$USER ALL=(root) NOPASSWD: $(command -v rtcwake)" | sudo tee /etc/sudoers.d/tps-rtcwake
+echo fs.inotify.max_user_instances=4096 | sudo tee /etc/sysctl.d/90-tps-inotify.conf && sudo sysctl --system
+```
+
+- Lingering keeps a host's agents working while you are logged out or
+  disconnected; TPS tells you when it is off.
+- `rtcwake` without a password lets the host wake from suspend for scheduled
+  tasks.
+- Every task's container counts toward your user's inotify instance limit, 128
+  on many distributions, which file watchers in a few tasks use up.
 
 ## Building from source
 

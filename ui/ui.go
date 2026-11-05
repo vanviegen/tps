@@ -31,7 +31,7 @@ type Options struct {
 	Addr  string
 	WebFS fs.FS // holds web/index.html and web/dist
 	Open  bool  // open the browser once listening
-	// DaemonBinary is pushed to remote hosts instead of this executable (for another architecture).
+	// DaemonBinary is pushed to remote hosts instead of this executable, or (for another platform) its release's build for them.
 	DaemonBinary string
 	// AutoUpdate installs and restarts into a new release, checked for at
 	// startup and whenever the last dashboard closes.

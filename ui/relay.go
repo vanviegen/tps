@@ -184,7 +184,7 @@ func (l *Link) publishHost() {
 		host["signinURL"] = l.signinURL
 	}
 	if l.status == "connected" {
-		host["updatable"] = l.build != BuildID()
+		host["updatable"] = l.build != l.tr.Build()
 		host["restarting"] = l.restarting
 	}
 	l.mu.Unlock()
@@ -233,6 +233,12 @@ func (l *Link) run() {
 		}
 		l.setStatus("connecting", "")
 		conn, err := l.tr.DialDaemon()
+		if errors.As(err, new(unavailableError)) {
+			log.Printf("host %s: %v", l.hid, err)
+			l.setStatus("unavailable", err.Error())
+			<-l.wake
+			continue
+		}
 		if err != nil {
 			log.Printf("host %s: %v", l.hid, err)
 			l.setStatus("disconnected", err.Error())
@@ -286,7 +292,7 @@ func (l *Link) awaitConnection(timeout time.Duration) error {
 		switch status {
 		case "connected":
 			return nil
-		case "disconnected", "incompatible":
+		case "disconnected", "incompatible", "unavailable":
 			if errText != "" {
 				return errors.New(errText)
 			}
@@ -447,7 +453,7 @@ func (l *Link) onHello(state map[string]any) {
 	// daemon exit as soon as nothing is running, which the board says it will.
 	// Too old a protocol is upgraded above, remote or not, for the same reason.
 	l.mu.Lock()
-	outdated := !l.autoUpgraded && !l.restarting && l.build != BuildID()
+	outdated := !l.autoUpgraded && !l.restarting && l.build != l.tr.Build()
 	l.autoUpgraded = l.autoUpgraded || outdated
 	l.mu.Unlock()
 	if outdated {
@@ -750,8 +756,8 @@ func (l *Link) cmd(name string, args any) (json.RawMessage, error) {
 	}
 }
 
-// upgrade installs the binary this UI runs on the host (for a remote one)
-// and asks the daemon to restart into it once nothing is running.
+// upgrade installs the binary for the host (for a remote one, see Push) and
+// asks the daemon to restart into it once nothing is running.
 func (l *Link) upgrade() error {
 	if p, ok := l.tr.(pusher); ok {
 		if err := p.Push(); err != nil {
@@ -763,7 +769,7 @@ func (l *Link) upgrade() error {
 	if _, err := l.cmd("restart", map[string]any{}); err != nil {
 		return err
 	}
-	log.Printf("host %s: daemon restarts into build %s when idle", l.hid, BuildID()[:12])
+	log.Printf("host %s: daemon restarts into build %.12s when idle", l.hid, l.tr.Build())
 	return nil
 }
 

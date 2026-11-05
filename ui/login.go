@@ -5,25 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/vanviegen/tps/daemon"
 )
 
-// A host's claude login is made here, by the dashboard, because this is the
-// end the browser talks to. `claude auth login` tries to open a browser tab
-// that hands the code back on localhost, which only works with both on one
-// machine; it also prints a page to visit that shows the code instead, for
-// pasting back. The dashboard offers that page and takes the code, so a
-// dashboard without a browser beside it (in a container, say) signs in too.
-// What claude writes goes to the host's daemon, which keeps a login of its own
-// (see daemon/login.go), and nothing of it stays here. The host's "signin"
-// says how that is going, while it is, or how it failed; "signingIn" and
-// "signinURL" that it is, and its page once claude has told.
+// A host's claude login is made by `claude auth login`, run by `tps --sign-in`
+// (see daemon.SignIn). That tries to open a browser tab that hands the code
+// back on localhost, which only works with both on one machine; it also
+// prints a page to visit that shows the code instead, for pasting back. The
+// dashboard offers that page and takes the code, so a dashboard without a
+// browser beside it (in a container, say) signs in too. On Linux the sign-in
+// runs here, where the browser is; elsewhere the host runs it, as there is no
+// claude for this machine in the toolbox. What claude wrote goes to the
+// host's daemon, which keeps a login of its own (see daemon/login.go), and
+// nothing of it stays behind. The host's "signin" says how that is going,
+// while it is, or how it failed; "signingIn" and "signinURL" that it is, and
+// its page once claude has told.
 
 const signInTimeout = 5 * time.Minute // a tab closed without authorising ends as a failure to try again
 
@@ -35,21 +35,15 @@ func (u *UI) signIn(l *Link) error {
 	if busy {
 		return nil
 	}
-	bin, err := daemon.ClaudeBin()
-	if err != nil {
-		return err
+	tr := l.tr
+	if runtime.GOOS == "linux" {
+		tr = localTransport{}
 	}
-	dir, err := os.MkdirTemp("", "tps-login-")
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(bin, "auth", "login")
-	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+dir, "CLAUDE_SECURESTORAGE_CONFIG_DIR="+dir) // the latter inherited in a task
-	stdin, _ := cmd.StdinPipe()                                                                      // held open: claude would take its end as a code pasted
+	cmd := tr.Tps("--sign-in")
+	stdin, _ := cmd.StdinPipe() // held open: its end ends the sign-in
 	out, _ := cmd.StdoutPipe()
 	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(dir)
 		return err
 	}
 	l.mu.Lock()
@@ -57,15 +51,17 @@ func (u *UI) signIn(l *Link) error {
 	l.mu.Unlock()
 	l.setSignIn("signing in to claude: finish it on its sign-in page", "")
 	go func() {
-		stop := time.AfterFunc(signInTimeout, func() { _ = cmd.Process.Kill() })
-		last := ""
+		stop := time.AfterFunc(signInTimeout, func() { stdin.Close() })
+		last, credentials := "", ""
 		lines := bufio.NewScanner(out)
 		for lines.Scan() {
 			line := strings.TrimSpace(strings.TrimPrefix(lines.Text(), "Paste code here if prompted >"))
 			if _, url, ok := strings.Cut(line, "visit: "); ok {
 				l.setSignIn("signing in to claude: finish it on its sign-in page", url)
 			}
-			if line != "" {
+			if c, ok := strings.CutPrefix(line, daemon.CredentialsMark); ok {
+				credentials = c
+			} else if line != "" {
 				last = line
 			}
 		}
@@ -75,20 +71,14 @@ func (u *UI) signIn(l *Link) error {
 		l.signinCode = nil
 		l.mu.Unlock()
 		stdin.Close()
-		credentials, readErr := os.ReadFile(filepath.Join(dir, ".credentials.json"))
-		os.RemoveAll(dir)
-		switch {
-		case err != nil: // claude's last line says why
+		if err != nil || credentials == "" { // the last line says why
 			l.setSignIn("the sign-in failed ("+last+"): try again", "")
-		case readErr != nil:
-			l.setSignIn("the sign-in failed (claude left no credentials behind): try again", "")
-		default:
-			_, err := l.cmd("setLogin", map[string]any{"text": string(credentials)})
-			if err != nil {
-				l.setSignIn("the sign-in failed ("+err.Error()+"): try again", "")
-			} else {
-				l.setSignIn("", "")
-			}
+			return
+		}
+		if _, err := l.cmd("setLogin", map[string]any{"text": credentials}); err != nil {
+			l.setSignIn("the sign-in failed ("+err.Error()+"): try again", "")
+		} else {
+			l.setSignIn("", "")
 		}
 	}()
 	return nil

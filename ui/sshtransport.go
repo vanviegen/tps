@@ -1,11 +1,8 @@
 package ui
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -74,6 +71,10 @@ func (t *sshTransport) DialPort(port int) (net.Conn, error) {
 
 func (t *sshTransport) Shell(cmd string) *exec.Cmd { return t.c.Shell(cmd) }
 
+func (t *sshTransport) Tps(args ...string) *exec.Cmd {
+	return t.c.Shell(strings.Join(append([]string{t.bin()}, args...), " "))
+}
+
 // preflight learns what the host offers and refuses hosts that lack podman or git.
 func (t *sshTransport) preflight() error {
 	out, err := t.c.Output(`echo "HOME=$HOME"; echo "ARCH=$(uname -m)"
@@ -106,7 +107,7 @@ echo "SYSTEMD=$(command -v systemd-run >/dev/null 2>&1 && systemctl --user is-sy
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("%s lacks %s; TPS needs podman and git there", t.c.Host(), strings.Join(missing, " and "))
+		return unavailableError{fmt.Errorf("%s lacks %s; TPS needs podman and git there", t.c.Host(), strings.Join(missing, " and "))}
 	}
 	if t.home == "" {
 		return errors.New("could not determine the remote home directory")
@@ -114,42 +115,47 @@ echo "SYSTEMD=$(command -v systemd-run >/dev/null 2>&1 && systemctl --user is-sy
 	return nil
 }
 
-// Push installs the binary this UI runs (or --daemon-binary) on the host,
-// unless the same build is already there.
-func (t *sshTransport) Push() error {
+// binary is the file installed on the host as its tps: --daemon-binary when
+// given, this one when the host can run it, and otherwise this release's build
+// for the host.
+func (t *sshTransport) binary() (string, error) {
+	if t.u.daemonBinary != "" {
+		return t.u.daemonBinary, nil
+	}
 	t.mu.Lock()
-	arch, home := t.arch, t.home
+	arch := t.arch
 	t.mu.Unlock()
 	goarch := map[string]string{"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64", "riscv64": "riscv64"}[arch]
-	source := t.u.daemonBinary
-	if source == "" {
-		if goarch != runtime.GOARCH || runtime.GOOS != "linux" {
-			return fmt.Errorf("%s is linux/%s (%s); build a binary for it and pass --daemon-binary", t.c.Host(), goarch, arch)
-		}
-		exe, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		source = exe
+	if runtime.GOOS == "linux" && goarch == runtime.GOARCH {
+		return os.Executable()
+	}
+	return releaseBinary(arch)
+}
+
+func (t *sshTransport) Build() string {
+	source, err := t.binary()
+	if err != nil {
+		return "unknown"
+	}
+	return fileBuild(source)
+}
+
+// Push installs binary on the host, unless the same build is there already.
+func (t *sshTransport) Push() error {
+	source, err := t.binary()
+	if err != nil {
+		return err
+	}
+	bin := t.bin()
+	if have, _ := t.c.Output("sha256sum " + bin + " 2>/dev/null | cut -c1-64"); have == fileBuild(source) {
+		return nil
 	}
 	f, err := os.Open(source)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
-	}
-	want := hex.EncodeToString(h.Sum(nil))
-	bin := t.bin()
-	if have, _ := t.c.Output("sha256sum " + bin + " 2>/dev/null | cut -c1-64"); have == want {
-		return nil
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-	r, err := t.c.Run(fmt.Sprintf("mkdir -p %[1]s/bin && cat >%[2]s.new && chmod 755 %[2]s.new && mv -f %[2]s.new %[2]s", home+"/"+remoteDir, bin), f)
+	r, err := t.c.Run(fmt.Sprintf("mkdir -p %[1]s/bin && cat >%[2]s.new && chmod 755 %[2]s.new && mv -f %[2]s.new %[2]s", t.home+"/"+remoteDir, bin), f)
 	if err == nil && r.Code != 0 {
 		err = fmt.Errorf("installing the binary on %s failed: %s", t.c.Host(), strings.TrimSpace(r.Err))
 	}

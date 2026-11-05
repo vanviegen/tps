@@ -1,6 +1,7 @@
 # Builds the release binaries and attaches them to a GitHub release, whenever a
 # v* tag is pushed — which deploying TPS does (see deploy.sh). The assets are
-# named after `uname -m`, so the README's curl line picks the right one.
+# named after `uname -s` and `uname -m`, so the README's curl line picks the
+# right one; macOS gets the dashboard, its daemons being on Linux hosts.
 name: Release
 on:
   push:
@@ -23,9 +24,10 @@ jobs:
       - name: Build
         run: |
           set -e
-          for target in amd64:x86_64 arm64:aarch64; do
-            GOARCH=${target%%:*} GOOS=linux CGO_ENABLED=0 \
-              go build -trimpath -ldflags="-s -w -X github.com/vanviegen/tps/ui.Version=$GITHUB_REF_NAME" -o "dist/tps-linux-${target##*:}" .
+          for target in linux:amd64:x86_64 linux:arm64:aarch64 darwin:amd64:x86_64 darwin:arm64:arm64; do
+            IFS=: read -r goos goarch arch <<<"$target"
+            GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 \
+              go build -trimpath -ldflags="-s -w -X github.com/vanviegen/tps/ui.Version=$GITHUB_REF_NAME" -o "dist/tps-$goos-$arch" .
           done
           ls -l dist
       - name: Publish

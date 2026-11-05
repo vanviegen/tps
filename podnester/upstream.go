@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -203,7 +202,7 @@ func EnsureService(sock string) (*exec.Cmd, error) {
 	_ = os.Remove(sock)
 	cmd := exec.Command("podman", "system", "service", "--time=0", "unix://"+sock)
 	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	cmd.SysProcAttr = diesWithUs()
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting podman system service: %w", err)
 	}

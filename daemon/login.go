@@ -1,7 +1,13 @@
 package daemon
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -15,9 +21,9 @@ import (
 // lock it keeps beside the credentials, which only works when that is one
 // directory for everyone.
 //
-// The login itself is made by the dashboard, on the machine the browser is
-// on (see ui/login.go), and handed over with setLogin. The daemon only says
-// whether it has one, under "login": nothing while it does, else why not.
+// The login itself is made for the dashboard by SignIn (see ui/login.go), and
+// handed over with setLogin. The daemon only says whether it has one, under
+// "login": nothing while it does, else why not.
 
 // authDir is that directory, made on first use (it is a mount source, so it
 // has to exist) and resolved: a TPS running as a task in another TPS gets it
@@ -80,4 +86,56 @@ func (m *Manager) setLogin(credentials string) error {
 	m.publishLogin()
 	go m.refreshModels() // there is a login to ask with now
 	return nil
+}
+
+// CredentialsMark leads the line SignIn ends with.
+const CredentialsMark = "TPS-CREDENTIALS "
+
+// SignIn is `tps --sign-in`: claude's sign-in, on this process's stdio, into a
+// directory of its own that is gone afterwards. The end of stdin ends it: the
+// dashboard closes it to give up, and so does its going, or that of the SSH
+// connection it runs this over. Once it succeeded, the login it made follows
+// on a line of its own after CredentialsMark, for the dashboard to hand to the
+// host it signs in; a failure ends with a line that says why. Returns the exit
+// code. The toolbox is fetched for it, as for a task.
+func SignIn() int {
+	fail := func(err error) int {
+		fmt.Println(err)
+		return 1
+	}
+	if _, err := ensureToolbox(); err != nil {
+		return fail(err)
+	}
+	dir, err := os.MkdirTemp("", "tps-login-")
+	if err != nil {
+		return fail(err)
+	}
+	defer os.RemoveAll(dir)
+	cmd := exec.Command(claudeBin(), "auth", "login")
+	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+dir, "CLAUDE_SECURESTORAGE_CONFIG_DIR="+dir) // the latter inherited in a task
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stdout
+	in, err := cmd.StdinPipe()
+	if err == nil {
+		err = cmd.Start()
+	}
+	if err != nil {
+		return fail(err)
+	}
+	go func() {
+		_, _ = io.Copy(in, os.Stdin) // claude itself waits on past the end of its input
+		_ = cmd.Process.Kill()
+	}()
+	if err := cmd.Wait(); err != nil {
+		return 1 // claude's last line says why
+	}
+	credentials, err := os.ReadFile(filepath.Join(dir, ".credentials.json"))
+	if err != nil {
+		return fail(errors.New("claude left no credentials behind"))
+	}
+	var line bytes.Buffer
+	if err := json.Compact(&line, credentials); err != nil {
+		return fail(err)
+	}
+	fmt.Println(CredentialsMark + line.String())
+	return 0
 }

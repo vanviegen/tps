@@ -2,8 +2,10 @@
 // containers. One binary, two roles: the UI (default) serves the web app and
 // relays to daemons; --daemon runs the workflow on a host, without a UI of its
 // own and outliving the one that started it, until nothing is running and no
-// dashboard is connected. --auto-start also has the desktop start it at login,
-// and --auto-update has it replace itself by new releases.
+// dashboard is connected. The daemon runs on Linux only; on macOS the UI does
+// without one of its own, and reaches Linux hosts over SSH. --auto-start also
+// has the desktop start it at login, and --auto-update has it replace itself
+// by new releases.
 package main
 
 import (
@@ -49,8 +51,9 @@ func main() {
 	noOpen := flag.Bool("no-open", false, "don't open the browser")
 	doAutostart := flag.Bool("auto-start", false, "also start this binary (with --no-open) at every login, then run as usual")
 	autoUpdate := flag.Bool("auto-update", false, "install new GitHub releases, checked for at startup and when the last dashboard closes")
-	daemonBinary := flag.String("daemon-binary", "", "binary to install on remote hosts of another architecture")
+	daemonBinary := flag.String("daemon-binary", "", "binary to install on remote hosts, instead of this one or (for another platform) its release's build for them")
 	relayPath := flag.String("relay", "", "internal: relay stdio to the unix socket at this path")
+	signIn := flag.Bool("sign-in", false, "internal: sign claude in, for the dashboard")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: tps [--port 4820] [--host 127.0.0.1] [--no-open] [--daemon-binary FILE] [--auto-start] [--auto-update] | tps --daemon")
 		flag.PrintDefaults()
@@ -66,6 +69,9 @@ func main() {
 	if *relayPath != "" {
 		relay(*relayPath)
 		return
+	}
+	if *signIn {
+		os.Exit(daemon.SignIn())
 	}
 	if *doAutostart {
 		path, err := autostart(*autoUpdate)

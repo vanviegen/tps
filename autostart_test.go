@@ -40,3 +40,22 @@ func TestAutostart(t *testing.T) {
 		t.Fatalf("unexpected entry:\n%s", entry)
 	}
 }
+
+func TestLaunchAgent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path, err := launchAgent([]string{"/Users/a&b/tps", "--no-open"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(home, "Library", "LaunchAgents", "com.github.vanviegen.tps.plist") {
+		t.Fatalf("written to %s", path)
+	}
+	plist, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plist), "<array>\n\t\t<string>/Users/a&amp;b/tps</string>\n\t\t<string>--no-open</string>\n\t</array>") {
+		t.Fatalf("unexpected agent:\n%s", plist)
+	}
+}

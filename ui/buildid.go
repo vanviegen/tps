@@ -10,31 +10,30 @@ import (
 )
 
 // BuildID identifies the binary on disk at our executable path: the daemon
-// reports its own, and a mismatch means a rebuilt binary should replace it.
-// Reading the file each time (cached by size and mtime) means a rebuild is
-// noticed by a UI that is still running the old code, and never the reverse.
-var buildCache struct {
-	sync.Mutex
-	size  int64
-	mtime time.Time
-	id    string
-}
-
+// reports its own, and a mismatch with the binary its host gets installed
+// (see transport.Build) means a rebuilt binary should replace it.
 func BuildID() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return "unknown"
 	}
-	st, err := os.Stat(exe)
+	return fileBuild(exe)
+}
+
+// fileBuild is the sha256 of a binary. Reading the file each time (cached by
+// size and mtime) means a rebuild is noticed by a UI that is still running the
+// old code, and never the reverse.
+func fileBuild(path string) string {
+	st, err := os.Stat(path)
 	if err != nil {
 		return "unknown"
 	}
 	buildCache.Lock()
 	defer buildCache.Unlock()
-	if buildCache.id != "" && st.Size() == buildCache.size && st.ModTime().Equal(buildCache.mtime) {
-		return buildCache.id
+	if b, ok := buildCache.files[path]; ok && st.Size() == b.size && st.ModTime().Equal(b.mtime) {
+		return b.id
 	}
-	f, err := os.Open(exe)
+	f, err := os.Open(path)
 	if err != nil {
 		return "unknown"
 	}
@@ -43,6 +42,18 @@ func BuildID() string {
 	if _, err := io.Copy(h, f); err != nil {
 		return "unknown"
 	}
-	buildCache.size, buildCache.mtime, buildCache.id = st.Size(), st.ModTime(), hex.EncodeToString(h.Sum(nil))
-	return buildCache.id
+	id := hex.EncodeToString(h.Sum(nil))
+	buildCache.files[path] = build{st.Size(), st.ModTime(), id}
+	return id
 }
+
+type build struct {
+	size  int64
+	mtime time.Time
+	id    string
+}
+
+var buildCache = struct {
+	sync.Mutex
+	files map[string]build
+}{files: map[string]build{}}
