@@ -1,6 +1,6 @@
 import A from 'aberdeen';
 import * as S from 'staffa';
-import { externalLink } from 'staffa/icons.js';
+import { externalLink, pencil, rotateCw } from 'staffa/icons.js';
 import { drawCode } from './code.ts';
 import { portUrl } from './util.ts';
 
@@ -13,6 +13,13 @@ import { portUrl } from './util.ts';
 
 /** The tab each task shows, by `pid/tid`: a port, or '' for VS Code. */
 const $shown: Record<string, string> = A.proxy({});
+
+/**
+ * Where a port's frame was last pointed, by its URL's origin and `pid/tid`, and
+ * how often it was reloaded. The page is of another origin, so where the user
+ * has clicked through to since is not ours to know.
+ */
+const $pages: Record<string, { url: string; loads: number }> = A.proxy({});
 
 function livePorts($t: any): any[] {
 	return ($t.ports ?? []).filter((p: any) => p.live);
@@ -43,10 +50,10 @@ export function drawTaskPages(key: string, $t: any, left: string, code: (top: st
 		if (fresh) $shown[key] = String(fresh.port);
 		if (!list.length) return code('0px');
 		// The frames are fixed (see code.ts): they start right under the strip.
-		const $top = A.proxy({ px: 0 });
-		const top = () => `${$top.px}px`;
+		const $bar = A.proxy({ bottom: 0, height: 0 });
+		const top = () => `${$bar.bottom}px`;
 		// Up against the top of the window, out of the column's padding, as VS Code is.
-		const el = A('div', 'margin-top: calc(-1 * $3);', () => S.tabs({
+		const el = A('div position:relative', 'margin-top: calc(-1 * $3);', () => S.tabs({
 			bind: A.ref($shown, key),
 			tabs: [
 				{ id: '', label: 'VS Code', content: () => A(() => code(top())) },
@@ -59,13 +66,26 @@ export function drawTaskPages(key: string, $t: any, left: string, code: (top: st
 							externalLink({ size: '0.9em' });
 						});
 					},
-					content: () => A(() => {
-						const url = portUrl(p);
-						drawCode(`${key}#${p.port}`, url, url, left, top());
-					}),
+					content: () => {
+						const id = `${portUrl(p)}${key}`;
+						$pages[id] ??= { url: portUrl(p), loads: 0 };
+						const $page = $pages[id];
+						// Over the right end of the tab bar.
+						A('div position:absolute top:0 right:0 display:flex align-items:center gap:$1 pr:$2', () => {
+							A('height:', `${$bar.height}px`);
+							S.iconButton({ icon: rotateCw, tooltip: 'Reload', attrs: '.small fg:$s-muted', click: () => { $page.loads++; } });
+							S.iconButton({ icon: pencil, tooltip: 'Go to another URL', attrs: '.small fg:$s-muted', click: async () => {
+								const url = await S.prompt('URL', $page.url);
+								if (url) $page.url = url;
+							}});
+						});
+						A(() => drawCode(`${key}#${p.port}`, $page.url, `${$page.url}#${$page.loads}`, left, top()));
+					},
 				})),
 			],
 		})) as HTMLElement;
-		$top.px = (el.querySelector('.s-tabbar') as HTMLElement).getBoundingClientRect().bottom;
+		const rect = (el.querySelector('.s-tabbar') as HTMLElement).getBoundingClientRect();
+		$bar.bottom = rect.bottom;
+		$bar.height = rect.height;
 	});
 }
