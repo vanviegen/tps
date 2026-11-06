@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { arrowDownToLine, check, circleSlash, circleStop, folderGit2, gitMerge, menu, plus, refreshCw, rocket, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
+import { arrowDownToLine, check, circleSlash, circleStop, flaskConical, flaskConicalOff, folderGit2, gitMerge, menu, plus, refreshCw, rocket, scanEye, sendHorizontal, settings, trash2, user } from 'staffa/icons.js';
 import { acceptFiles, attachButton, drawRefs, removeRef, uploadFiles } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
@@ -12,7 +12,7 @@ import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies,
 import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectName, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
+import { autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectName, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -58,11 +58,24 @@ export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEn
 	if (isSchedule($t)) return [...extra, remove];
 	return [
 		...phaseItems(pid, tid, $t),
+		...skipItems(pid, tid, $t),
 		{ separator: true },
 		{ label: 'Create dependent task', icon: plus, disabled: isFinished($t), click: () => void addTask(pid, { startAfter: [tid] }) },
 		...extra,
 		remove,
 	];
+}
+
+/**
+ * For a task queued for merge or merging, where the project has a test: the
+ * toggle that has the merge skip it — one turned on while the test runs
+ * stops it, and the merge lands.
+ */
+function skipItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
+	if ($t.phase !== 'merge' || !$state.projects[pid]?.test) return [];
+	return [$t.skipTests
+		? { label: 'Run the test', icon: flaskConical, click: () => void cmd('updateTask', { pid, tid, skipTests: false }) }
+		: { label: 'Skip the test', icon: flaskConicalOff, click: () => void cmd('updateTask', { pid, tid, skipTests: true }) }];
 }
 
 /**
@@ -199,7 +212,7 @@ async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
  */
 export function doneDialog(pid: string, tid: string, $t: any): void {
 	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
-	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string });
+	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string, skipTests: false });
 	void S.dialog({ header: 'Finish this task', attrs: 'w:44rem', content: close => {
 		const drawMerge = (): void => {
 			S.form({
@@ -207,13 +220,17 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 					close();
 					// The merge restarts a lot of machinery; the board is the nicer place to wait it out.
 					if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
-					void cmd('mergeTask', { pid, tid, message: $merge.message });
+					void cmd('mergeTask', { pid, tid, message: $merge.message, skipTests: $merge.skipTests });
 				},
 				content: () => {
 					A(() => { if ($t.working) A('div.s-s.warning.tonal p:$2 #The agent is still working; merging stops it first.'); });
 					S.textarea({
 						label: 'Commit message', help: `The whole working tree becomes one commit on ${branch}, and the task's workspace is cleaned up.`,
 						rows: 12, autoGrow: false, inputAttrs: 'font-family:monospace', bind: A.ref($merge, 'message'),
+					});
+					A(() => {
+						if (!$state.projects[pid]?.test) return;
+						S.checkbox({ label: 'Skip tests', help: 'The work lands without the project’s test being run on it.', bind: A.ref($merge, 'skipTests') });
 					});
 				},
 				actions: () => S.button({ content: 'Merge', icon: gitMerge, type: 'submit' }),
@@ -653,7 +670,11 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
 		A(() => { if ($t.suggestion) drawSuggestion(pid, tid, $t.suggestion); });
-		A(() => { if ($t.userText) drawStrip('primary', $t.userText); });
+		A(() => {
+			if (!$t.userText) return;
+			drawStrip('primary', $t.userText);
+			seeText(pid, tid, $t.userText);
+		});
 		// A host that cannot run agents (claude wanting a sign-in, say) says so here too, with the way out.
 		A(() => drawHostNotice($state.projects[pid]?.host));
 		A(() => {
@@ -677,7 +698,6 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
 		...s.name === undefined ? [] : [`Name: ${s.name}`],
 		...s.color === undefined ? [] : [`Colour: ${s.color}`],
 		...s.autoDeploy === undefined ? [] : [`Deploy after every merge: ${s.autoDeploy ? 'yes' : 'no'}`],
-		...s.restartTrain === undefined ? [] : [`Restart the merge train for a new merge: ${s.restartTrain ? 'yes' : 'no'}`],
 		...(s.mounts ?? []).map((m: any) => `Host file, ${mount(m)}`),
 		...(s.seeds ?? []).map((path: string) => `Seed: ${path}`),
 		...Object.entries(s.defaults ?? {}).map(([key, v]) => `Default ${key}: ${v ?? 'none'}`),
@@ -690,7 +710,6 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
 			const current = (key: string, of: any) => key in suggestion ? of : undefined;
 			const before = lines({
 				name: current('name', $p.name), color: current('color', $p.color), autoDeploy: current('autoDeploy', !!$p.autoDeploy),
-				restartTrain: current('restartTrain', $p.restartTrain),
 				mounts: current('mounts', $p.mounts), seeds: current('seeds', $p.seeds),
 				defaults: Object.fromEntries(Object.keys(suggestion.defaults ?? {}).map(key => [key, $p.defaults?.[key]])),
 			});
@@ -713,10 +732,9 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
  */
 function drawJobBar(pid: string, tid: string, $t: any): void {
 	A('div display:flex align-items:center gap:$2', () => {
-		A(`span flex:1 fg:$s-muted ${ELLIPSIS}`, () => A('text=', $t.phase === 'merge' ? 'Running…' : $t.job === 'deploy'
-			? 'Deploys the default branch, with the files the project settings name.'
-			: 'Tests and lands what is merged, a batch at a time.'));
-		if ($t.job === 'deploy') A(() => {
+		A(`span flex:1 fg:$s-muted ${ELLIPSIS}`, () => A('text=', $t.phase === 'merge' ? 'Running…'
+			: 'Deploys the default branch, with the files the project settings name.'));
+		A(() => {
 			S.button({ content: 'Deploy', icon: rocket, attrs: '.small', disabled: $t.phase === 'merge', click: () => void deployProject(pid) });
 		});
 	});

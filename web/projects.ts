@@ -360,15 +360,6 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 			}),
 		});
 		drawColorField(pid, $p);
-		A('div display:flex flex-direction:column gap:$2', () => {
-			A('h3 m:0 mt:$2 font-size:1em #Merge');
-			S.checkbox({
-				label: 'Restart the merge train for a new merge',
-				help: 'A task merged while the train tests others stops that test, so the next one takes it along. Otherwise it waits for the test to end.',
-				checked: A.peek($p, 'restartTrain'),
-				change: (e: Event) => save({ restartTrain: (e.target as HTMLInputElement).checked }),
-			});
-		});
 		drawDeployFields($p, save);
 		drawMounts($p, save);
 		drawSeeds($p, save);

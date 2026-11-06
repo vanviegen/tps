@@ -128,7 +128,7 @@ type TaskInfo struct {
 	PhaseAt       int64          `json:"phaseAt,omitempty"`           // ms epoch of the last phase change; boards show the freshest first
 	StartAfter    []string       `json:"startAfter,omitempty"`        // tids this task follows: it leaves Plan by itself once they are all done
 	LimitUntil    int64          `json:"limitUntil,omitempty"`        // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
-	Landing       string         `json:"landing,omitempty"`           // the commit the task is to become, while it waits for the merge train (see train.go)
+	SkipTests     bool           `json:"skipTests,omitempty"`         // its merge lands without running the project's test (see queue.go)
 	Stamp         string         `json:"stamp,omitempty"`             // what the commits it lands carry as their TPS-Task trailer (see branch.go)
 	Schedule      *Schedule      `json:"schedule,omitempty"`          // a scheduled task: it stays in Plan, and runs as tasks of its own (see schedule.go)
 	Scheduled     string         `json:"scheduled,omitempty"`         // the scheduled task this one is a run of, which nobody watches
@@ -187,6 +187,10 @@ type Task struct {
 	bundled      []change // what the bundle beside a parked task changes, once read (see bundleChanges); cloneMu guards it
 	autoStarting bool     // an auto-start is under way, so it isn't started twice
 	behind       int      // commits on the default branch the workspace doesn't have yet (see refreshBehind)
+	merging      bool     // its merge is under way: TPS at it, or the agent it sent in (see queue.go)
+	testing      bool     // and runs the project's test
+	testRuns     int      // the times that test failed in this merge
+	held         string   // the commit it is to become, held back by the project checkout's changes
 
 	session       *Session
 	sessionFlight *flight[*Session]
@@ -335,6 +339,7 @@ func (t *Task) publishL() {
 	t.pubL("phase", t.info.Phase)
 	t.pubL("phaseAt", t.info.PhaseAt)
 	t.pubL("commitMessage", nonEmpty(t.info.CommitMessage))
+	t.pubL("skipTests", t.info.SkipTests)
 	t.pubL("spent", nonZero(t.info.Spent))
 	t.pubL("budget", optional(t.info.Budget))
 	t.pubL("openrouterBudget", optional(t.info.ORBudget))
@@ -464,8 +469,12 @@ func (t *Task) setPhaseL(phase Phase) {
 	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent (the review included) waits for nothing
 		t.clearLimitL()
 	}
-	if phase != PhaseMerge {
-		t.info.Landing = "" // off the merge train (see train.go)
+	switch {
+	case t.job(): // a job's Merge is its running (see jobs.go)
+	case phase == PhaseMerge:
+		t.p.enqueueL(t)
+	default:
+		t.p.dequeueL(t)
 	}
 	t.info.Phase = phase
 	t.info.PhaseAt = time.Now().UnixMilli()
@@ -704,6 +713,12 @@ func (t *Task) applyL(partial map[string]any) {
 	}
 	if raw, ok := partial["openrouterBudget"]; ok {
 		t.info.ORBudget = parseBudget(raw)
+	}
+	if skip, ok := partial["skipTests"].(bool); ok {
+		t.info.SkipTests = skip
+		if skip && t.testing {
+			go t.guestTool("stop", testService) // the merge goes on without it (see mergeHead)
+		}
 	}
 	if raw, ok := partial["schedule"].(map[string]any); ok && t.info.Schedule != nil {
 		t.info.Schedule.apply(raw)
@@ -1012,8 +1027,8 @@ func (t *Task) kick(text string) {
 		return // no agent works in a job, the deploy's credentials least of all (see jobs.go)
 	}
 	t.lock()
-	t.clearLimitL()     // a turn now is what the wait was for, or what replaces it
-	t.info.Landing = "" // the work is about to change: off the merge train, until the turn ends in a merge again
+	t.clearLimitL()  // a turn now is what the wait was for, or what replaces it
+	t.holdL("", nil) // the work is about to change: a merge held back makes its commit anew
 	if t.overBudgetL() && !t.overrunL() {
 		t.noteBudgetL()
 		if t.agentPhaseL() {
@@ -1237,7 +1252,7 @@ func (t *Task) MoveTo(phase Phase) error {
 	case PhaseClosed:
 		return t.Close()
 	default:
-		return t.Merge("")
+		return t.Merge("", false)
 	}
 }
 
@@ -1376,108 +1391,36 @@ func (t *Task) shelve() {
 	}
 }
 
-// Merge replays the workspace's work onto the latest default branch (see
-// replant), makes it one commit, and hands that to the project's merge train,
-// which tests it and puts it on the branch (see train.go). The task sits in
-// the merge phase meanwhile: conflicts are handed to the task's agent there —
-// it knows what its side of them is for — and so is a merge that fails the
-// project's test; its turn ending with the commit message still in place runs
-// this again. A failure puts the task back with the human.
-func (t *Task) Merge(message string) error {
-	defer t.p.m.work()()
-	repo := t.repoDir()
+// Merge queues the task for merging (see queue.go), its test skipped where
+// skipTests says so. A message given here — the user's, from the merge dialog
+// — goes into the workspace's file, so that it is still the one place the
+// message lives: what the dashboard shows, and what an agent sent in to
+// resolve conflicts reads and amends (see commitMessageFile).
+func (t *Task) Merge(message string, skipTests bool) error {
 	if t.p.info.Scratch {
 		return errors.New("A scratch task has nothing to merge into: turn it into a project first")
 	}
 	if !t.hasWorkspace() {
 		return errors.New("The task has no workspace to merge: it is still in Plan, or finished already")
 	}
+	t.lock()
+	queued := t.info.Phase == PhaseMerge
+	t.unlock()
+	if queued {
+		return nil
+	}
 	t.stopAgent()
-	// A message given here — the user's, from the merge dialog — goes into the
-	// workspace's file, so that it is still the one place the message lives:
-	// what the dashboard shows, and what an agent sent in to resolve conflicts
-	// reads and amends (see commitMessageFile).
 	if message = strings.TrimSpace(message); message != "" {
-		if err := os.WriteFile(filepath.Join(repo, commitMessageFile), []byte(message+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(t.repoDir(), commitMessageFile), []byte(message+"\n"), 0o644); err != nil {
 			return err
 		}
 	}
 	t.lock()
-	message = cmp.Or(message, t.commitMessage(), strings.TrimSpace(t.info.Title))
+	defer t.unlock()
+	t.info.SkipTests = skipTests
 	t.setPhaseL(PhaseMerge)
-	t.unlock()
-	err := t.merge(repo, message)
-	if err != nil {
-		t.noteErr("Merge failed", err)
-		t.lock()
-		if t.info.Phase == PhaseMerge {
-			t.setPhaseL(PhaseHuman)
-		}
-		t.unlock()
-	}
-	go t.refreshChanges()
-	return err
-}
-
-func (t *Task) merge(repo, message string) error {
-	branch := t.p.defaultBranch
-	conflicts, doubled, err := t.replant(repo)
-	if err != nil {
-		return err
-	}
-	if len(conflicts) > 0 || len(doubled) > 0 {
-		t.note(fmt.Sprintf("Merging onto the latest %s needs a look at %s; sending the agent in", branch, strings.Join(append(conflicts, doubled...), ", ")))
-		t.kick(conflictPrompt(branch, conflicts, doubled)) // it comes back through onTurnEnd
-		return nil
-	}
-	// Whatever a replay left in the files — or an agent that reported 'merge'
-	// without resolving — must not land on the branch.
-	if marked, err := t.markedFiles(repo); err != nil {
-		return err
-	} else if len(marked) > 0 {
-		return fmt.Errorf("conflict markers are left in %s", strings.Join(marked, ", "))
-	}
-	// The commit the task is to become, made beside the workspace rather than
-	// in it: the work stays as it is while it waits for the train, and the
-	// file that carried the message, which is not the project's, stays out.
-	tree, err := landingTree(repo)
-	if err != nil {
-		return err
-	}
-	if base, _ := git(repo, "rev-parse", "HEAD^{tree}"); base == tree {
-		t.landed("Nothing to merge; task closed", "")
-		return nil
-	}
-	message, err = t.stamped(message)
-	if err != nil {
-		return err
-	}
-	sha, err := git(repo, "commit-tree", tree, "-p", "HEAD", "-m", message)
-	if err != nil {
-		return err
-	}
-	if _, err := git(repo, "update-ref", landingRef, sha); err != nil {
-		return err
-	}
-	t.lock()
-	if t.info.Phase != PhaseMerge { // taken back meanwhile
-		t.unlock()
-		return nil
-	}
-	t.info.Landing = sha
-	t.p.m.saveL()
-	busy := t.p.training
-	t.unlock()
-	if busy {
-		t.note("Waiting for the merge train, which is busy")
-	}
-	t.p.startTrain()
 	return nil
 }
-
-// landingRef is where a task's clone keeps the commit it is to become, for
-// the merge train to fetch (see train.go).
-const landingRef = "refs/tps/landing"
 
 // landingTree is the tree of the work as it would be committed: everything in
 // the workspace but the files that speak to TPS (see commitMessageFile and
@@ -2131,6 +2074,7 @@ func (t *Task) Delete() error {
 	t.cloneMu.Unlock()
 	t.lock()
 	defer t.unlock()
+	t.p.dequeueL(t)
 	delete(t.p.info.Tasks, t.tid)
 	delete(t.p.tasks, t.tid)
 	t.p.m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid}, nil)
@@ -3041,8 +2985,11 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		}
 		t.unlock()
 		t.mark("Agent", summary) // the resolution is its step, not the user's (see replant)
-		t.note("The agent is done; merging")
-		_ = t.Merge("")
+		t.note("The agent is done; the merge goes on")
+		t.lock()
+		t.merging = false
+		t.p.startHeadL()
+		t.unlock()
 		return
 	}
 	// What becomes of work the agent calls ready is the task's own answer (see
@@ -3066,7 +3013,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			t.unlock()
 			t.mark("Agent", summary) // its step, not the user's (see replant)
 			t.note("The agent reports the task is ready; merging")
-			_ = t.Merge("")
+			_ = t.Merge("", false)
 			return
 		}
 	}

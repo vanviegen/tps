@@ -6,27 +6,23 @@ import (
 	"time"
 )
 
-// Jobs: two tasks of a project are TPS's own rather than the user's — the
-// merge train (see train.go) and the deploy (see deploy.go). Each is a task
-// like any other where it can be: a clone of the project to work in, a
-// container from its Containerfile.dev, services that are the job's steps
-// (the test, the deploy) with their consoles, and a log that tells what
-// happened. No agent works in one and nobody else's work does either: its
-// workspace is reset to the tip of the branch whenever it runs, so the
-// dashboard leaves out what tasks of the user's are for, and so do the
-// commands (see Cmds). It is made the first
-// time it is needed, sits in Done while it has nothing to do, in Merge while
-// it runs, and with the human when it failed. A train the daemon went down
-// during runs again; a deploy is the user's to ask for again (see init).
+// Jobs: one task of a project is TPS's own rather than the user's — the
+// deploy (see deploy.go). It is a task like any other where it can be: a
+// clone of the project to work in, a container from its Containerfile.dev,
+// services that are the job's steps (the deploy) with their consoles, and a
+// log that tells what happened. No agent works in one and nobody else's work
+// does either: its workspace is reset to a commit of the branch whenever it
+// runs, so the dashboard leaves out what tasks of the user's are for, and so
+// do the commands (see Cmds). It is made the first time it is needed, sits in
+// Done while it has nothing to do, in Merge while it runs, and with the human
+// when it failed. A deploy the daemon went down during is the user's to ask
+// for again (see init).
 
-const (
-	trainTid  = "train"
-	deployTid = "deploy"
-)
+const deployTid = "deploy"
 
-var jobTitles = map[string]string{trainTid: "Merge train", deployTid: "Deploy"}
+var jobTitles = map[string]string{deployTid: "Deploy"}
 
-func (t *Task) job() bool { return t.tid == trainTid || t.tid == deployTid }
+func (t *Task) job() bool { return t.tid == deployTid }
 
 // jobTask is the project's job task by that tid, made if it is not there yet.
 func (p *Project) jobTask(tid string) *Task {
@@ -73,9 +69,10 @@ func (t *Task) reset(commit string) (string, error) {
 	return git(repo, "rev-parse", "HEAD")
 }
 
-// runJob runs one of the job's services to its end — a run of it still going
-// from before is stopped first — and answers why it failed, "" where it
-// exited 0. The note says what the run is for, and opens its console.
+// runJob runs one of the task's services to its end — a run of it still
+// going from before is stopped first — and answers why it failed, "" where it
+// exited 0: a job's step, or the test of a merge (see queue.go). The note
+// says what the run is for, and opens its console.
 func (t *Task) runJob(name, note string) (why string) {
 	_ = t.guestTool("stop", name) // nothing to stop, mostly
 	if err := t.guestTool("start", name, "0"); err != nil {

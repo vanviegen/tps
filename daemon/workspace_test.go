@@ -40,7 +40,7 @@ func testTask(t *testing.T) (*Task, string) {
 
 	data := filepath.Join(dir, "data")
 	m := &Manager{projects: map[string]*Project{}, dataDir: data, configFile: filepath.Join(data, "config.json"), saveCh: make(chan []byte, 1), hub: hub.New(nil)}
-	p := &Project{m: m, pid: "project", info: &ProjectInfo{Dir: origin, Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}, defaultBranch: "main", alone: map[string]bool{}}
+	p := &Project{m: m, pid: "project", info: &ProjectInfo{Dir: origin, Tasks: map[string]*TaskInfo{}}, tasks: map[string]*Task{}, defaultBranch: "main"}
 	m.projects[p.pid] = p
 	task := newTask(p, "1", &TaskInfo{Phase: PhaseAgent})
 	p.tasks[task.tid] = task
@@ -57,16 +57,16 @@ func testTask(t *testing.T) (*Task, string) {
 	return task, origin
 }
 
-// mergeAndLand merges the task, and waits for the merge train to land it.
+// mergeAndLand merges the task, and waits for the merge queue to land it.
 func mergeAndLand(t *testing.T, task *Task, message string) {
 	t.Helper()
-	if err := task.Merge(message); err != nil {
+	if err := task.Merge(message, false); err != nil {
 		t.Fatal(err)
 	}
 	waitLanded(t, task)
 }
 
-// waitLanded waits for the merge train to be done with the task.
+// waitLanded waits for the merge queue to be done with the task.
 func waitLanded(t *testing.T, task *Task) {
 	t.Helper()
 	for i := 0; ; i++ {
@@ -77,7 +77,7 @@ func waitLanded(t *testing.T, task *Task) {
 			return
 		}
 		if i == 100 {
-			t.Fatal("the merge train did not land the task")
+			t.Fatal("the merge queue did not land the task")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -202,9 +202,7 @@ func TestLeftoverDirectoryIsNoWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Nothing was changed: the merge has nothing to commit and drops the clone.
-	if err := task.Merge("no changes at all"); err != nil {
-		t.Fatal(err)
-	}
+	mergeAndLand(t, task, "no changes at all")
 	if task.info.Phase != PhaseDone || exists(task.repoDir()) {
 		t.Fatalf("phase %q, workspace left: %v", task.info.Phase, exists(task.repoDir()))
 	}
@@ -215,7 +213,7 @@ func TestLeftoverDirectoryIsNoWorkspace(t *testing.T) {
 	if task.hasWorkspace() {
 		t.Error("a bare directory passes for a workspace")
 	}
-	err := task.Merge("again")
+	err := task.Merge("again", false)
 	if err == nil || !strings.Contains(err.Error(), "no workspace to merge") {
 		t.Errorf("merging a leftover: %v", err)
 	}
@@ -228,9 +226,7 @@ func TestLeftoverDirectoryIsNoWorkspace(t *testing.T) {
 	if !task.hasWorkspace() || exists(filepath.Join(task.repoDir(), "leftover")) {
 		t.Error("the fresh clone did not replace the leftover")
 	}
-	if err := task.Merge("nothing again"); err != nil {
-		t.Fatalf("merging the fresh clone: %v", err)
-	}
+	mergeAndLand(t, task, "nothing again")
 }
 
 // A leftover in the way of a plain clone (one that is not a fresh one after a
@@ -384,8 +380,9 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 	// Merging with the markers still in is refused; resolved, the merge lands
 	// everything as one commit on the branch, and the notes about the
 	// workspace go with it.
-	if err := task.Merge("the task"); err == nil || !strings.Contains(err.Error(), "conflict markers") {
-		t.Fatalf("merging with markers: %v", err)
+	mergeAndLand(t, task, "the task")
+	if note := task.lastNote(); !strings.Contains(note, "conflict markers") {
+		t.Fatalf("merging with markers: %q", note)
 	}
 	if task.info.Phase != PhaseHuman {
 		t.Errorf("phase after the refused merge: %s", task.info.Phase)
@@ -444,14 +441,14 @@ func TestMergeHandsConflictsToTheAgent(t *testing.T) {
 	}
 	writeWork(t, task, "a.txt", "one task\n")
 	commitUpstream(t, origin, "upstream", map[string]string{"a.txt": "one upstream\n"})
-	if err := task.Merge("the task"); err != nil {
+	if err := task.Merge("the task", false); err != nil {
 		t.Fatal(err)
 	}
-	if task.info.Phase != PhaseMerge {
-		t.Errorf("phase: %s", task.info.Phase)
-	}
-	if !strings.Contains(readFile(filepath.Join(task.repoDir(), "a.txt")), ">>>>>>> ") {
-		t.Error("the workspace has no conflict to resolve")
+	for i := 0; !strings.Contains(readFile(filepath.Join(task.repoDir(), "a.txt")), ">>>>>>> "); i++ {
+		if i == 100 {
+			t.Fatal("the workspace has no conflict to resolve")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	// What the merge was told to call the work is in the workspace, for the
 	// agent resolving the conflicts to read and amend.
@@ -736,7 +733,7 @@ func TestTurnIntoProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeWork(t, task, "notes.md", "found it\n")
-	if err := task.Merge("Notes"); err == nil {
+	if err := task.Merge("Notes", false); err == nil {
 		t.Error("a scratch task merged")
 	}
 

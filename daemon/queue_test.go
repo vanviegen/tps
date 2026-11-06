@@ -2,31 +2,30 @@ package daemon
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
-// Tasks merged while the train is busy go in one batch, each its own commit.
-func TestTrainTakesABatch(t *testing.T) {
+// Tasks merged one after the other land in that order, each its own commit.
+func TestQueueLandsInTurn(t *testing.T) {
 	first, origin := testTask(t)
 	p := first.p
 	second := newTask(p, "2", &TaskInfo{Phase: PhaseAgent, Title: "second"})
 	p.tasks[second.tid] = second
-	p.training = true // busy: nothing lands until both wait
 	for _, task := range []*Task{first, second} {
 		if err := task.ensureWorkspace(); err != nil {
 			t.Fatal(err)
 		}
 		writeWork(t, task, task.tid+".txt", "work of "+task.tid+"\n")
-		if err := task.Merge("task " + task.tid); err != nil {
+		if err := task.Merge("task "+task.tid, false); err != nil {
 			t.Fatal(err)
 		}
 	}
-	p.training = false
-	p.startTrain()
 	waitLanded(t, first)
 	waitLanded(t, second)
-	if got := gitRun(t, origin, "log", "--format=%s", "-3"); got != "task 2\ntask 1\nadd a.txt" && got != "task 1\ntask 2\nadd a.txt" {
+	if got := gitRun(t, origin, "log", "--format=%s", "-3"); got != "task 2\ntask 1\nadd a.txt" {
 		t.Errorf("history: %q", got)
 	}
 	for _, task := range []*Task{first, second} {
@@ -34,8 +33,37 @@ func TestTrainTakesABatch(t *testing.T) {
 			t.Errorf("task %s: %s, stamped %q", task.tid, task.info.Phase, task.info.Stamp)
 		}
 	}
-	if p.tasks[trainTid] == nil {
-		t.Error("the train has no task to show for it")
+	if len(p.info.Queue) > 0 {
+		t.Errorf("queue left: %v", p.info.Queue)
+	}
+}
+
+// A task moved ahead of the one merging takes its place, which waits its
+// turn again.
+func TestMoveInQueue(t *testing.T) {
+	first, _ := testTask(t)
+	p := first.p
+	for _, tid := range []string{"2", "3"} {
+		p.tasks[tid] = newTask(p, tid, &TaskInfo{Phase: PhaseMerge})
+	}
+	for _, task := range p.tasks {
+		task.merging = true // under way already: nothing starts
+	}
+	p.info.Queue = []string{"1", "2", "3"}
+	if err := p.MoveInQueue("3", 0); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.info.Queue, []string{"3", "1", "2"}) {
+		t.Errorf("queue: %v", p.info.Queue)
+	}
+	if err := p.MoveInQueue("3", 9); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.info.Queue, []string{"1", "2", "3"}) {
+		t.Errorf("queue: %v", p.info.Queue)
+	}
+	if err := p.MoveInQueue("4", 0); err == nil {
+		t.Error("moved a task that is not queued")
 	}
 }
 
@@ -87,5 +115,40 @@ func TestBranchState(t *testing.T) {
 	}
 	if err := p.Deploy(gitRun(t, origin, "rev-parse", "ORIG_HEAD")); err == nil {
 		t.Error("deploying a commit the rewrite left behind")
+	}
+}
+
+// A merge that would overwrite uncommitted changes in the project's checkout
+// waits at the head of the queue, and lands once they are gone.
+func TestMergeWaitsForTheCheckout(t *testing.T) {
+	task, origin := testTask(t)
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "a.txt", "one task\n")
+	write(t, filepath.Join(origin, "a.txt"), "one by hand\n")
+	if err := task.Merge("the task", false); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; ; i++ {
+		task.lock()
+		held := task.held
+		task.unlock()
+		if held != "" {
+			break
+		}
+		if i == 100 {
+			t.Fatal("the merge was not held back")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if task.info.Phase != PhaseMerge || !slices.Equal(task.p.info.Queue, []string{"1"}) {
+		t.Errorf("phase %s, queue %v", task.info.Phase, task.p.info.Queue)
+	}
+	gitRun(t, origin, "checkout", "--", "a.txt")
+	task.p.retryHeld()
+	waitLanded(t, task)
+	if got := readFile(filepath.Join(origin, "a.txt")); task.info.Phase != PhaseDone || got != "one task\n" {
+		t.Errorf("phase %s, a.txt %q", task.info.Phase, got)
 	}
 }

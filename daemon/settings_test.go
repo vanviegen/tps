@@ -68,7 +68,7 @@ func TestSuggestSettings(t *testing.T) {
 	}
 	answered := make(chan int)
 	go func() {
-		answered <- st.settings([]string{"suggest", `{"name": "Renamed", "autoDeploy": true, "restartTrain": false, "seeds": ["node_modules/", " "], "defaults": {"onReady": "merge"}}`})
+		answered <- st.settings([]string{"suggest", `{"name": "Renamed", "autoDeploy": true, "seeds": ["node_modules/", " "], "defaults": {"onReady": "merge"}}`})
 	}()
 	for task.info.Suggestion == nil {
 		time.Sleep(50 * time.Millisecond)
@@ -84,7 +84,7 @@ func TestSuggestSettings(t *testing.T) {
 		t.Errorf("an accepted suggestion exits %d", code)
 	}
 	info := task.p.info
-	if info.Name != "Renamed" || !info.AutoDeploy || !info.KeepTrain || !reflect.DeepEqual(info.Seeds, []string{"node_modules"}) || len(info.Mounts) != 1 || info.Defaults.OnReady != AnswerMerge {
+	if info.Name != "Renamed" || !info.AutoDeploy || !reflect.DeepEqual(info.Seeds, []string{"node_modules"}) || len(info.Mounts) != 1 || info.Defaults.OnReady != AnswerMerge {
 		t.Errorf("accepted into %q, %v, %q, %v, %q", info.Name, info.AutoDeploy, info.Seeds, info.Mounts, info.Defaults.OnReady)
 	}
 	if len(task.info.Pending) != 0 {

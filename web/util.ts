@@ -1,7 +1,7 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { check, circle, folderGit2, gitMerge, globe, hourglass, listTodo, monitor, rocket, scanEye, server, sparkles, trainFront, user } from 'staffa/icons.js';
+import { check, circle, folderGit2, gitMerge, globe, hourglass, listTodo, monitor, rocket, scanEye, server, sparkles, user } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state, send } from './conn.ts';
 
@@ -31,15 +31,15 @@ export const PHASE_LABELS: Record<Phase, string> = {
 export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, review: scanEye, human: user, muted: folderGit2, merge: gitMerge, done: check, closed: folderGit2 };
 
 /**
- * Whether the task is one of TPS's own: a project's merge train or its deploy,
- * which run by themselves (see jobs.go). Those are no cards on the board, and
+ * Whether the task is one of TPS's own: a project's deploy, which runs by
+ * itself (see jobs.go). Those are no cards on the board, and
  * are in the sidebar while they run or want something of the user.
  */
 export function isJob($t: any): boolean {
 	return !!$t.job;
 }
 
-const JOB_ICONS: Record<string, typeof bot> = { train: trainFront, deploy: rocket };
+const JOB_ICONS: Record<string, typeof bot> = { deploy: rocket };
 
 /** Whether the task holds work that is not on the branch while its column's others hold none: Started, or Not merged. */
 export function keepsWork($t: any): boolean {
@@ -130,11 +130,52 @@ export function busyAttrs(icon: typeof bot): string {
 /**
  * Whether the task's phase icon is at work: claude running, and the phases
  * that move by themselves — the agent's own, the review reading the work over,
- * and the merge a task in Merging is in the middle of, which is what tells
- * those apart from the merged ones they sit above on the board.
+ * and the merge under way, which is what tells it apart from the tasks queued
+ * behind it and the merged ones they sit above on the board.
  */
 export function taskBusy($t: any): boolean {
-	return !!$t.working || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
+	return !!$t.working || $t.phase === 'agent' || $t.phase === 'review' || ($t.phase === 'merge' && !$t.queued && !$t.heldBy);
+}
+
+/**
+ * The user texts (see daemon/usertext.go) this browser has had on screen, by
+ * task: one it has not had is what the sidebar lights a note for. Kept in
+ * localStorage, so a reload does not light up the ones read already.
+ */
+const SEEN_KEY = 'tps-seen-texts';
+const $seenTexts = A.proxy(loadSeen());
+
+function loadSeen(): Record<string, string> {
+	try {
+		return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}');
+	} catch {
+		return {};
+	}
+}
+
+/** Whether the task shows a user text this browser has not had on screen. */
+export function unseenText(pid: string, tid: string, $t: any): boolean {
+	return !!$t.userText && $seenTexts[`${pid}/${tid}`] !== $t.userText;
+}
+
+/** Records the task's user text as seen. */
+export function seeText(pid: string, tid: string, text: string): void {
+	const key = `${pid}/${tid}`;
+	if (A.peek($seenTexts, key) === text) return;
+	$seenTexts[key] = text;
+	try {
+		localStorage.setItem(SEEN_KEY, JSON.stringify(A.peek(() => A.clone($seenTexts))));
+	} catch {} // storage off or full: seen for as long as the tab lasts
+}
+
+/**
+ * What a task in the merge phase is doing: merging, waiting its turn in the
+ * queue, or held back by uncommitted changes in the project's checkout (see
+ * daemon/queue.go).
+ */
+export function mergeText($t: any): string {
+	if ($t.heldBy) return `Waiting: the project's checkout has uncommitted changes in ${$t.heldBy.join(', ')}`;
+	return ($t.queued ? 'Queued for merge' : 'Merging') + ($t.skipTests ? ', skipping the test' : '');
 }
 
 /**
@@ -277,6 +318,7 @@ export function taskTip(pid: string, $t: any): string {
 	if (isJob($t)) return $t.phase === 'merge' ? 'Running' : $t.phase === 'human' ? 'Failed: see its log' : 'Idle';
 	const phase = $t.phase === 'muted' ? 'Started: its work and conversation are kept. Pick it back up to carry on where it was left.'
 		: $t.phase === 'closed' ? 'Not merged: this task was finished without merging. Its work is kept, off the branch, and comes back if the task is picked up again.'
+		: $t.phase === 'merge' ? mergeText($t)
 		: PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 	return `${phase}${$t.working ? ', the agent is working' : ''} · ${taskActivity(pid, $t).text}`;
 }

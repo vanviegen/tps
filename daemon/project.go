@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,13 +41,14 @@ type ProjectInfo struct {
 	NextTask int                  `json:"nextTask,omitempty"`
 	Tasks    map[string]*TaskInfo `json:"tasks"`
 
-	// Whether a merge deploys by itself (see deploy.go), whether a task merged
-	// while the train tests others waits for that test to end rather than
-	// restarting it (see startTrain), the host's files the containers of its
-	// tasks get (see Task.mountsL), and what of its checkout their workspaces
-	// start with (see Task.seed).
+	// The tasks being merged, the first merging and the rest waiting their
+	// turn (see queue.go).
+	Queue []string `json:"queue,omitempty"`
+
+	// Whether a merge deploys by itself (see deploy.go), the host's files the
+	// containers of its tasks get (see Task.mountsL), and what of its checkout
+	// their workspaces start with (see Task.seed).
 	AutoDeploy   bool     `json:"autoDeploy,omitempty"`
-	KeepTrain    bool     `json:"keepTrain,omitempty"`
 	Mounts       []Mount  `json:"mounts,omitempty"`
 	Seeds        []string `json:"seeds,omitempty"`
 	DeployMounts []string `json:"deployMounts,omitempty"` // the deploy's paths in projects.json saved by 0.4, moved into Mounts on load
@@ -72,14 +74,10 @@ type Project struct {
 	codeSeen      time.Time   // when one last started or stopped doing so
 	head          string      // the default branch's tip at the last refreshMeta; a new one dates every workspace
 
-	training     bool            // the merge train runs (see train.go)
-	testing      []*Task         // the tasks it runs the test for, if it does
-	retrain      bool            // and has stopped that test, to take more tasks along
-	alone        map[string]bool // tasks of a batch that failed, tested one at a time from then on
-	deploy       string          // what Containerfile.dev on the default branch declares as the deploy (see deploy.go)
-	deploying    bool            // a deploy runs
-	deployWanted bool            // and another is wanted after it,
-	deployNext   string          // of this commit (the tip, for none)
+	deploy       string // what Containerfile.dev on the default branch declares as the deploy (see deploy.go)
+	deploying    bool   // a deploy runs
+	deployWanted bool   // and another is wanted after it,
+	deployNext   string // of this commit (the tip, for none)
 }
 
 // projectColors are the accents a project may wear: hues that sit well on the
@@ -140,7 +138,7 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 		}
 		info.NextTask = max(1, info.NextTask)
 	}
-	return &Project{m: m, pid: pid, info: info, tasks: map[string]*Task{}, defaultBranch: "main", alone: map[string]bool{}}
+	return &Project{m: m, pid: pid, info: info, tasks: map[string]*Task{}, defaultBranch: "main"}
 }
 
 func (p *Project) dir() string      { return p.info.Dir }
@@ -170,6 +168,12 @@ func (p *Project) init() error {
 	sort.Strings(tids)
 	for _, tid := range tids {
 		info := p.info.Tasks[tid]
+		if tid == "train" { // the job of an older TPS, which merged through a train
+			delete(p.info.Tasks, tid)
+			_ = rmContainer("tps-" + p.pid + "-" + tid)
+			_ = rmTree(filepath.Join(p.tasksDir(), tid))
+			continue
+		}
 		t := newTask(p, tid, info)
 		p.m.mu.Lock()
 		p.tasks[tid] = t
@@ -184,16 +188,13 @@ func (p *Project) init() error {
 		agentPhase := info.Phase == PhaseMerge || info.Phase == PhaseAgent
 		switch {
 		case t.job() && info.Phase == PhaseMerge:
-			// What it was running is run again: the train looks for the tasks
-			// waiting below, and a deploy is the user's to ask for again.
-			if tid == deployTid {
-				t.note("TPS restarted during the deploy; deploy again to be sure it went through")
-				info.Phase = PhaseHuman
-			} else {
-				info.Phase = PhaseDone
+			t.note("TPS restarted during the deploy; deploy again to be sure it went through")
+			info.Phase = PhaseHuman
+		case info.Phase == PhaseMerge && info.LimitUntil == 0:
+			// Queued: a merge under way starts over (see below).
+			if !slices.Contains(p.info.Queue, tid) {
+				p.info.Queue = append(p.info.Queue, tid)
 			}
-		case info.Phase == PhaseMerge && info.Landing != "":
-			// Waiting for the merge train, which no agent is part of.
 		case info.Phase == PhaseReview:
 			// The reviewer died with the daemon, and it was nobody's
 			// conversation: there is nothing to pick back up, and the agent's
@@ -218,14 +219,20 @@ func (p *Project) init() error {
 	}
 	p.refreshMeta()
 	p.pubSetup()
-	p.startTrain() // for the tasks that were waiting for it
+	p.m.mu.Lock()
+	p.info.Queue = slices.DeleteFunc(p.info.Queue, func(tid string) bool {
+		t := p.tasks[tid]
+		return t == nil || t.info.Phase != PhaseMerge
+	})
+	p.pubQueueL()
+	p.startHeadL()
+	p.m.mu.Unlock()
 	return nil
 }
 
 // pubSetup publishes the settings on what reaches its containers.
 func (p *Project) pubSetup() {
 	p.pub("autoDeploy", p.info.AutoDeploy)
-	p.pub("restartTrain", !p.info.KeepTrain)
 	p.pub("mounts", p.info.Mounts)
 	p.pub("seeds", p.info.Seeds)
 }
@@ -327,13 +334,16 @@ func (p *Project) refreshMeta() {
 	// every workspace a little further behind; they count again (see refreshBehind).
 	head, _ := git(p.dir(), "rev-parse", p.defaultBranch)
 	cf, _ := git(p.dir(), "show", p.defaultBranch+":"+containerfile)
-	deploy := containerfileDeclarations(cf).deploy
+	declared := containerfileDeclarations(cf)
+	deploy := declared.deploy
+	p.pub("test", declared.test != "") // whether a merge may skip one
 	p.m.mu.Lock()
 	moved := head != "" && head != p.head
 	p.head, p.deploy = head, deploy
 	tasks := p.taskListL()
 	p.m.mu.Unlock()
 	p.refreshBranch()
+	p.retryHeld()
 	if !moved {
 		return
 	}
@@ -384,9 +394,6 @@ func (p *Project) SetConfig(partial map[string]any) error {
 	}
 	if auto, ok := partial["autoDeploy"].(bool); ok {
 		p.info.AutoDeploy = auto
-	}
-	if restart, ok := partial["restartTrain"].(bool); ok {
-		p.info.KeepTrain = !restart
 	}
 	if mounts, ok := partial["mounts"].([]Mount); ok {
 		p.info.Mounts = mounts
@@ -495,9 +502,9 @@ func (p *Project) addTaskL(info *TaskInfo) *Task {
 	return t
 }
 
-// fastForward moves the project repo's default branch to the task clone's HEAD.
-func (p *Project) fastForward(fromDir string) error {
-	if _, err := git(p.dir(), "fetch", "--quiet", fromDir, p.defaultBranch); err != nil {
+// fastForward moves the project repo's default branch to a ref of a task's clone.
+func (p *Project) fastForward(fromDir, ref string) error {
+	if _, err := git(p.dir(), "fetch", "--quiet", fromDir, ref); err != nil {
 		return err
 	}
 	sha, err := git(p.dir(), "rev-parse", "FETCH_HEAD")
@@ -507,6 +514,8 @@ func (p *Project) fastForward(fromDir string) error {
 	if branch, _ := git(p.dir(), "symbolic-ref", "--short", "HEAD"); branch == p.defaultBranch {
 		// The user's checkout: a real merge keeps their working tree in sync.
 		_, err = git(p.dir(), "merge", "--ff-only", sha)
+	} else if !gitOK(p.dir(), "merge-base", "--is-ancestor", p.defaultBranch, sha) {
+		err = fmt.Errorf("%s moved meanwhile: not a fast-forward", p.defaultBranch)
 	} else {
 		_, err = git(p.dir(), "update-ref", "refs/heads/"+p.defaultBranch, sha)
 	}

@@ -143,7 +143,7 @@ func (t *Task) finishReview(end TurnEnd) {
 	if t.onAcceptL() == AnswerMerge {
 		t.unlock()
 		t.note("The review accepts the work; merging")
-		_ = t.Merge("")
+		_ = t.Merge("", false)
 		return
 	}
 	t.note("The review accepts the work")

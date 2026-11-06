@@ -25,13 +25,12 @@ const settingsFile = ".settings.json"
 // settingsL are the project's settings, as SetConfig takes them.
 func (p *Project) settingsL() map[string]any {
 	return map[string]any{
-		"name":         p.info.Name,
-		"color":        p.info.Color,
-		"autoDeploy":   p.info.AutoDeploy,
-		"restartTrain": !p.info.KeepTrain,
-		"mounts":       append([]Mount{}, p.info.Mounts...),
-		"seeds":        append([]string{}, p.info.Seeds...),
-		"defaults":     p.defaultsL(),
+		"name":       p.info.Name,
+		"color":      p.info.Color,
+		"autoDeploy": p.info.AutoDeploy,
+		"mounts":     append([]Mount{}, p.info.Mounts...),
+		"seeds":      append([]string{}, p.info.Seeds...),
+		"defaults":   p.defaultsL(),
 	}
 }
 
@@ -54,7 +53,7 @@ func checkSettings(partial map[string]any) (map[string]any, error) {
 				return nil, errors.New("A colour is #rrggbb")
 			}
 			v = strings.ToLower(color)
-		case "autoDeploy", "restartTrain":
+		case "autoDeploy":
 			if _, ok := v.(bool); !ok {
 				return nil, fmt.Errorf("%s is true or false", key)
 			}

@@ -35,8 +35,9 @@ container. Read what the agent did, fix something yourself, run the tests.
 <tr><td width="320"><img src="doc/features/merge.png" width="320" alt=""></td><td>
 
 **Merges that land themselves.** A finished task becomes one clean commit on
-your branch, with a message the agent wrote. Conflicts go back to the agent,
-and your test suite can gate what lands.
+your branch, with a message the agent wrote. Merges wait their turn in a queue
+you can reorder; conflicts go back to the agent, and so does a failing test
+suite, which can gate what lands.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/deploys.png" width="320" alt=""></td><td>

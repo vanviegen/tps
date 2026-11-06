@@ -1,13 +1,13 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, settings, x } from 'staffa/icons.js';
+import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, settings, stickyNote, x } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
 import { closeBase, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
 import { taskMenuItems, taskSettingsDialog } from './task.ts';
-import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, requested, selection, taskTip, taskTitle } from './util.ts';
+import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, requested, selection, taskTip, taskTitle, unseenText } from './util.ts';
 
 /**
  * The sidebar: the way around the dashboard, and the list of what is open.
@@ -237,8 +237,8 @@ function drawScratch(pid: string, $p: any): void {
 
 /**
  * A task is listed while it waits for a human, while an agent is on it (its
- * own, the one reviewing its work, or its merge), while it has a new page for
- * the user to look at or an agent asked for it, and while it is on screen:
+ * own, the one reviewing its work, or its merge), while it has a note for the
+ * user not seen yet or an agent asked for it, and while it is on screen:
  * everything under way, in other words. A muted one is none of those: putting
  * it away is what muting is for, and opening it takes it back out (see
  * useTask). The project's jobs are listed by the same rule: while they run,
@@ -247,7 +247,7 @@ function drawScratch(pid: string, $p: any): void {
 function isOpen(pid: string, tid: string, $t: any): boolean {
 	const { pid: shown, tid: shownTid } = selection();
 	if (shown === pid && shownTid === tid) return true;
-	if (requested($t)) return true;
+	if (requested($t) || unseenText(pid, tid, $t)) return true;
 	if ($t.phase === 'muted') return false;
 	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
 }
@@ -277,6 +277,15 @@ function drawTask(pid: string, tid: string, $t: any): void {
 			drawTaskIcon(pid, $t, { busy: false, color: 'var(--tps-color)' });
 		});
 		A('span.tps-clip', () => A('text=', taskTitle($t)));
+		// A text the agent put in front of the user (see daemon/usertext.go) that
+		// this browser has yet to show glows at the row's end until the task is opened.
+		A(() => {
+			if (!unseenText(pid, tid, $t)) return;
+			A('span display:inline-flex flex-shrink:0 fg:$s-warning filter: drop-shadow(0 0 3px currentColor);', () => {
+				S.addTooltip({ tip: 'The agent has a note for you', placement: 'right' });
+				stickyNote({ size: '1em' });
+			});
+		});
 	});
 }
 

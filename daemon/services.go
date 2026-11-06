@@ -45,7 +45,7 @@ const cacheLabel = "tps.cache"
 const deployLabel = "tps.deploy"
 
 // testLabel declares the project's test — its test suite, as a rule — which
-// work has to pass to land: the merge train runs it (see train.go). It is a
+// work has to pass to land: a merge runs it (see queue.go). It is a
 // label of its own rather than a service of some name, so that no project gets
 // a merge gate it never asked for; in the tasks, it is the service testService.
 const testLabel = "tps.test"

@@ -761,7 +761,7 @@ func (m *Manager) sweep() {
 				overdue = append(overdue, t)
 			}
 		} else if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown &&
-			!(t.job() && t.info.Phase == PhaseMerge) { // a job's run waits on what runs in there
+			!(t.job() && t.info.Phase == PhaseMerge) && !t.testing { // a job's run or a merge's test waits on what runs in there
 			idle = append(idle, t)
 		}
 	}
@@ -916,7 +916,7 @@ func (m *Manager) anyAwake() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.allTasksL() {
-		if t.workingL() || t.info.LimitUntil > 0 || t.job() && t.info.Phase == PhaseMerge {
+		if t.workingL() || t.info.LimitUntil > 0 || t.job() && t.info.Phase == PhaseMerge || t.testing {
 			return true
 		}
 	}
@@ -950,6 +950,10 @@ type ref struct {
 	Text    string `json:"text"`
 	Phase   Phase  `json:"phase"`
 	Message string `json:"message"`
+	// mergeTask: whether the merge skips the test; moveInQueue: where the
+	// task goes in the merge queue, 0 being the head.
+	SkipTests bool `json:"skipTests"`
+	Index     int  `json:"index"`
 	// What a use of a save point acts on: the point the conversation goes back
 	// to, the one the code does (none to leave it be), and whether it is a fork
 	// rather than this task put back (see mark.go).
@@ -1112,8 +1116,11 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		"preview":    withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.Preview(r.Name), nil }),
 		"chatTurn":   withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) { return t.ChatTurn(r.Turn), nil }),
 		"stopAgent":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.StopAgent() }),
-		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message) }),
+		"mergeTask":  withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Merge(r.Message, r.SkipTests) }),
 		"rebaseTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) { return nil, t.Rebase() }),
+		"moveInQueue": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
+			return nil, p.MoveInQueue(r.Tid, r.Index)
+		}),
 		"moveTask": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
 			t, err := t.workable()
 			if err != nil {

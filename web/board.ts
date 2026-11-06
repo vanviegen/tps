@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, settings, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { deployProject, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { autoStarts, busyAttrs, canMerge, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, scheduleText, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
+import { autoStarts, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, scheduleText, taskActivity, taskTitle, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -22,7 +22,11 @@ import { autoStarts, busyAttrs, canMerge, COLUMNS, contextSlices, costText, draw
  * of scheduled tasks: they never leave Plan, and are no cards to drag. Done
  * has the ones closed without merging mixed in with the merged ones. Merging is a moment on the
  * way to Done rather than a place of its own, so those cards simply sit at the
- * top of the Done column, wearing the merge icon until it is over.
+ * top of the Done column, wearing the merge icon until it is over: the merge
+ * queue (see daemon/queue.go), the one merging at its bottom and the ones
+ * queued after it above, the last one queued on top. Dragging one of those
+ * onto another puts it above or below that one in the queue, by the half it
+ * is dropped on; below the one merging, it merges in its place right away.
  *
  * A column is one drop area: where in it a card lands says nothing, as muting
  * and closing are not things to do by accident.
@@ -196,7 +200,7 @@ function drawColumn(pid: string | undefined, $cards: Record<string, Card>, phase
 		() => {
 			// The ones on their way to Done go above the ones that got there, and
 			// the started ones above the ones never begun.
-			if (phase === 'done') drawCards($cards, ['merge'], key);
+			if (phase === 'done') drawCards($cards, ['merge'], key, undefined, queueOrder);
 			if (phase === 'plan') {
 				drawCards($cards, ['muted'], key);
 				drawCards($cards, ['plan'], key, $t => !isSchedule($t));
@@ -316,15 +320,41 @@ function drawDeployHere(pid: string, to: DeployTo): void {
 
 /**
  * The cards of some phases that `only` lets through, and the column's
- * filter, oldest change at the bottom.
+ * filter, oldest change at the bottom — or in the order `order` gives.
  */
-function drawCards($cards: Record<string, Card>, phases: Phase[], key: string, only?: ($t: any, tid: string) => boolean): void {
+function drawCards($cards: Record<string, Card>, phases: Phase[], key: string, only?: ($t: any, tid: string) => boolean, order = changeOrder): void {
 	A.onEach($cards, ({ pid, tid }) => {
 		const $t = $state.projects[pid]?.tasks?.[tid];
 		if (!$t || !phases.includes($t.phase)) return; // each card lives in its phase's column
 		if ((only && !only($t, tid)) || !passesFilter($t, key)) return;
 		drawCard(pid, tid, $t);
-	}, ({ pid, tid }) => phaseOrder($state.projects[pid]?.tasks?.[tid] ?? {}, tid));
+	}, order);
+}
+
+function changeOrder({ pid, tid }: Card): number[] {
+	return phaseOrder($state.projects[pid]?.tasks?.[tid] ?? {}, tid);
+}
+
+/** A merge card's place: the last queued on top, the one merging at the bottom. */
+function queueOrder({ pid, tid }: Card): number[] {
+	return [-($state.projects[pid]?.queue ?? []).indexOf(tid), ...changeOrder({ pid, tid })];
+}
+
+/**
+ * A card dragged onto a card of the merge queue of the same project: the
+ * dragged one goes above it in the queue (after it, in the order they merge
+ * in) when dropped on its upper half, and below it otherwise. Answers whether
+ * that is what the drop was.
+ */
+function dropInQueue(e: DragEvent, pid: string, tid: string): boolean {
+	const [p, moved] = e.dataTransfer?.getData('text/tps').split('/') ?? [];
+	const queue: string[] = A.peek(() => $state.projects[pid]?.queue ?? []);
+	if (p !== pid || moved === tid || !queue.includes(moved) || !queue.includes(tid)) return false;
+	const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+	const rest = queue.filter(q => q !== moved);
+	const index = rest.indexOf(tid) + (e.clientY < box.top + box.height / 2 ? 1 : 0);
+	void cmd('moveInQueue', { pid, tid: moved, index });
+	return true;
 }
 
 // The rocket above a card or commit of the branch: hidden until that is
@@ -359,6 +389,11 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 	A(`div draggable=${!isSchedule($t)}`, deploy ? deployHere : '',
 		'pointerdown=', () => { dragged = false; },
 		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', `${pid}/${tid}`); },
+		'drop=', (e: DragEvent) => {
+			if (A.peek($t, 'phase') !== 'merge' || !dropInQueue(e, pid, tid)) return;
+			e.preventDefault();
+			e.stopPropagation(); // not a move to the column's phase as well
+		},
 		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
 		() => {
 			S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
@@ -392,6 +427,7 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 					else if ($t.suggestion) A('small fg:$s-warning #⚠ Suggests project settings');
 					else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
 					else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');
+					else if ($t.phase === 'merge') A('small fg:$s-muted text=', mergeText($t));
 					else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
 				});
 			}});
