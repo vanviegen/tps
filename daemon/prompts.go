@@ -256,6 +256,11 @@ const stoppedPrompt = `Your previous turn was stopped by the user before it fini
 in the middle of was left half done. /work is as it was at that moment. Check the
 state of the work before continuing it.`
 
+// waitedPrompt: the task was set to wait for others, and they are done now
+// (see endWait), with nothing said meanwhile.
+const waitedPrompt = `This task was put on hold until some other tasks were done. They are now, and their work
+is on the branch your workspace was just brought onto. Carry on with the task.`
+
 // wrapUpPrompt: a scheduled run reached its budget, which was raised a little
 // for it to wrap up in (see overrunL).
 const wrapUpPrompt = `This task reached its budget limit, and with nobody there to raise it, you have been

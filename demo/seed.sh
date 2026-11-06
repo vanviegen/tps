@@ -403,10 +403,10 @@ cat >"$CONFIG.new" <<JSON
 				},
 				"6": {
 					"title": "Expire links after 90 days",
-					"description": "Links that nobody has followed in 90 days should be dropped on startup, and the count of what went should show up on the stats page.",
+					"deferred": "Links that nobody has followed in 90 days should be dropped on startup, and the count of what went should show up on the stats page.",
 					"model": "haiku",
 					"phase": "plan",
-					"startAfter": ["5"],
+					"waitFor": ["5"],
 					"phaseAt": $(ms 2)
 				},
 				"7": {

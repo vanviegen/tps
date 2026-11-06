@@ -590,7 +590,7 @@ func (m *Manager) TurnIntoProject(t *Task, dir, name string) (*Project, *Task, e
 	delete(t.p.tasks, t.tid)
 	m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid}, nil)
 	m.hub.SetChat(t.key(), nil)
-	t.info.StartAfter = nil // the scratch tasks it followed are not this project's
+	t.info.WaitFor = nil // the scratch tasks it waited for are not this project's
 	p.info.Tasks[tid] = t.info
 	p.tasks[tid] = moved
 	moved.queueL("project", projectPrompt(p.info.Name, p.dir()))
@@ -745,7 +745,7 @@ func (m *Manager) sweep() {
 	}
 	m.mu.Lock()
 	for _, p := range m.projects {
-		p.autoStartL()
+		p.endWaitsL()
 		p.runSchedulesL(time.Now())
 	}
 	now := time.Now().UnixMilli()

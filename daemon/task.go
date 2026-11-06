@@ -126,7 +126,8 @@ type TaskInfo struct {
 	Window        *ContextWindow `json:"window,omitempty"`            // and what claude's window holds besides it (see context.go)
 	TitleAsked    bool           `json:"titleAsked,omitempty"`        // claude has been asked to name this task (once is enough)
 	PhaseAt       int64          `json:"phaseAt,omitempty"`           // ms epoch of the last phase change; boards show the freshest first
-	StartAfter    []string       `json:"startAfter,omitempty"`        // tids this task follows: it leaves Plan by itself once they are all done
+	WaitFor       []string       `json:"waitFor,omitempty"`           // tids this task waits for: until they are all done, no agent works in it (see waitingL)
+	Deferred      string         `json:"deferred,omitempty"`          // what the user said meanwhile, which the agent is sent in with once the wait is over (see endWait)
 	LimitUntil    int64          `json:"limitUntil,omitempty"`        // ms epoch the agent goes back in at, waiting out a usage limit (see armLimitL)
 	SkipTests     bool           `json:"skipTests,omitempty"`         // its merge lands without running the project's test (see queue.go)
 	Stamp         string         `json:"stamp,omitempty"`             // what the commits it lands carry as their TPS-Task trailer (see branch.go)
@@ -185,7 +186,7 @@ type Task struct {
 	checkingLive bool
 	refreshing   bool     // a changes overview is being computed
 	bundled      []change // what the bundle beside a parked task changes, once read (see bundleChanges); cloneMu guards it
-	autoStarting bool     // an auto-start is under way, so it isn't started twice
+	ending       bool     // its wait is being ended (see endWait), so it isn't ended twice
 	behind       int      // commits on the default branch the workspace doesn't have yet (see refreshBehind)
 	merging      bool     // its merge is under way: TPS at it, or the agent it sent in (see queue.go)
 	testing      bool     // and runs the project's test
@@ -352,11 +353,12 @@ func (t *Task) publishL() {
 	}
 	t.pubL("context", t.contextL())
 	t.pubL("schedule", optional(t.info.Schedule))
-	if len(t.info.StartAfter) > 0 {
-		t.pubL("startAfter", t.info.StartAfter)
+	if len(t.info.WaitFor) > 0 {
+		t.pubL("waitFor", t.info.WaitFor)
 	} else {
-		t.pubL("startAfter", nil)
+		t.pubL("waitFor", nil)
 	}
+	t.pubL("deferred", nonEmpty(t.info.Deferred))
 	// Whether there is a workspace to open at all: a task in Plan has none yet,
 	// a finished one no longer.
 	if t.hasWorkspace() {
@@ -476,13 +478,22 @@ func (t *Task) setPhaseL(phase Phase) {
 	default:
 		t.p.dequeueL(t)
 	}
+	// A task being merged, finished or put away waits for nothing any longer:
+	// what was held back for its agent goes back to the composer.
+	if phase == PhaseMerge || phase == PhaseDone || phase == PhaseClosed || phase == PhaseMuted {
+		t.info.WaitFor = nil
+		if t.info.Deferred != "" {
+			t.info.Draft = joinMessages(t.info.Deferred, t.info.Draft)
+			t.info.Deferred = ""
+		}
+	}
 	t.info.Phase = phase
 	t.info.PhaseAt = time.Now().UnixMilli()
 	t.p.touchL()
 	t.p.m.saveL()
 	t.publishL()
-	t.p.autoStartL() // a task reaching Done may be the last one another was waiting for
-	go t.syncCode()  // a workspace it just got (or lost) changes what VS Code can show
+	t.p.endWaitsL() // a task reaching Done may be the last one another was waiting for
+	go t.syncCode() // a workspace it just got (or lost) changes what VS Code can show
 }
 
 // --- chat log (no manager lock needed) ---
@@ -674,14 +685,26 @@ func (t *Task) ChatTurn(n int) []any {
 
 // --- settings ---
 
+// Update applies a dashboard's settings. A task set to wait while an agent
+// works in it has the agent stopped: nothing is to happen in it until the
+// wait is over.
 func (t *Task) Update(partial map[string]any) error {
 	t.lock()
-	defer t.unlock()
+	waiting := t.waitingL()
 	t.applyL(partial)
 	t.p.touchL()
 	t.p.m.saveL()
 	t.publishL()
-	t.p.autoStartL()
+	t.p.endWaitsL()
+	hold := !waiting && t.blockedL() && t.info.Phase != PhasePlan
+	stop := hold && t.agentPhaseL()
+	t.unlock()
+	if hold {
+		t.note("Waiting for other tasks to be done; what is said meanwhile is held back for the agent until then")
+	}
+	if stop {
+		_ = t.StopAgent()
+	}
 	return nil
 }
 
@@ -723,18 +746,25 @@ func (t *Task) applyL(partial map[string]any) {
 	if raw, ok := partial["schedule"].(map[string]any); ok && t.info.Schedule != nil {
 		t.info.Schedule.apply(raw)
 	}
-	if raw, ok := partial["startAfter"].([]any); ok {
-		var after []string
+	// A task on its way out, a scheduled one and a job have nothing to wait for
+	// (see setPhaseL).
+	if raw, ok := partial["waitFor"].([]any); ok && t.info.Schedule == nil && !t.job() && !t.finishedL() &&
+		t.info.Phase != PhaseMerge && t.info.Phase != PhaseMuted {
+		var tids []string
 		seen := map[string]bool{}
 		for _, d := range raw {
 			s, ok := d.(string)
-			if !ok || seen[s] || s == t.tid || t.p.tasks[s] == nil || t.p.startsAfterL(s, t.tid, nil) { // dropping cycles keeps waiting tasks startable
+			if !ok || seen[s] || s == t.tid || t.p.tasks[s] == nil || t.p.waitsForL(s, t.tid, nil) { // dropping cycles keeps waits endable
 				continue
 			}
 			seen[s] = true
-			after = append(after, s)
+			tids = append(tids, s)
 		}
-		t.info.StartAfter = after
+		t.info.WaitFor = tids
+	}
+	// Taken back to the composer, or reworded: only while it is held back.
+	if deferred, ok := partial["deferred"].(string); ok && t.waitingL() {
+		t.info.Deferred = strings.TrimSpace(deferred)
 	}
 }
 
@@ -744,10 +774,10 @@ func (t *Task) finishedL() bool {
 	return t.info.Phase == PhaseDone || t.info.Phase == PhaseClosed
 }
 
-// blockedL: some task this one follows is not done yet. A deleted one is
+// blockedL: some task this one waits for is not done yet. A deleted one is
 // nothing to wait for.
 func (t *Task) blockedL() bool {
-	for _, tid := range t.info.StartAfter {
+	for _, tid := range t.info.WaitFor {
 		if dep := t.p.tasks[tid]; dep != nil && !dep.finishedL() {
 			return true
 		}
@@ -755,13 +785,99 @@ func (t *Task) blockedL() bool {
 	return false
 }
 
-// autoStartableL: a task set to follow others, whose wait is over. Until then
-// it stays in Plan, so there is no half-made workspace anywhere; an open plan
-// holds it back as well, that being someone still writing the description the
-// agent is about to be handed.
-func (t *Task) autoStartableL() bool {
-	return t.info.Phase == PhasePlan && len(t.info.StartAfter) > 0 && !t.autoStarting &&
-		t.viewers == 0 && strings.TrimSpace(t.info.Description) != "" && !t.blockedL()
+// waitingL: the task waits for others, or the wait is being ended. Meanwhile no
+// agent is sent into it, and what the user says is held back as Deferred, for
+// the agent to be sent in with once the wait is over (see endWait). A plan
+// stays in Plan until then, so there is no half-made workspace anywhere.
+func (t *Task) waitingL() bool { return len(t.info.WaitFor) > 0 || t.ending }
+
+// waitOverL: the tasks it waits for are all done, or a message is held back
+// with nothing left to wait for (the wait was taken off by hand), and nobody
+// is ending the wait already.
+func (t *Task) waitOverL() bool {
+	if t.ending {
+		return false
+	}
+	if len(t.info.WaitFor) == 0 {
+		return t.info.Deferred != ""
+	}
+	return !t.blockedL()
+}
+
+// endWait sends the agent in once the wait is over. A plan is sent in with the
+// message held back as its first — one nobody sent stays in Plan, with nothing
+// to wait for. A task that left Plan is rebased onto the latest default branch
+// first, which brings in the work it waited for, and the agent carries on with
+// the message held back, or without one: the agent stopped for the wait (see
+// Update) is resumed. Anything said meanwhile is held back too, and goes with
+// it; a wait taken up again meanwhile goes on.
+func (t *Task) endWait() {
+	defer t.p.m.work()()
+	t.lock()
+	plan := t.info.Phase == PhasePlan
+	t.unlock()
+	if !plan {
+		_, _ = t.rebase()
+	}
+	t.lock()
+	t.ending = false
+	waited, text := len(t.info.WaitFor) > 0, t.info.Deferred
+	if waited && t.blockedL() { // waiting again: the conflicts of the rebase wait with the rest
+		if t.agentPhaseL() {
+			t.setPhaseL(PhaseHuman)
+		}
+		t.unlock()
+		return
+	}
+	if !waited && text == "" { // sent in by hand meanwhile (see Assign)
+		t.unlock()
+		return
+	}
+	t.info.WaitFor, t.info.Deferred = nil, ""
+	t.p.m.saveL()
+	t.publishL()
+	switch {
+	case t.info.Phase == PhasePlan:
+		if text != "" {
+			unsent := t.info.Description
+			t.info.Description = text
+			t.sendInL(text)
+			t.setDraftL(unsent) // out of Plan, the composer's own again
+		}
+		t.unlock()
+	default:
+		t.unlock()
+		if text == "" {
+			t.kick(waitedPrompt)
+		} else {
+			t.say(text)
+		}
+	}
+}
+
+// deferL holds a message of the user's back until the wait is over, after any
+// held back already. In Plan, what was sent is the plan's no longer: the task
+// is named after it, and the composer is empty again.
+func (t *Task) deferL(text string) {
+	if t.info.Phase == PhasePlan {
+		t.ensureTitleL(text)
+		t.info.Description = ""
+		t.pubL("description", "")
+	}
+	t.info.Deferred = joinMessages(t.info.Deferred, text)
+	t.p.m.saveL()
+	t.pubL("deferred", t.info.Deferred)
+}
+
+// joinMessages puts messages one after the other, leaving out empty ones.
+func joinMessages(texts ...string) string {
+	var kept []string
+	for _, s := range texts {
+		if s = strings.TrimSpace(s); s != "" {
+			kept = append(kept, s)
+		}
+	}
+	return strings.Join(kept, "\n\n")
 }
 
 // overBudgetL: the budget (if any) leaves no meaningful room for another run.
@@ -860,13 +976,10 @@ func (t *Task) offerDraftL(text string) {
 
 // Assign leaves the plan phase: hand the task over, the agent with the plan as
 // its first message — text, where that is what was sent (see SendChat). A task
-// set to follow others waits for them in Plan (see autoStartL), and starts
-// from the branch with their work in it (see freshen); assigning it by hand
-// meanwhile is the way to start it anyway, without waiting.
-//
-// The agent's task leaves Plan at once, and its workspace is made in the
-// background: a clone and a fetch can take a while, and the plan only shows
-// in the log behind the save point made on that workspace (see prepare).
+// set to wait for others stays in Plan until they are done (see endWait), and
+// starts from the branch with their work in it (see freshen); handing it to
+// the agent meanwhile is the way to start it anyway, without waiting, the
+// message held back going first. Handed to the human, it waits on.
 func (t *Task) Assign(to, text string) error {
 	t.lock()
 	if t.info.Schedule != nil {
@@ -877,28 +990,20 @@ func (t *Task) Assign(to, text string) error {
 		t.setDescriptionL(text) // the composer's debounce may owe the server the last keystroke
 	}
 	desc := t.info.Description
-	if desc == "" {
+	if to == "agent" {
+		desc = joinMessages(t.info.Deferred, desc)
+	}
+	if desc == "" && t.info.Deferred == "" {
 		t.unlock()
 		return errors.New("Write the plan first")
 	}
 	t.ensureTitleL(desc)
 	t.touchL()
 	if to == "agent" {
-		t.setPhaseL(PhaseAgent)
-		t.starting.Lock() // before the unlock, so that a message sent next waits for the plan (see SendChat)
+		t.info.WaitFor, t.info.Deferred = nil, ""
+		t.info.Description = desc
+		t.sendInL(desc)
 		t.unlock()
-		go func() {
-			defer t.starting.Unlock()
-			defer t.p.m.work()()
-			if err := t.prepare(); err != nil {
-				t.noteErr("Preparing the workspace failed", err)
-				t.lock()
-				t.setPhaseL(PhasePlan)
-				t.unlock()
-				return
-			}
-			t.say(desc)
-		}()
 		return nil
 	}
 	t.unlock()
@@ -911,6 +1016,27 @@ func (t *Task) Assign(to, text string) error {
 	t.unlock()
 	t.bgUp()
 	return nil
+}
+
+// sendInL hands a plan to the agent, desc its first message. The task leaves
+// Plan at once, and its workspace is made in the background: a clone and a
+// fetch can take a while, and the plan only shows in the log behind the save
+// point made on that workspace (see prepare).
+func (t *Task) sendInL(desc string) {
+	t.setPhaseL(PhaseAgent)
+	t.starting.Lock() // before the unlock, so that a message sent next waits for the plan (see SendChat)
+	go func() {
+		defer t.starting.Unlock()
+		defer t.p.m.work()()
+		if err := t.prepare(); err != nil {
+			t.noteErr("Preparing the workspace failed", err)
+			t.lock()
+			t.setPhaseL(PhasePlan)
+			t.unlock()
+			return
+		}
+		t.say(desc)
+	}()
 }
 
 // prepare gives a task leaving Plan its workspace, on the latest default branch.
@@ -938,9 +1064,10 @@ func isCompact(text string) bool {
 }
 
 // SendChat: a user chat message, shown in the log, then fed to (or starting)
-// the agent. Files attached to it are in the task's uploads directory already,
-// and the message refers to them by the path it reads them at (see Attach). A
-// message to a task in Plan is the plan, and sends it to the agent.
+// the agent — or held back while the task waits for others (see waitingL).
+// Files attached to it are in the task's uploads directory already, and the
+// message refers to them by the path it reads them at (see Attach). A message
+// to a task in Plan is the plan, and sends it to the agent.
 func (t *Task) SendChat(text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -969,6 +1096,11 @@ func (t *Task) SendChat(text string) error {
 	case compact && t.info.LimitUntil > 0:
 		t.unlock()
 		return errors.New("The task is waiting out a usage limit; the compaction would run into it too")
+	}
+	if t.waitingL() {
+		t.deferL(text)
+		t.unlock()
+		return nil
 	}
 	t.unlock()
 	// A message picks a parked task back up for the agent (see kick); a
@@ -1027,6 +1159,12 @@ func (t *Task) kick(text string) {
 		return // no agent works in a job, the deploy's credentials least of all (see jobs.go)
 	}
 	t.lock()
+	// No agent goes into a task that waits for others: what it was to be told
+	// is in its notes, or held back for when the wait is over (see endWait).
+	if t.waitingL() {
+		t.unlock()
+		return
+	}
 	t.clearLimitL()  // a turn now is what the wait was for, or what replaces it
 	t.holdL("", nil) // the work is about to change: a merge held back makes its commit anew
 	if t.overBudgetL() && !t.overrunL() {
@@ -1216,7 +1354,15 @@ func (t *Task) MoveTo(phase Phase) error {
 		if current == PhasePlan {
 			return t.Assign("agent", "")
 		}
-		return t.SendChat("Please continue working on the task.")
+		// Sent in by hand, without waiting: what was held back goes with it, on
+		// the workspace as it stands (see Assign).
+		t.lock()
+		text := joinMessages(t.info.Deferred, "Please continue working on the task.")
+		t.info.WaitFor, t.info.Deferred = nil, ""
+		t.p.m.saveL()
+		t.publishL()
+		t.unlock()
+		return t.SendChat(text)
 	case PhaseReview:
 		return t.StartReview()
 	case PhaseHuman, PhaseMuted:
@@ -1359,7 +1505,7 @@ func (t *Task) leavePlan() {
 		t.unlock()
 		return
 	}
-	if t.info.Description == "" && t.info.Title == "" && len(changes) == 0 {
+	if t.info.Description == "" && t.info.Deferred == "" && t.info.Title == "" && len(changes) == 0 {
 		t.unlock()
 		_ = t.Delete()
 		return
@@ -1368,7 +1514,6 @@ func (t *Task) leavePlan() {
 	if len(changes) > 0 {
 		t.setPhaseL(PhaseHuman)
 	}
-	t.p.autoStartL() // closing a plan lets a task that was waiting for it go
 	t.unlock()
 }
 
@@ -1507,33 +1652,50 @@ func (t *Task) carryOn(prompt string) {
 // to resolve them instead, the step its turn ends on being the merge; either
 // way it is told what happened to its workspace (see queueL).
 func (t *Task) Rebase() error {
+	t.lock()
+	waiting := t.waitingL()
+	t.unlock()
+	if waiting {
+		return errors.New("The task waits for other tasks; it is rebased once they are done")
+	}
+	conflicts, err := t.rebase()
+	if conflicts {
+		t.kick("") // what to resolve is in the notes rebase left
+	}
+	return err
+}
+
+// rebase is Rebase up to sending the agent in, and reports whether there are
+// conflicts for it to resolve: the task is the agent's then, and the notes
+// waiting for it say what to do.
+func (t *Task) rebase() (bool, error) {
 	defer t.p.m.work()()
 	repo := t.repoDir()
 	if !t.hasWorkspace() {
-		return errors.New("The task has no workspace to rebase")
+		return false, errors.New("The task has no workspace to rebase")
 	}
 	_ = t.StopAgent()
 	branch := t.p.defaultBranch
 	conflicts, doubled, err := t.replant(repo)
 	if err != nil {
 		t.noteErr("Rebase failed", err)
-		return err
-	}
-	t.queue("rebase", replantedPrompt(branch, doubled))
-	if len(conflicts) > 0 {
-		t.note(fmt.Sprintf("Rebased onto the latest %s; conflicts in %s, sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
-		t.lock()
-		// The agent's already, so that the merge is not made a step of the
-		// user's on the way in (see kick): its resolution is the step.
-		t.setPhaseL(PhaseAgent)
-		t.unlock()
-		t.kick(conflictsPrompt(conflicts))
-	} else {
-		t.mark("Rebase", "onto the latest "+branch)
-		t.note("Rebased onto the latest " + branch + " ✔")
+		return false, err
 	}
 	go t.refreshChanges()
-	return nil
+	if len(conflicts) == 0 {
+		t.queue("rebase", replantedPrompt(branch, doubled))
+		t.mark("Rebase", "onto the latest "+branch)
+		t.note("Rebased onto the latest " + branch + " ✔")
+		return false, nil
+	}
+	t.queue("rebase", replantedPrompt(branch, doubled)+"\n\n"+conflictsPrompt(conflicts))
+	t.note(fmt.Sprintf("Rebased onto the latest %s; conflicts in %s, sending the agent in to resolve them", branch, strings.Join(conflicts, ", ")))
+	t.lock()
+	// The agent's already, so that the merge is not made a step of the
+	// user's on the way in (see kick): its resolution is the step.
+	t.setPhaseL(PhaseAgent)
+	t.unlock()
+	return true, nil
 }
 
 // --- the work, and the latest branch ---
@@ -2081,7 +2243,7 @@ func (t *Task) Delete() error {
 	t.p.m.hub.SetChat(t.key(), nil)
 	t.p.touchL()
 	t.p.m.saveL()
-	t.p.autoStartL() // a deleted task is no longer something to wait for
+	t.p.endWaitsL() // a deleted task is no longer something to wait for
 	return nil
 }
 
@@ -2542,7 +2704,7 @@ func (t *Task) doUp() (*Container, error) {
 // never happen. Those hear of it anyway, the note waiting for the turn that
 // comes next (see queueL); a kick underway carries it in itself.
 func (t *Task) fixImageL() {
-	if t.agentPhaseL() || t.sessionFlight != nil || t.finishedL() {
+	if t.agentPhaseL() || t.sessionFlight != nil || t.finishedL() || t.waitingL() {
 		return
 	}
 	go func() {

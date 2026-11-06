@@ -250,8 +250,8 @@ func (p *Project) touchL() {
 	p.pub("activity", p.info.Activity)
 }
 
-// startsAfterL: true when task tid (transitively) follows task on.
-func (p *Project) startsAfterL(tid, on string, seen map[string]bool) bool {
+// waitsForL: true when task tid (transitively) waits for task on.
+func (p *Project) waitsForL(tid, on string, seen map[string]bool) bool {
 	if tid == on {
 		return true
 	}
@@ -263,8 +263,8 @@ func (p *Project) startsAfterL(tid, on string, seen map[string]bool) bool {
 	}
 	seen[tid] = true
 	if t := p.tasks[tid]; t != nil {
-		for _, d := range t.info.StartAfter {
-			if p.startsAfterL(d, on, seen) {
+		for _, d := range t.info.WaitFor {
+			if p.waitsForL(d, on, seen) {
 				return true
 			}
 		}
@@ -272,24 +272,15 @@ func (p *Project) startsAfterL(tid, on string, seen map[string]bool) bool {
 	return false
 }
 
-// autoStartL hands over every task whose wait is over (see autoStartableL). It
+// endWaitsL ends the wait of every task whose wait is over (see waitOverL). It
 // is called wherever that may have just changed: a task reaching Done or being
-// deleted, a setting changed, and a plan being closed.
-func (p *Project) autoStartL() {
+// deleted, and a setting changed.
+func (p *Project) endWaitsL() {
 	for _, t := range p.tasks {
-		if !t.autoStartableL() {
-			continue
+		if t.waitOverL() {
+			t.ending = true
+			go t.endWait()
 		}
-		t.autoStarting = true
-		go func() {
-			err := t.Assign("agent", "")
-			t.lock()
-			t.autoStarting = false
-			t.unlock()
-			if err != nil {
-				logf("auto-start %s: %v", t.key(), err)
-			}
-		}()
 	}
 }
 

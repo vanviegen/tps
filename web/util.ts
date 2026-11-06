@@ -210,9 +210,9 @@ export function drawBadge(count: number): void {
 		'text=', String(count));
 }
 
-/** A task in Plan set to follow others: it leaves Plan by itself once they are done. */
-export function autoStarts($t: any): boolean {
-	return $t.phase === 'plan' && !!$t.startAfter?.length;
+/** A task set to wait for others: no agent works in it, and what is said to it is held back, until they are done. */
+export function waits($t: any): boolean {
+	return !!$t.waitFor?.length;
 }
 
 /**
@@ -234,10 +234,10 @@ export function scheduleText($t: any): string {
 	return `${time}, ${on.length === 7 ? 'every day' : on.map(([, name]) => name).join(' ')}`;
 }
 
-/** The tasks `$t` follows that are not there yet: existing tasks not yet done. */
+/** The tasks `$t` waits for that are not there yet: existing tasks not yet done. */
 export function waitingFor(pid: string, $t: any): string[] {
 	const $tasks = $state.projects[pid]?.tasks ?? {};
-	return ($t.startAfter ?? []).filter((d: string) => $tasks[d] && !isFinished($tasks[d]));
+	return ($t.waitFor ?? []).filter((d: string) => $tasks[d] && !isFinished($tasks[d]));
 }
 
 /** The icon a host goes by: this machine, or another one. */
@@ -296,11 +296,10 @@ function limitTime(ms: number): string {
 /** What the workspace is up to (or what the task waits for), as text plus a color role. */
 export function taskActivity(pid: string, $t: any): { text: string; color: string } {
 	if ($t.limitUntil) return { text: `Waits for claude's usage limit, back at ${limitTime($t.limitUntil)}`, color: 'warning' };
-	if (autoStarts($t)) {
-		const pending = waitingFor(pid, $t);
-		if (!pending.length) return { text: 'Starts once its plan is closed', color: 'warning' };
+	const pending = waitingFor(pid, $t);
+	if (pending.length) {
 		const what = pending.length > 1 ? `${pending.length} tasks` : taskName(pid, pending[0]);
-		return { text: `Starts after ${what}`, color: 'warning' };
+		return { text: `Waits for ${what}`, color: 'warning' };
 	}
 	switch ($t.status) {
 		case 'building': return { text: 'Building the container image', color: 'warning' };
@@ -326,7 +325,7 @@ export function taskTip(pid: string, $t: any): string {
 /**
  * The task at a glance: its phase as an icon — the robot while the agent has
  * the task, the merge icon while a merge runs, an hourglass while it waits
- * (for the tasks it follows, or for claude's usage limit to reset) — colored
+ * (for other tasks, or for claude's usage limit to reset) — colored
  * by the container status. A job wears its own icon whatever its phase, red
  * when it failed. A plan an agent asked for that the user has yet to open
  * outranks all of that: sparkles, glowing in the warning colour and breathing,
@@ -343,7 +342,7 @@ export function drawTaskIcon(pid: string, $t: any, { tip = true, busy = true, co
 	A(() => {
 		const activity = taskActivity(pid, $t);
 		const asked = requested($t);
-		const icon = asked ? sparkles : JOB_ICONS[$t.job] ?? (autoStarts($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle);
+		const icon = asked ? sparkles : JOB_ICONS[$t.job] ?? (waits($t) || $t.limitUntil ? hourglass : PHASE_ICONS[$t.phase as Phase] ?? circle);
 		// The phase's own icon throughout, breathing while something is going on
 		// (see taskBusy). A spinner's glyph is for a spinner; this one does not turn.
 		const alive = asked || (busy && taskBusy($t));

@@ -12,7 +12,7 @@ import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies,
 import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { autoStarts, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectName, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
+import { canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectName, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -49,9 +49,9 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 
 /**
  * The task's whole menu: where it can go, and how it ends — plus what is not
- * a phase but belongs with them: starting a task that follows this one, and
+ * a phase but belongs with them: starting a task that waits for this one, and
  * throwing it away. `extra` slots in between, for the callers that have more
- * to offer. A scheduled task goes nowhere, and has nothing to follow.
+ * to offer. A scheduled task goes nowhere, and has nothing to wait for.
  */
 export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
 	const remove: S.MenuEntry = { label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) };
@@ -60,7 +60,7 @@ export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEn
 		...phaseItems(pid, tid, $t),
 		...skipItems(pid, tid, $t),
 		{ separator: true },
-		{ label: 'Create dependent task', icon: plus, disabled: isFinished($t), click: () => void addTask(pid, { startAfter: [tid] }) },
+		{ label: 'Create dependent task', icon: plus, disabled: isFinished($t), click: () => void addTask(pid, { waitFor: [tid] }) },
 		...extra,
 		remove,
 	];
@@ -174,19 +174,18 @@ function finish(pid: string, tid: string, phase: 'done' | 'closed'): void {
 }
 
 /**
- * A task that follows others, handed to the agent by hand: it was going to
- * wait for them and start in a workspace with their merged work in it, so
+ * A task that waits for others, handed to the agent by hand: it was going to
+ * wait for them and go on in a workspace with their merged work in it, so
  * getting ahead of that is worth a question. Once they are all done (or gone)
- * there is nothing to overtake and nothing is asked — closing the plan would
- * have sent it off anyway.
+ * there is nothing to overtake and nothing is asked.
  */
 async function confirmOvertake(pid: string, $t: any): Promise<boolean> {
-	const pending = A.peek(() => autoStarts($t) ? waitingFor(pid, $t) : []);
+	const pending = A.peek(() => waitingFor(pid, $t));
 	if (!pending.length) return true;
 	const names = A.peek(() => pending.map(d => `"${taskName(pid, d)}"`));
 	const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-	return S.confirm(`This task is set to start after ${list}, ${names.length > 1 ? 'which are not done yet' : 'which is not done yet'}. `
-		+ `Send it to the agent now? Its workspace is made at once, off the branch as it stands, so it will not have their work in it.`);
+	return S.confirm(`This task waits for ${list}, ${names.length > 1 ? 'which are not done yet' : 'which is not done yet'}. `
+		+ `Send it to the agent now, without waiting? Its workspace will not have their work in it.`);
 }
 
 /**
@@ -254,7 +253,7 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
  * created right away, in Plan and without a plan written, so the board and the
  * sidebar have it from the first moment. It goes by "New" until its plan's
  * first line names it (see taskTitle). `partial` sets what
- * differs from the project's defaults, such as the tasks it starts after.
+ * differs from the project's defaults, such as the tasks it waits for.
  */
 export async function addTask(pid: string, partial: object = {}): Promise<void> {
 	// The server fills in the project's defaults. All but one, that is: ready
@@ -267,13 +266,15 @@ export async function addTask(pid: string, partial: object = {}): Promise<void> 
 }
 
 /**
- * Move a task in Plan to another project: its plan is written down
- * there as a new task, and this one deleted. The rest it gets from the new
- * project's defaults — the tasks it followed are not that project's to follow.
+ * Move a task in Plan to another project: its plan — what was held back for
+ * the agent included — is written down there as a new task, and this one
+ * deleted. The rest it gets from the new project's defaults — the tasks it
+ * waited for are not that project's to wait for.
  */
 async function changeProject(pid: string, tid: string, $t: any, to: string): Promise<void> {
 	if (to === pid) return;
-	const created = await cmd('createTask', { pid: to, draft: A.peek($t, 'description') ?? '' });
+	const draft = A.peek(() => [$t.deferred, $t.description].filter(s => s?.trim()).join('\n\n'));
+	const created = await cmd('createTask', { pid: to, draft });
 	if (!created) return;
 	applyNotifyDefault(to, created.tid as string);
 	await cmd('deleteTask', { pid, tid });
@@ -304,10 +305,10 @@ function modelsError(pid: string): string {
 }
 
 /**
- * Model, what the task follows, budget, merge behaviour: everything about a
+ * Model, what the task waits for, budget, merge behaviour: everything about a
  * task except its phase and title. Changes go through `save`, which either
- * tells the server or (drawn on a project's defaults, which have no phase and
- * so no `Start after`) sets what the next task there starts with.
+ * tells the server or (drawn on a project's defaults, which have no task to
+ * wait for) sets what the next task there starts with.
  */
 export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
 	// The two models stand together: a task is often worth a different mind from
@@ -332,20 +333,20 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 			set value(model: string) { if (model) save({ reviewModel: model === SAME_MODEL ? '' : model }); },
 		},
 	}));
-	// Only while the task is in Plan: following others is how it leaves Plan,
-	// so once it has, there is nothing left to set here — nor for a scheduled
-	// task, which never does.
+	// Not for a task on its way out or put away, nor for a scheduled one: none
+	// of them has an agent to hold back (see applyL in daemon/task.go).
 	A(() => {
-		if ($t.phase !== 'plan' || isSchedule($t)) return;
+		if (!tid || isFinished($t) || isSchedule($t) || $t.phase === 'merge' || $t.phase === 'muted') return;
 		S.autocomplete({
-			label: 'Start after', multi: true, allowCustom: false,
+			label: 'Wait for', multi: true, allowCustom: false,
 			placeholder: 'Tasks to wait for…',
-			help: 'The task starts once these are all done or deleted and its plan is closed; its workspace is made then, holding their merged work.',
-			// The tasks it already follows stay listed even when done, so their
+			help: 'Until these are all done or deleted, no agent works on this task — one at work is stopped — and what you send is held back. '
+				+ 'Then the task is brought onto the latest branch, with their work in it, and the agent goes on with what you sent.',
+			// The tasks it already waits for stay listed even when done, so their
 			// chips read as names rather than as numbers. By phase, as the board
 			// has them, then by name.
 			options: () => {
-				const after: string[] = $t.startAfter ?? [];
+				const after: string[] = $t.waitFor ?? [];
 				const self = tid;
 				const $tasks = $state.projects[pid]?.tasks ?? {};
 				return Object.keys($tasks)
@@ -354,8 +355,8 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 					.sort((a, b) => a.phase - b.phase || a.label.localeCompare(b.label));
 			},
 			bind: {
-				get value() { return $t.startAfter ?? []; },
-				set value(after: string[]) { save({ startAfter: [...after] }); },
+				get value() { return $t.waitFor ?? []; },
+				set value(after: string[]) { save({ waitFor: [...after] }); },
 			},
 		});
 	});
@@ -645,11 +646,8 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 					+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
 				return;
 			}
-			// What a plan is waiting for, its own page being open included — that
-			// holds it back too.
-			if (autoStarts($t)) {
-				const also = waitingFor(pid, $t).length ? ', and once you close this plan' : '';
-				A('div.s-s.warning.tonal p:$2 text=', `⏳ ${taskActivity(pid, $t).text}${also}.`);
+			if (waitingFor(pid, $t).length) {
+				A('div.s-s.warning.tonal p:$2 text=', `⏳ ${taskActivity(pid, $t).text}: what you send is held back for the agent until then.`);
 			}
 			if ($t.phase === 'plan') return;
 			if (!waitsForHuman($t)) return;
@@ -806,16 +804,15 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		el.value = text;
 		el.dispatchEvent(new Event('input')); // grow or shrink with it, and light the send button
 	};
-	const sendMsg = async () => {
+	const sendMsg = () => {
 		const text = area().value.trim();
 		if (!text) return;
-		// Sent from Plan, the task leaves it, and may overtake what it waits for.
-		if (plan() && !(await confirmOvertake(pid, $t))) return;
-		planSent = plan();
+		// Sent from Plan, the task leaves it — unless the message is held back.
+		planSent = plan() && !A.peek(() => waits($t));
 		fill('');
 		clearTimeout(timer);
 		stored = '';
-		if (!planSent) void cmd('updateTask', { pid, tid, draft: '' });
+		if (!plan()) void cmd('updateTask', { pid, tid, draft: '' });
 		void cmd('chat', { pid, tid, text }).then(to => follow(pid, tid, to));
 	};
 	const bar = A('div display:flex flex-direction:column gap:$2', () => {

@@ -61,6 +61,7 @@ export function drawChat(pid: string, tid: string, $t: any, settings: () => void
 		if (!isJob($t)) A('div display:flex flex-direction:column gap:$2 pb:$3 border-bottom: 1px solid $s-faint;', settings);
 		A(() => drawRules(pid, tid, $t));
 		A.onEach($chat, ($turn: any[], i: number) => drawTurn($chat, $turn, i, $foldBelow, $open, pid, tid, $t));
+		A(() => drawDeferred(pid, tid, $t));
 	}) as HTMLElement;
 	// Follow new entries unless the user scrolled up to read something.
 	let stick = true;
@@ -69,8 +70,24 @@ export function drawChat(pid: string, tid: string, $t: any, settings: () => void
 	});
 	A(() => {
 		void $chat[$chat.length - 1].length;
+		void $t.deferred;
 		if (stick) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
 	});
+}
+
+/**
+ * What the user sent while the task waits for others (see daemon/task.go),
+ * held back for the agent until the wait is over: a message of theirs, its
+ * border dashed, below everything said so far. Editing it takes it back to
+ * the composer, ahead of whatever is being written there.
+ */
+function drawDeferred(pid: string, tid: string, $t: any): void {
+	if (!$t.deferred) return;
+	const edit = () => {
+		const draft = A.peek(() => ($t.phase === 'plan' ? $t.description : $t.draft) ?? '');
+		void cmd('updateTask', { pid, tid, deferred: '', draft: [$t.deferred, draft].filter(s => s.trim()).join('\n\n') });
+	};
+	drawMessage('.s-s.primary.outlined border-style:dashed pv:$1 ph:$3 justify-self:start', $t.deferred, edit);
 }
 
 /** How many of the newest entries are never folded away. */

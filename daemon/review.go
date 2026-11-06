@@ -61,6 +61,12 @@ func (t *Task) StartReview() error {
 	if changes, err := t.changes(); err == nil && len(changes) == 0 {
 		return errors.New("There is nothing to review: this task's workspace holds no work of its own")
 	}
+	t.lock()
+	waiting := t.waitingL()
+	t.unlock()
+	if waiting {
+		return errors.New("The task waits for other tasks; nobody reads it over before they are done")
+	}
 	t.stopAgent()
 	// Whatever is in the tree is not the reviewer's doing, and becomes a save
 	// point of its own before it starts (see mark).
