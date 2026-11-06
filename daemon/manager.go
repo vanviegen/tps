@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -189,7 +190,7 @@ func (m *Manager) scheduleRestart() {
 func NewManager(h *hub.Hub, exit func(code int)) *Manager {
 	m := &Manager{
 		projects:   map[string]*Project{},
-		dataDir:    filepath.Join(home(), ".local", "share", "tps"),
+		dataDir:    DataDir(),
 		configFile: filepath.Join(home(), ".config", "tps", "projects.json"),
 		hub:        h,
 		saveCh:     make(chan []byte, 1),
@@ -294,6 +295,13 @@ func (m *Manager) saveL() {
 	}
 }
 
+// save is saveL for a caller that holds no lock.
+func (m *Manager) save() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.saveL()
+}
+
 func (m *Manager) saver() {
 	for data := range m.saveCh {
 		data = append(data, '\n')
@@ -388,17 +396,8 @@ func (m *Manager) writeRegistry(data []byte) error {
 }
 
 func (m *Manager) sortedProjectsL() []*Project {
-	out := make([]*Project, 0, len(m.projects))
-	for _, p := range m.projects {
-		out = append(out, p)
-	}
 	// Registration order is what the JSON file had; keep it stable by pid.
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j].pid < out[j-1].pid; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
-		}
-	}
-	return out
+	return slices.SortedFunc(maps.Values(m.projects), func(a, b *Project) int { return strings.Compare(a.pid, b.pid) })
 }
 
 // load registers a project under the pid it had, or a fresh one. A staged
@@ -495,9 +494,7 @@ func (m *Manager) Add(dir, name string, init bool) (*Project, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	m.mu.Lock()
-	m.saveL()
-	m.mu.Unlock()
+	m.save()
 	return p, "", nil
 }
 
@@ -565,13 +562,11 @@ func (m *Manager) TurnIntoProject(t *Task, dir, name string) (*Project, *Task, e
 	// The container is named after the project it ran in (see containerName).
 	t.stopAgent()
 	t.down()
-	nestDown(t.containerName(), nestDir(t.dir()))
-	_ = rmContainer(t.containerName())
+	t.dropContainer()
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
 	m.mu.Lock()
-	tid := strconv.Itoa(p.info.NextTask)
-	p.info.NextTask++
+	tid := p.nextTidL()
 	moved := newTask(p, tid, t.info)
 	m.mu.Unlock()
 	if err := os.MkdirAll(p.tasksDir(), 0o755); err != nil {
@@ -586,16 +581,12 @@ func (m *Manager) TurnIntoProject(t *Task, dir, name string) (*Project, *Task, e
 		}
 	}
 	m.mu.Lock()
-	delete(t.p.info.Tasks, t.tid)
-	delete(t.p.tasks, t.tid)
-	m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid}, nil)
-	m.hub.SetChat(t.key(), nil)
+	t.dropTaskL()
 	t.info.WaitFor = nil // the scratch tasks it waited for are not this project's
 	p.info.Tasks[tid] = t.info
 	p.tasks[tid] = moved
 	moved.queueL("project", projectPrompt(p.info.Name, p.dir()))
 	moved.publishL()
-	t.p.touchL()
 	p.touchL()
 	m.saveL()
 	m.mu.Unlock()
@@ -665,9 +656,7 @@ func (m *Manager) Import(dir, staging string, info *ProjectInfo) (*Project, erro
 	if err != nil {
 		return nil, err
 	}
-	m.mu.Lock()
-	m.saveL()
-	m.mu.Unlock()
+	m.save()
 	return p, nil
 }
 
@@ -720,8 +709,9 @@ func (m *Manager) allTasksL() []*Task {
 	return out
 }
 
-// parkAll puts away the finished and muted tasks an older TPS left with their
-// workspace in place or their data uncompressed (see park), one at a time.
+// parkAll puts away the finished and muted tasks found with their workspace in
+// place or their data uncompressed (see park), one at a time: those the daemon
+// went down before parking, and those a save point was read from (see UsePoint).
 func (m *Manager) parkAll() {
 	m.mu.Lock()
 	tasks := m.allTasksL()
@@ -776,10 +766,7 @@ func (m *Manager) sweep() {
 			t.unlock()
 			continue
 		}
-		t.lock()
-		plan := t.info.Phase == PhasePlan
-		t.unlock()
-		if plan { // no agent to tell: there has been none yet
+		if t.phase() == PhasePlan { // no agent to tell: there has been none yet
 			t.shelve()
 			continue
 		}
@@ -853,11 +840,12 @@ func probePort(port int) portProbe {
 	if err != nil && !(errors.As(err, &nerr) && nerr.Timeout()) {
 		return portProbe{}
 	}
-	return portProbe{Open: true, HTTP: answersHTTP(port)}
+	return portProbe{Open: true, HTTP: answersHTTP(port, "/")}
 }
 
-func answersHTTP(port int) bool {
-	resp, err := liveClient.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+// answersHTTP: does an HTTP server answer at this path of a loopback port?
+func answersHTTP(port int, path string) bool {
+	resp, err := liveClient.Get(fmt.Sprintf("http://127.0.0.1:%d%s", port, path))
 	if err != nil {
 		return false
 	}
@@ -987,18 +975,23 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 	// A job task (see jobs.go) takes the commands about looking at it and its
 	// services; the ones that make it the user's — chatting, merging, moving
 	// it, deleting it — are for the user's own tasks (withTask).
-	withAnyTask := func(f func(t *Task, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
+	withArgs := func(f func(r ref, partial map[string]any) (any, error)) hub.CmdHandler {
 		return func(raw json.RawMessage) (any, error) {
 			r, partial, err := decode(raw)
 			if err != nil {
 				return nil, err
 			}
+			return f(r, partial)
+		}
+	}
+	withAnyTask := func(f func(t *Task, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
+		return withArgs(func(r ref, partial map[string]any) (any, error) {
 			t, err := m.task(r.Pid, r.Tid)
 			if err != nil {
 				return nil, err
 			}
 			return f(t, r, partial)
-		}
+		})
 	}
 	withTask := func(f func(t *Task, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
 		return withAnyTask(func(t *Task, r ref, partial map[string]any) (any, error) {
@@ -1009,26 +1002,21 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 		})
 	}
 	withProject := func(f func(p *Project, r ref, partial map[string]any) (any, error)) hub.CmdHandler {
-		return func(raw json.RawMessage) (any, error) {
-			r, partial, err := decode(raw)
-			if err != nil {
-				return nil, err
-			}
+		return withArgs(func(r ref, partial map[string]any) (any, error) {
 			p, err := m.project(r.Pid)
 			if err != nil {
 				return nil, err
 			}
 			return f(p, r, partial)
-		}
+		})
+	}
+	// The project's state comes along with its pid, so the dashboard can show
+	// it before the patches it was not yet listening for.
+	projectReply := func(p *Project) map[string]any {
+		return map[string]any{"pid": p.pid, "project": m.hub.Snapshot("projects", p.pid)}
 	}
 	return map[string]hub.CmdHandler{
-		// Replies with the project's state as well, so the dashboard can show
-		// it before the patches it was not yet listening for.
-		"addProject": func(raw json.RawMessage) (any, error) {
-			r, _, err := decode(raw)
-			if err != nil {
-				return nil, err
-			}
+		"addProject": withArgs(func(r ref, partial map[string]any) (any, error) {
 			p, missing, err := m.Add(r.Dir, r.Name, r.Init)
 			if err != nil {
 				return nil, err
@@ -1036,29 +1024,19 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			if missing != "" {
 				return map[string]any{"missing": missing}, nil
 			}
-			return map[string]any{"pid": p.pid, "project": m.hub.Snapshot("projects", p.pid)}, nil
-		},
+			return projectReply(p), nil
+		}),
 		"turnIntoProject": withTask(func(t *Task, r ref, partial map[string]any) (any, error) {
 			p, moved, err := m.TurnIntoProject(t, r.Dir, r.Name)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"pid": p.pid, "tid": moved.tid, "project": m.hub.Snapshot("projects", p.pid)}, nil
+			reply := projectReply(p)
+			reply["tid"] = moved.tid
+			return reply, nil
 		}),
-		"exportProject": func(raw json.RawMessage) (any, error) {
-			r, _, err := decode(raw)
-			if err != nil {
-				return nil, err
-			}
-			return m.Export(r.Pid)
-		},
-		"prepareImport": func(raw json.RawMessage) (any, error) {
-			r, _, err := decode(raw)
-			if err != nil {
-				return nil, err
-			}
-			return m.PrepareImport(r.Dir)
-		},
+		"exportProject": withArgs(func(r ref, partial map[string]any) (any, error) { return m.Export(r.Pid) }),
+		"prepareImport": withArgs(func(r ref, partial map[string]any) (any, error) { return m.PrepareImport(r.Dir) }),
 		"importProject": func(raw json.RawMessage) (any, error) {
 			var args struct {
 				Dir     string       `json:"dir"`
@@ -1072,15 +1050,9 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"pid": p.pid, "project": m.hub.Snapshot("projects", p.pid)}, nil
+			return projectReply(p), nil
 		},
-		"removeProject": func(raw json.RawMessage) (any, error) {
-			r, _, err := decode(raw)
-			if err != nil {
-				return nil, err
-			}
-			return nil, m.Remove(r.Pid)
-		},
+		"removeProject": withArgs(func(r ref, partial map[string]any) (any, error) { return nil, m.Remove(r.Pid) }),
 		"setProject": withProject(func(p *Project, r ref, partial map[string]any) (any, error) {
 			return nil, p.SetConfig(partial)
 		}),
@@ -1159,21 +1131,8 @@ func (m *Manager) Cmds() map[string]hub.CmdHandler {
 			}
 			return nil, m.setIdentity(id)
 		},
-		"setOpenRouterKey": func(raw json.RawMessage) (any, error) {
-			r, _, err := decode(raw)
-			if err != nil {
-				return nil, err
-			}
-			m.setOpenRouterKey(r.Text)
-			return nil, nil
-		},
+		"setOpenRouterKey": withArgs(func(r ref, partial map[string]any) (any, error) { m.setOpenRouterKey(r.Text); return nil, nil }),
 		// A login the dashboard signed in for, as the credentials claude wrote (see login.go).
-		"setLogin": func(raw json.RawMessage) (any, error) {
-			r, _, err := decode(raw)
-			if err != nil {
-				return nil, err
-			}
-			return nil, m.setLogin(r.Text)
-		},
+		"setLogin": withArgs(func(r ref, partial map[string]any) (any, error) { return nil, m.setLogin(r.Text) }),
 	}
 }

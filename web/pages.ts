@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as S from 'staffa';
 import { externalLink, pencil, rotateCw } from 'staffa/icons.js';
 import { drawCode } from './code.ts';
-import { portUrl } from './util.ts';
+import { openPort, portUrl } from './util.ts';
 
 /**
  * The pages a task's container serves, as tabs beside VS Code: one for each
@@ -61,7 +61,7 @@ export function drawTaskPages(key: string, $t: any, left: string, code: (top: st
 					id: String(p.port),
 					label: () => {
 						A('text=', `Port ${p.port}`);
-						A('span display:inline-flex ml:$1', 'click=', (e: Event) => { e.stopPropagation(); window.open(portUrl(p), '_blank'); }, () => {
+						A('span display:inline-flex ml:$1', 'click=', (e: Event) => { e.stopPropagation(); openPort(p); }, () => {
 							S.addTooltip({ tip: 'Open in a new browser tab' });
 							externalLink({ size: '0.9em' });
 						});

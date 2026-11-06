@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -212,6 +213,20 @@ func (st *guestTool) dir(name string) (string, error) {
 	return filepath.Join(st.root, name), nil
 }
 
+// service reads the service a command names, the first of at most n
+// arguments, and its directory.
+func (st *guestTool) service(cmd string, args []string, n int) (name, dir string, err error) {
+	if len(args) == 0 || len(args) > n {
+		return "", "", fmt.Errorf("%s: which service?", cmd)
+	}
+	dir, err = st.dir(args[0])
+	return args[0], dir, err
+}
+
+// declared is the file holding the command Containerfile.dev declares for a
+// service (see writeDeclared).
+func (st *guestTool) declared(name string) string { return filepath.Join(st.root, declaredDir, name) }
+
 // fail is how a command that answers with an exit code reports what went
 // wrong with it, rather than with the service.
 func (st *guestTool) fail(err error) int {
@@ -220,9 +235,12 @@ func (st *guestTool) fail(err error) int {
 }
 
 // pid is the wrapper's pid, or 0 when the service never started.
-func servicePid(dir string) int {
-	pid, _ := strconv.Atoi(strings.TrimSpace(readFile(filepath.Join(dir, "pid"))))
-	return pid
+func servicePid(dir string) int { return readInt(filepath.Join(dir, "pid")) }
+
+// readInt reads a file holding a number, 0 for one that does not.
+func readInt(path string) int {
+	n, _ := strconv.Atoi(strings.TrimSpace(readFile(path)))
+	return n
 }
 
 // alive: the service started, has not recorded its end, and its wrapper is there.
@@ -246,7 +264,7 @@ func serviceRepair(dir string) {
 // and only whoever starts it knows which it is.
 func (st *guestTool) start(args []string) int {
 	if len(args) < 2 {
-		return st.fail(fmt.Errorf("start: which service, and how many seconds to wait for it? (0 not to wait)"))
+		return st.fail(errors.New("start: which service, and how many seconds to wait for it? (0 not to wait)"))
 	}
 	name := args[0]
 	seconds, err := strconv.Atoi(args[1])
@@ -276,7 +294,7 @@ func (st *guestTool) launch(name string, argv []string) error {
 	if len(argv) == 0 {
 		// Declared services run what Containerfile.dev says now; an ad hoc one
 		// runs again as it did, in this container or an earlier one.
-		if declared := strings.TrimSpace(readFile(filepath.Join(st.root, ".declared", name))); declared != "" {
+		if declared := strings.TrimSpace(readFile(st.declared(name))); declared != "" {
 			argv = []string{declared}
 		} else if argv = serviceArgv(dir); len(argv) == 0 {
 			return fmt.Errorf("no command given, and Containerfile.dev declares no service '%s'", name)
@@ -334,7 +352,7 @@ func (st *guestTool) wait(dir, name string, seconds int) int {
 		time.Sleep(300 * time.Millisecond)
 	}
 	serviceRepair(dir)
-	code, _ := strconv.Atoi(strings.TrimSpace(readFile(filepath.Join(dir, "exit"))))
+	code := readInt(filepath.Join(dir, "exit"))
 	if exists(filepath.Join(dir, "stopped")) {
 		fmt.Printf("'%s' was stopped (exit code %d).\n", name, code)
 	} else {
@@ -362,12 +380,7 @@ func termEnv(env []string) []string {
 }
 
 func hasEnv(env []string, name string) bool {
-	for _, e := range env {
-		if strings.HasPrefix(e, name+"=") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
 }
 
 // containerInit is a task container's PID 1 (see ensureContainer). Whatever
@@ -447,13 +460,7 @@ func serviceWrap(dir string, argv []string) int {
 
 // withoutEnv is the environment with one variable taken out of it.
 func withoutEnv(env []string, name string) []string {
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, name+"=") {
-			out = append(out, kv)
-		}
-	}
-	return out
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
 }
 
 // shellExitCode is the exit code a shell would report for a finished command: its
@@ -474,19 +481,16 @@ func shellExitCode(err error) int {
 }
 
 func (st *guestTool) stop(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("stop: which service?")
-	}
-	dir, err := st.dir(args[0])
+	name, dir, err := st.service("stop", args, 1)
 	if err != nil {
 		return err
 	}
 	if !exists(dir) {
-		return fmt.Errorf("no service '%s'", args[0])
+		return fmt.Errorf("no service '%s'", name)
 	}
 	serviceRepair(dir)
 	if !serviceAlive(dir) {
-		fmt.Printf("'%s' is not running\n", args[0])
+		fmt.Printf("'%s' is not running\n", name)
 		return nil
 	}
 	pid := servicePid(dir)
@@ -502,7 +506,7 @@ func (st *guestTool) stop(args []string) error {
 			_ = os.WriteFile(filepath.Join(dir, "exit"), []byte("137\n"), 0o644)
 		}
 	}
-	fmt.Printf("Stopped '%s'\n", args[0])
+	fmt.Printf("Stopped '%s'\n", name)
 	return nil
 }
 
@@ -514,25 +518,22 @@ func signalGroup(pid int, sig syscall.Signal) {
 }
 
 func (st *guestTool) restart(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("restart: which service?")
-	}
-	dir, err := st.dir(args[0])
+	name, dir, err := st.service("restart", args, 1)
 	if err != nil {
 		return err
 	}
-	if !exists(dir) && !exists(filepath.Join(st.root, ".declared", args[0])) {
-		return fmt.Errorf("no service '%s'", args[0])
+	if !exists(dir) && !exists(st.declared(name)) {
+		return fmt.Errorf("no service '%s'", name)
 	}
-	if exists(dir) && serviceAlive(dir) {
+	if serviceAlive(dir) {
 		if err := st.stop(args); err != nil {
 			return err
 		}
 	}
-	if err := st.launch(args[0], nil); err != nil {
+	if err := st.launch(name, nil); err != nil {
 		return err
 	}
-	fmt.Printf("Restarted '%s'\n", args[0])
+	fmt.Printf("Restarted '%s'\n", name)
 	return nil
 }
 
@@ -541,15 +542,11 @@ func (st *guestTool) restart(args []string) error {
 // dashboard for the rest of the task. A declared one is the Containerfile's
 // to offer, so only the run of it goes.
 func (st *guestTool) destroy(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("destroy: which service?")
-	}
-	name := args[0]
-	dir, err := st.dir(name)
+	name, dir, err := st.service("destroy", args, 1)
 	if err != nil {
 		return err
 	}
-	declared := exists(filepath.Join(st.root, ".declared", name))
+	declared := exists(st.declared(name))
 	if !exists(dir) {
 		if !declared {
 			return fmt.Errorf("no service '%s'", name)
@@ -574,11 +571,7 @@ func (st *guestTool) destroy(args []string) error {
 }
 
 func (st *guestTool) await(args []string) int {
-	if len(args) == 0 {
-		return st.fail(fmt.Errorf("await: which service?"))
-	}
-	name := args[0]
-	dir, err := st.dir(name)
+	name, dir, err := st.service("await", args, 2)
 	if err != nil {
 		return st.fail(err)
 	}
@@ -595,15 +588,12 @@ func (st *guestTool) await(args []string) int {
 }
 
 func (st *guestTool) logs(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("logs: which service?")
-	}
-	dir, err := st.dir(args[0])
+	name, dir, err := st.service("logs", args, 2)
 	if err != nil {
 		return err
 	}
 	if !exists(filepath.Join(dir, "log")) {
-		return fmt.Errorf("'%s' has not been started", args[0])
+		return fmt.Errorf("'%s' has not been started", name)
 	}
 	n := 100
 	if len(args) > 1 {
@@ -637,16 +627,14 @@ func lastLines(text string, n int) []string {
 
 func (st *guestTool) ps() error {
 	var declared []declaredService
-	if entries, _ := os.ReadDir(filepath.Join(st.root, ".declared")); len(entries) > 0 {
-		for _, e := range entries {
-			declared = append(declared, declaredService{e.Name(), strings.TrimSpace(readFile(filepath.Join(st.root, ".declared", e.Name())))})
-		}
+	entries, _ := os.ReadDir(filepath.Join(st.root, declaredDir))
+	for _, e := range entries {
+		declared = append(declared, declaredService{e.Name(), strings.TrimSpace(readFile(st.declared(e.Name())))})
 	}
-	if entries, _ := os.ReadDir(st.root); len(entries) > 0 {
-		for _, e := range entries {
-			if e.IsDir() && serviceNameRe.MatchString(e.Name()) {
-				serviceRepair(filepath.Join(st.root, e.Name()))
-			}
+	entries, _ = os.ReadDir(st.root)
+	for _, e := range entries {
+		if e.IsDir() && serviceNameRe.MatchString(e.Name()) {
+			serviceRepair(filepath.Join(st.root, e.Name()))
 		}
 	}
 	var out bytes.Buffer

@@ -3,12 +3,12 @@ package daemon
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -48,10 +48,9 @@ type ProjectInfo struct {
 	// Whether a merge deploys by itself (see deploy.go), the host's files the
 	// containers of its tasks get (see Task.mountsL), and what of its checkout
 	// their workspaces start with (see Task.seed).
-	AutoDeploy   bool     `json:"autoDeploy,omitempty"`
-	Mounts       []Mount  `json:"mounts,omitempty"`
-	Seeds        []string `json:"seeds,omitempty"`
-	DeployMounts []string `json:"deployMounts,omitempty"` // the deploy's paths in projects.json saved by 0.4, moved into Mounts on load
+	AutoDeploy bool     `json:"autoDeploy,omitempty"`
+	Mounts     []Mount  `json:"mounts,omitempty"`
+	Seeds      []string `json:"seeds,omitempty"`
 }
 
 // Mount is a file or directory of the host a project's containers get:
@@ -115,7 +114,7 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if info.Tasks == nil {
 		info.Tasks = map[string]*TaskInfo{}
 	}
-	if info.Name == "" { // added before the daemon kept names, or none was given
+	if info.Name == "" { // none was given
 		info.Name = filepath.Base(info.Dir)
 	}
 	info.Defaults.Model = cmp.Or(bareModel(info.Defaults.Model), DefaultModel)
@@ -126,18 +125,7 @@ func newProject(m *Manager, pid string, info *ProjectInfo) *Project {
 	if !colorRe.MatchString(info.Color) {
 		info.Color = m.pickColorL()
 	}
-	for _, path := range info.DeployMounts {
-		info.Mounts = append(info.Mounts, Mount{Path: path})
-	}
-	info.DeployMounts = nil
-	if info.NextTask == 0 {
-		for tid := range info.Tasks {
-			if n, err := strconv.Atoi(tid); err == nil && n >= info.NextTask {
-				info.NextTask = n + 1
-			}
-		}
-		info.NextTask = max(1, info.NextTask)
-	}
+	info.NextTask = max(1, info.NextTask)
 	return &Project{m: m, pid: pid, info: info, tasks: map[string]*Task{}, defaultBranch: "main"}
 }
 
@@ -161,12 +149,7 @@ func (p *Project) init() error {
 	p.pubDefaults()
 	p.pub("color", p.info.Color)
 	p.pubScratch()
-	tids := make([]string, 0, len(p.info.Tasks))
-	for tid := range p.info.Tasks {
-		tids = append(tids, tid)
-	}
-	sort.Strings(tids)
-	for _, tid := range tids {
+	for _, tid := range slices.Sorted(maps.Keys(p.info.Tasks)) {
 		info := p.info.Tasks[tid]
 		if tid == "train" { // the job of an older TPS, which merged through a train
 			delete(p.info.Tasks, tid)
@@ -301,17 +284,12 @@ func (p *Project) forget() {
 	tasks := p.taskListL()
 	p.m.mu.Unlock()
 	for _, t := range tasks {
-		nestDown(t.containerName(), nestDir(t.dir()))
-		_ = rmContainer(t.containerName())
+		t.dropContainer()
 	}
 }
 
 func (p *Project) taskListL() []*Task {
-	out := make([]*Task, 0, len(p.tasks))
-	for _, t := range p.tasks {
-		out = append(out, t)
-	}
-	return out
+	return slices.Collect(maps.Values(p.tasks))
 }
 
 func (p *Project) refreshMeta() {
@@ -480,10 +458,16 @@ func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	return t.tid, nil
 }
 
-// addTaskL writes a new task down under the project's next tid, and shows it.
-func (p *Project) addTaskL(info *TaskInfo) *Task {
+// nextTidL takes the project's next task number.
+func (p *Project) nextTidL() string {
 	tid := strconv.Itoa(p.info.NextTask)
 	p.info.NextTask++
+	return tid
+}
+
+// addTaskL writes a new task down under the project's next tid, and shows it.
+func (p *Project) addTaskL(info *TaskInfo) *Task {
+	tid := p.nextTidL()
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t

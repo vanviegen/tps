@@ -7,7 +7,7 @@ import { ansiToHtml } from './ansi.ts';
 import { $state, chatLog } from './conn.ts';
 import { serviceDialog } from './services.ts';
 import { formatShell } from './shell.ts';
-import { cmd, ELLIPSIS, hasWorkspace, isJob, pathTo, taskTitle } from './util.ts';
+import { cmd, ELLIPSIS, followBottom, hasWorkspace, isJob, pathTo, projectHost, taskTitle } from './util.ts';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const escape = (text: string) => text.replace(/[&<>"]/g, c => ESCAPES[c]);
@@ -15,7 +15,7 @@ const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.\.?\/)/i;
 
 // Marked emits raw HTML and any URL scheme as-is, so both are filtered here.
 // Links open in a new tab, leaving the dashboard alone.
-export const md = new Marked({
+const md = new Marked({
 	gfm: true,
 	breaks: true,
 	renderer: {
@@ -63,15 +63,9 @@ export function drawChat(pid: string, tid: string, $t: any, settings: () => void
 		A.onEach($chat, ($turn: any[], i: number) => drawTurn($chat, $turn, i, $foldBelow, $open, pid, tid, $t));
 		A(() => drawDeferred(pid, tid, $t));
 	}) as HTMLElement;
-	// Follow new entries unless the user scrolled up to read something.
-	let stick = true;
-	el.addEventListener('scroll', () => {
-		stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-	});
-	A(() => {
+	followBottom(el, () => {
 		void $chat[$chat.length - 1].length;
 		void $t.deferred;
-		if (stick) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
 	});
 }
 
@@ -139,7 +133,7 @@ function drawHidden(n: number, show: () => void): void {
  * and always as the ones its next turn will run under.
  */
 function drawRules(pid: string, tid: string, $t: any): void {
-	const prompt = $t.agentPrompt ?? $state.hosts[$state.projects[pid]?.host]?.agentPrompt;
+	const prompt = $t.agentPrompt ?? projectHost(pid)?.agentPrompt;
 	if (!prompt || isJob($t)) return; // no agent works in a job
 	drawEntry({ k: 'note', text: 'System message', detail: prompt }, pid, tid, $t);
 }
@@ -202,7 +196,7 @@ function drawEntry($e: any, pid: string, tid: string, $t: any, turn?: number): v
 	// The reviewer works in the task's own log, so what it leaves there wears a
 	// colour of its own: everything between the note that starts a review and
 	// the save point that ends it is what that second mind read and did.
-	const prefix = (text: string) => A(`b fg:${$e.rev ? '$s-link' : '$s-accent'} text=`, text);
+	const prefix = () => A(`b fg:${$e.rev ? '$s-link' : '$s-accent'} text=`, entryName($e));
 	switch ($e.k) {
 		case 'user':
 			// Editing a message is reverting to the point just above it, which
@@ -220,25 +214,20 @@ function drawEntry($e: any, pid: string, tid: string, $t: any, turn?: number): v
 			drawMessage($e.rev ? '.s-s.link.outlined pv:$1 ph:$3' : '', $e.text);
 			break;
 		case 'thinking':
+		case 'note':
+			// A note clips like the rest, and some carry an error behind them:
+			// either way the dialog is where the whole of it is read.
 			line(() => {
-				prefix('Thinking');
+				prefix();
 				A('text=', ' · ' + $e.text);
 			}, true);
 			break;
 		case 'tool':
 			line(() => {
-				prefix($e.name);
+				prefix();
 				if ($e.text) A('text=', ' · ' + $e.text);
 				if ($e.arg) { A('text=', ' · '); A('code text=', $e.arg); }
 				if ($e.res !== undefined) A(`span ${$e.error ? 'fg:$s-danger' : ''} text=`, ' · ' + $e.res);
-			}, true);
-			break;
-		case 'note':
-			// A note clips like the rest, and some carry an error behind them:
-			// either way the dialog is where the whole of it is read.
-			line(() => {
-				prefix('tps');
-				A('text=', ' · ' + $e.text);
 			}, true);
 			break;
 		case 'result':
@@ -251,6 +240,11 @@ function drawEntry($e: any, pid: string, tid: string, $t: any, turn?: number): v
 			drawCreated(pid, $e.task);
 			break;
 	}
+}
+
+/** What an entry that opens a dialog goes by: its tool, or what kind of entry it is. */
+function entryName($e: any): string {
+	return $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps' : 'Thinking';
 }
 
 /**
@@ -347,9 +341,9 @@ function pointDialog(pid: string, tid: string, $e: any, revert: boolean): void {
 				});
 			},
 			actions: () => {
-				S.button({ content: 'Cancel', attrs: '.neutral fg:$s-muted', click: close });
+				S.button({ content: 'Cancel', attrs: '.neutral', click: close });
 				A(() => $revert.value
-					? S.button({ content: 'Revert', icon: undo2, type: 'submit', attrs: '.danger' })
+					? S.button({ content: 'Revert', icon: undo2, type: 'submit', attrs: '.danger .outlined' })
 					: S.button({ content: 'Fork', icon: gitFork, type: 'submit' }));
 			},
 		}),
@@ -369,31 +363,16 @@ const reqTable = A.insertCss({
 });
 
 /** A block of verbatim text: wrapped, never clipped, and never a scroller of its own. */
+const VERBATIM = 'pre m:0 r:0 white-space:pre-wrap overflow-wrap:anywhere';
+
+/** Text as it is, in a verbatim block. */
 function codeBlock(text: string): void {
-	A('pre m:0 r:0 white-space:pre-wrap overflow-wrap:anywhere', () => A('code text=', text));
+	A(VERBATIM, () => A('code text=', text));
 }
 
-/** Console output, played out as a terminal would have shown it (see ansi.ts). */
+/** Console output, played out as a terminal would have shown it (see ansi.ts), as a verbatim block. */
 function termBlock(text: string): void {
-	A('pre m:0 r:0 white-space:pre-wrap overflow-wrap:anywhere html=', ansiToHtml(text));
-}
-
-/**
- * Tool requests logged before they were sent field by field: 'key: value' or
- * 'key:\nvalue' blocks, a blank line apart. A block that opens with no key of
- * its own belongs to the value above it. Best effort — that old format cannot
- * tell a key from a line inside a value that looks like one — but nothing is
- * dropped: at worst a field ends up in the row above.
- */
-function oldFields(detail: string): { k: string; v: string }[] {
-	const fields: { k: string; v: string }[] = [];
-	for (const part of detail.split('\n\n')) {
-		const m = /^(\w+):[ \n]/.exec(part);
-		if (m) fields.push({ k: m[1], v: part.slice(m[0].length) });
-		else if (fields.length) fields[fields.length - 1].v += '\n\n' + part;
-		else fields.push({ k: '', v: part });
-	}
-	return fields;
+	A(VERBATIM, 'html=', ansiToHtml(text));
 }
 
 /**
@@ -401,7 +380,7 @@ function oldFields(detail: string): { k: string; v: string }[] {
  * the dialog is the only thing that scrolls.
  */
 function detailDialog($e: any, pid: string, tid: string, $t: any): void {
-	const title = $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps' : 'Thinking';
+	const title = entryName($e);
 	const section = (header: string, content: () => void) =>
 		S.box({ header, attrs: 'flex-shrink:0', contentAttrs: 'p:0', content });
 	// Wider than a staffa dialog goes by itself: these hold code, not prose.
@@ -411,7 +390,7 @@ function detailDialog($e: any, pid: string, tid: string, $t: any): void {
 	const attrs = wide ? 'w:min(94vw,84rem) max-width:min(94vw,84rem)' : undefined;
 	void S.dialog({ header: title, attrs, content: close => {
 		if ($e.k === 'tool') {
-			const fields = $e.req ?? ($e.detail ? oldFields($e.detail) : []);
+			const fields = $e.req ?? [];
 			section('Request', () => {
 				if (!fields.length) return void A('p p:$3 fg:$s-muted #(No input)');
 				A('table', reqTable, () => {

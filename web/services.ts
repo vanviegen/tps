@@ -2,7 +2,7 @@ import A from 'aberdeen';
 import * as S from 'staffa';
 import { circleDashed, ethernetPort, flag, globe, play } from 'staffa/icons.js';
 import { ansiToHtml } from './ansi.ts';
-import { cmd, ELLIPSIS, portUrl } from './util.ts';
+import { clockTime, cmd, ELLIPSIS, followBottom, openPort } from './util.ts';
 
 /**
  * A task's services: the named, long-running commands in its container —
@@ -17,7 +17,7 @@ import { cmd, ELLIPSIS, portUrl } from './util.ts';
  * replaced container ends what ran, and leaves every service idle with the
  * command it runs, ready to start again.
  */
-export interface Service {
+interface Service {
 	name: string;
 	cmd: string;
 	declared?: boolean;
@@ -36,15 +36,11 @@ export function hasServices($t: any): boolean {
 
 function statusText(s: Service): string {
 	switch (s.status) {
-		case 'running': return 'Running' + (s.started ? ` since ${clock(s.started)}` : '');
-		case 'exited': return (s.code ? `Exited with code ${s.code}` : 'Finished') + (s.ended ? ` at ${clock(s.ended)}` : '');
-		case 'stopped': return 'Stopped' + (s.ended ? ` at ${clock(s.ended)}` : '');
+		case 'running': return 'Running' + (s.started ? ` since ${clockTime(s.started)}` : '');
+		case 'exited': return (s.code ? `Exited with code ${s.code}` : 'Finished') + (s.ended ? ` at ${clockTime(s.ended)}` : '');
+		case 'stopped': return 'Stopped' + (s.ended ? ` at ${clockTime(s.ended)}` : '');
 		default: return 'Not started';
 	}
-}
-
-function clock(ms: number): string {
-	return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 /** A service's icon, with the colour it wears: a play while it runs, a flag once it ended — orange on an error. */
@@ -132,7 +128,7 @@ export function portItems($t: any): S.MenuEntry[] {
 		},
 		tooltip: portTip(p),
 		disabled: !p.live,
-		click: () => window.open(portUrl(p), '_blank'),
+		click: () => openPort(p),
 	}));
 }
 
@@ -168,7 +164,7 @@ export function serviceDialog(pid: string, tid: string, $t: any, name: string, s
 			A(() => {
 				const s = find();
 				if (s?.status === 'running') {
-					S.button({ content: 'Stop', attrs: '.danger', click: () => void cmd('stopService', { pid, tid, name }) });
+					S.button({ content: 'Stop', attrs: '.danger .outlined', click: () => void cmd('stopService', { pid, tid, name }) });
 					S.button({ content: 'Restart', attrs: '.neutral', click: () => void cmd('restartService', { pid, tid, name }) });
 					S.button({ content: 'Background', attrs: '.neutral', tooltip: 'Leave it running; its play button above the chat brings this back', click: () => close() });
 				} else {
@@ -192,14 +188,7 @@ export function drawLog(log: () => string): void {
 	const el = A('pre r:0 flex:1 min-height:0 m:0 overflow:auto white-space:pre-wrap overflow-wrap:anywhere', () => {
 		A('html=', ansiToHtml(log()));
 	}) as HTMLElement;
-	let stick = true;
-	el.addEventListener('scroll', () => {
-		stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-	});
-	A(() => {
-		log();
-		if (stick) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-	});
+	followBottom(el, log);
 }
 
 function drawConsole($t: any, name: string, find: () => Service | undefined, $starting: { value: boolean }): void {
@@ -219,7 +208,7 @@ function drawPorts($t: any): void {
 	A(() => {
 		for (const p of ($t.ports ?? []) as Port[]) {
 			S.button({ content: portLabel(p), attrs: '.neutral', disabled: !p.live, tooltip: portTip(p),
-				click: () => window.open(portUrl(p), '_blank') });
+				click: () => openPort(p) });
 		}
 	});
 }

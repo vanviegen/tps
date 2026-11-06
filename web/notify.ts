@@ -37,49 +37,28 @@ function key(pid: string, tid: string): string {
 	return `${pid}/${tid}`;
 }
 
-/** Whether this browser announces this task being ready. Reactive. */
-export function notifies(pid: string, tid: string): boolean {
-	return !!$on[key(pid, tid)];
+/**
+ * Whether this browser announces this task being ready — or, without a task,
+ * whether new tasks of the project start out doing so. Reactive.
+ */
+export function notifies(pid: string, tid?: string): boolean {
+	return tid ? !!$on[key(pid, tid)] : !!$byDefault[pid];
 }
 
 /**
- * Turn the announcements for a task on or off. Turning them on is where the
- * browser is asked for permission — there is nothing to ask about until
- * something wants to notify — and, the first time it is given, one notification
- * is sent right away: that the permission took is worth seeing rather than
- * assuming.
+ * Turn the announcements for a task on or off, or without one the project's
+ * default. Turning either on is where the browser is asked for permission —
+ * there is nothing to ask about until something wants to notify, and the tasks
+ * a default is handed to later have nothing left to ask — and, the first time
+ * it is given, one notification is sent right away: that the permission took
+ * is worth seeing rather than assuming. Only tasks made from here on get a
+ * default; the ones that exist keep what they have, as with every other one.
  */
-export async function toggleNotifies(pid: string, tid: string): Promise<void> {
-	const k = key(pid, tid);
-	if (A.peek(() => $on[k])) {
-		delete $on[k];
-		persist();
-		return;
-	}
-	if (!(await allowed())) return;
-	$on[k] = true;
-	persist();
-}
-
-/** Whether new tasks of this project start out announcing themselves. Reactive. */
-export function notifiesByDefault(pid: string): boolean {
-	return !!$byDefault[pid];
-}
-
-/**
- * Turn the project's default on or off. Switching it on asks for permission
- * here, where every other switch-on does, so that the tasks it is handed to
- * later have nothing left to ask. Only tasks made from here on get it; the
- * ones that exist keep what they have, as with every other default.
- */
-export async function toggleDefaultNotifies(pid: string): Promise<void> {
-	if (A.peek(() => $byDefault[pid])) {
-		delete $byDefault[pid];
-		persist();
-		return;
-	}
-	if (!(await allowed())) return;
-	$byDefault[pid] = true;
+export async function toggleNotifies(pid: string, tid?: string): Promise<void> {
+	const [$set, k] = tid ? [$on, key(pid, tid)] : [$byDefault, pid];
+	if (A.peek(() => $set[k])) delete $set[k];
+	else if (await allowed()) $set[k] = true;
+	else return;
 	persist();
 }
 
@@ -89,10 +68,14 @@ export async function toggleDefaultNotifies(pid: string): Promise<void> {
  * is nothing to switch on now.
  */
 export function applyNotifyDefault(pid: string, tid: string): void {
-	if (!A.peek(() => $byDefault[pid])) return;
-	if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+	if (!A.peek(() => $byDefault[pid]) || !granted()) return;
 	$on[key(pid, tid)] = true;
 	persist();
+}
+
+/** Whether this page may show notifications. */
+function granted(): boolean {
+	return typeof Notification !== 'undefined' && Notification.permission === 'granted';
 }
 
 async function allowed(): Promise<boolean> {
@@ -101,11 +84,11 @@ async function allowed(): Promise<boolean> {
 		return false;
 	}
 	if (Notification.permission === 'default') {
-		let granted = 'denied';
+		let answer = 'denied';
 		try {
-			granted = await Notification.requestPermission();
+			answer = await Notification.requestPermission();
 		} catch {} // an older browser with the callback form only
-		if (granted !== 'granted') {
+		if (answer !== 'granted') {
 			S.toast({ message: 'Notifications were not allowed, so this task cannot announce itself.', type: 'danger', duration: 8000 });
 			return false;
 		}
@@ -137,7 +120,7 @@ try {
 } catch {}
 
 function show(title: string, body: string, url: string): void {
-	if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+	if (!granted()) return;
 	try {
 		// One notification per task: a task that reaches the human through a
 		// merge replaces its own earlier line rather than stacking up beside it.
@@ -168,6 +151,22 @@ function announcement(pid: string, $t: any, from: Phase): string | undefined {
 			if ($t.review) return 'the automated review asks for changes';
 			if (canMerge(pid, $t)) return 'the agent reports it ready to merge';
 			return from === 'merge' ? 'back with you' : 'the agent is done; it is yours';
+	}
+}
+
+/** Whether a project may only not be here yet: missing, with its host still connecting. */
+function unheard(pid: string): boolean {
+	if (A.peek(() => $state.projects[pid])) return false;
+	const $h = A.peek(() => $state.hosts?.[pid.split(':')[0]]);
+	return !!$h && $h.status !== 'connected';
+}
+
+/** Drop the settings that are not to be `kept`. */
+function sweep($set: Record<string, true>, kept: (k: string) => boolean): void {
+	for (const k of A.peek(() => Object.keys($set))) {
+		if (kept(k)) continue;
+		delete $set[k];
+		persist();
 	}
 }
 
@@ -217,26 +216,10 @@ export function watchPhases(): void {
 			}
 		}
 		for (const k of seen.keys()) if (!live.has(k)) seen.delete(k), asking.delete(k);
-		// A deleted task takes its setting with it. A task of a project that is
-		// not here *yet* — its host still connecting — is not gone, only quiet,
-		// and keeps its setting until the host has spoken (as a hold does).
-		for (const k of A.peek(() => Object.keys($on))) {
-			if (live.has(k)) continue;
-			const [pid] = k.split('/');
-			if (!A.peek(() => $state.projects[pid])) {
-				const $h = A.peek(() => $state.hosts?.[pid.split(':')[0]]);
-				if ($h && $h.status !== 'connected') continue;
-			}
-			delete $on[k];
-			persist();
-		}
-		// A deleted project loses its default on the same terms.
-		for (const pid of A.peek(() => Object.keys($byDefault))) {
-			if (A.peek(() => $state.projects[pid])) continue;
-			const $h = A.peek(() => $state.hosts?.[pid.split(':')[0]]);
-			if ($h && $h.status !== 'connected') continue;
-			delete $byDefault[pid];
-			persist();
-		}
+		// A deleted task takes its setting with it, and a deleted project its
+		// default. Those of a project that is not here *yet* are not gone, only
+		// quiet, and are kept until its host has spoken (as a hold does).
+		sweep($on, k => live.has(k) || unheard(k.split('/')[0]));
+		sweep($byDefault, pid => !!A.peek(() => $state.projects[pid]) || unheard(pid));
 	});
 }

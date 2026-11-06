@@ -33,23 +33,32 @@ type transport interface {
 type localTransport struct{}
 
 func (localTransport) DialDaemon() (net.Conn, error) {
-	sock := daemon.SocketPath()
-	if conn, err := net.DialTimeout("unix", sock, time.Second); err == nil {
+	return dialOrStart(func() (net.Conn, error) { return net.DialTimeout("unix", daemon.SocketPath(), time.Second) },
+		func() error {
+			if err := localPreflight(); err != nil {
+				return err
+			}
+			return startLocalDaemon()
+		},
+		fmt.Errorf("the daemon did not come up; see %s", daemonLog()))
+}
+
+// dialOrStart dials a daemon, and when that fails starts it and keeps dialing
+// for some ten seconds, after which it gives up with notUp.
+func dialOrStart(dial func() (net.Conn, error), start func() error, notUp error) (net.Conn, error) {
+	if conn, err := dial(); err == nil {
 		return conn, nil
 	}
-	if err := localPreflight(); err != nil {
-		return nil, err
-	}
-	if err := startLocalDaemon(); err != nil {
+	if err := start(); err != nil {
 		return nil, err
 	}
 	for i := 0; i < 50; i++ {
 		time.Sleep(200 * time.Millisecond)
-		if conn, err := net.DialTimeout("unix", sock, time.Second); err == nil {
+		if conn, err := dial(); err == nil {
 			return conn, nil
 		}
 	}
-	return nil, fmt.Errorf("the daemon did not come up; see %s", daemonLog())
+	return nil, notUp
 }
 
 // unavailableError is a host that cannot run TPS as it is: the link says why,
@@ -91,7 +100,7 @@ func (localTransport) Tps(args ...string) *exec.Cmd {
 func (localTransport) Build() string { return BuildID() }
 
 func daemonLog() string {
-	return filepath.Join(filepath.Dir(daemon.SocketPath()), "daemon.log")
+	return filepath.Join(daemon.DataDir(), "daemon.log")
 }
 
 // startLocalDaemon runs this same binary as a detached daemon, so it outlives the UI.

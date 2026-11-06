@@ -75,6 +75,16 @@ export function canMerge(pid: string, $t: any): boolean {
 	return waitsForHuman($t) && hasWorkspace($t) && !!$t.commitMessage && !$state.projects[pid]?.scratch;
 }
 
+/** The branch the project's tasks start from and merge into. */
+export function branchOf(pid: string): string {
+	return $state.projects[pid]?.defaultBranch ?? 'main';
+}
+
+/** The host the project is on, as the state has it. */
+export function projectHost(pid: string): any {
+	return $state.hosts[$state.projects[pid]?.host];
+}
+
 /** What to call a project: its name, or for a host's scratch tasks, the host they are on. */
 export function projectName($p: any): string {
 	return $p.scratch ? `scratch at ${hostName($p.host)}` : $p.name ?? '';
@@ -257,8 +267,7 @@ export function destName(hid: string): string {
 
 /**
  * A path on a host as you would type it there: with ~ for the home directory
- * of the user its daemon runs as. Hosts running an older daemon don't say
- * where that is, and get their paths in full.
+ * of the user its daemon runs as; in full until the host has said where that is.
  */
 export function shortDir(hid: string, dir: string): string {
 	const home = $state.hosts?.[hid]?.home;
@@ -286,11 +295,15 @@ export function taskName(pid: string, tid: string): string {
 	return !$t ? '(deleted)' : taskTitle($t);
 }
 
+/** A moment as the clock read it: "14:05". */
+export function clockTime(ms: number): string {
+	return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 /** When an agent parked on claude's usage limit goes back in: the clock, with the day if it is not today's. */
 function limitTime(ms: number): string {
 	const at = new Date(ms);
-	const clock = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-	return at.toDateString() === new Date().toDateString() ? clock : `${at.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${clock}`;
+	return at.toDateString() === new Date().toDateString() ? clockTime(ms) : `${at.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${clockTime(ms)}`;
 }
 
 /** What the workspace is up to (or what the task waits for), as text plus a color role. */
@@ -362,7 +375,7 @@ export function costText($t: any): string | undefined {
 }
 
 /** A token count the way the log words it: 950, 9k, 34k, 1.2M. */
-export function tokenText(n: number): string {
+function tokenText(n: number): string {
 	const round = (v: number) => v.toFixed(1).replace(/\.0$/, '');
 	if (n >= 1e6) return `${round(n / 1e6)}M`;
 	if (n >= 1e4) return `${Math.floor(n / 1e3)}k`;
@@ -457,6 +470,11 @@ export function portUrl(p: { host: number }): string {
 	return `http://${location.hostname}:${p.host}/`;
 }
 
+/** Open a forwarded port's page in a new tab. */
+export function openPort(p: { host: number }): void {
+	window.open(portUrl(p), '_blank');
+}
+
 /** A globe link per forwarded port that something inside the container answers HTTP on. */
 export function drawLiveLink($t: any): void {
 	A(() => {
@@ -483,17 +501,37 @@ export async function cmd(name: string, args?: object): Promise<any> {
 	}
 }
 
-export function debounce<T extends unknown[]>(ms: number, fn: (...args: T) => void): (...args: T) => void {
+/** `fn`, run once calls to it have stopped coming for `ms`; `cancel` drops the one still waiting. */
+export function debounce<T extends unknown[]>(ms: number, fn: (...args: T) => void): ((...args: T) => void) & { cancel: () => void } {
 	let timer: ReturnType<typeof setTimeout>;
-	return (...args: T) => {
+	return Object.assign((...args: T) => {
 		clearTimeout(timer);
 		timer = setTimeout(() => fn(...args), ms);
-	};
+	}, { cancel: () => clearTimeout(timer) });
 }
 
-/** Numeric-aware sort key, so task '10' comes after '9'. */
-export function tidOrder(tid: string): string {
-	return tid.padStart(8, '0');
+/** Two sort keys compared a part at a time, the first that differs deciding. */
+export function compareKeys(a: (number | string)[], b: (number | string)[]): number {
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] < b[i]) return -1;
+		if (a[i] > b[i]) return 1;
+	}
+	return 0;
+}
+
+/**
+ * Keep `el` scrolled to its bottom whenever what `track` reads changes, unless
+ * the user scrolled up to read something.
+ */
+export function followBottom(el: HTMLElement, track: () => void): void {
+	let stick = true;
+	el.addEventListener('scroll', () => {
+		stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+	});
+	A(() => {
+		track();
+		if (stick) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+	});
 }
 
 /**

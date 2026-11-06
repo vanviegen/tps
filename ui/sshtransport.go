@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
+	"github.com/vanviegen/tps/daemon"
 	"github.com/vanviegen/tps/sshx"
 )
 
@@ -33,7 +33,14 @@ func newSSHTransport(u *UI, hid, dest string) *sshTransport {
 	return &sshTransport{u: u, c: sshx.New(dest, func(run string) []string { return u.askpass.Env(hid, run) })}
 }
 
-func (t *sshTransport) bin() string { return t.home + "/" + remoteDir + "/bin/tps" }
+// dir is TPS's own directory on the host, of its binary, socket and log.
+func (t *sshTransport) dir() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.home + "/" + remoteDir
+}
+
+func (t *sshTransport) bin() string { return t.dir() + "/bin/tps" }
 
 func (t *sshTransport) Warning() string {
 	t.mu.Lock()
@@ -49,20 +56,9 @@ func (t *sshTransport) DialDaemon() (net.Conn, error) {
 	if err := t.Push(); err != nil {
 		return nil, err
 	}
-	sock := t.home + "/" + remoteDir + "/daemon.sock"
-	if conn, err := t.c.DialUnix(t.bin(), sock); err == nil {
-		return conn, nil
-	}
-	if err := t.startDaemon(); err != nil {
-		return nil, err
-	}
-	for i := 0; i < 50; i++ {
-		time.Sleep(200 * time.Millisecond)
-		if conn, err := t.c.DialUnix(t.bin(), sock); err == nil {
-			return conn, nil
-		}
-	}
-	return nil, fmt.Errorf("the daemon on %s did not come up; check its log there (journalctl --user, or %s/daemon.log)", t.c.Host(), remoteDir)
+	relay := daemon.ShellQuote(t.bin()) + " --relay " + daemon.ShellQuote(t.dir()+"/daemon.sock")
+	return dialOrStart(func() (net.Conn, error) { return t.c.DialRelay(relay) }, t.startDaemon,
+		fmt.Errorf("the daemon on %s did not come up; check its log there (journalctl --user, or %s/daemon.log)", t.c.Host(), remoteDir))
 }
 
 func (t *sshTransport) DialPort(port int) (net.Conn, error) {
@@ -72,7 +68,7 @@ func (t *sshTransport) DialPort(port int) (net.Conn, error) {
 func (t *sshTransport) Shell(cmd string) *exec.Cmd { return t.c.Shell(cmd) }
 
 func (t *sshTransport) Tps(args ...string) *exec.Cmd {
-	return t.c.Shell(strings.Join(append([]string{t.bin()}, args...), " "))
+	return t.c.Shell(strings.Join(append([]string{daemon.ShellQuote(t.bin())}, args...), " "))
 }
 
 // preflight learns what the host offers and refuses hosts that lack podman or git.
@@ -125,8 +121,7 @@ func (t *sshTransport) binary() (string, error) {
 	t.mu.Lock()
 	arch := t.arch
 	t.mu.Unlock()
-	goarch := map[string]string{"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64", "riscv64": "riscv64"}[arch]
-	if runtime.GOOS == "linux" && goarch == runtime.GOARCH {
+	if runtime.GOOS == "linux" && arch == unameArch[runtime.GOARCH] {
 		return os.Executable()
 	}
 	return releaseBinary(arch)
@@ -146,7 +141,7 @@ func (t *sshTransport) Push() error {
 	if err != nil {
 		return err
 	}
-	bin := t.bin()
+	dir, bin, next := daemon.ShellQuote(t.dir()+"/bin"), daemon.ShellQuote(t.bin()), daemon.ShellQuote(t.bin()+".new")
 	if have, _ := t.c.Output("sha256sum " + bin + " 2>/dev/null | cut -c1-64"); have == fileBuild(source) {
 		return nil
 	}
@@ -155,7 +150,7 @@ func (t *sshTransport) Push() error {
 		return err
 	}
 	defer f.Close()
-	r, err := t.c.Run(fmt.Sprintf("mkdir -p %[1]s/bin && cat >%[2]s.new && chmod 755 %[2]s.new && mv -f %[2]s.new %[2]s", t.home+"/"+remoteDir, bin), f)
+	r, err := t.c.Run(fmt.Sprintf("mkdir -p %[1]s && cat >%[2]s && chmod 755 %[2]s && mv -f %[2]s %[3]s", dir, next, bin), f)
 	if err == nil && r.Code != 0 {
 		err = fmt.Errorf("installing the binary on %s failed: %s", t.c.Host(), strings.TrimSpace(r.Err))
 	}
@@ -164,14 +159,14 @@ func (t *sshTransport) Push() error {
 
 func (t *sshTransport) startDaemon() error {
 	t.mu.Lock()
-	home, systemd := t.home, t.systemd
+	systemd := t.systemd
 	t.mu.Unlock()
-	bin := t.bin()
+	bin := daemon.ShellQuote(t.bin())
 	var cmd string
 	if systemd {
 		cmd = fmt.Sprintf("systemd-run --user --quiet --collect --unit tps-daemon-$(date +%%s) %s --daemon", bin)
 	} else {
-		cmd = fmt.Sprintf("(setsid nohup %s --daemon >>%s/daemon.log 2>&1 </dev/null &)", bin, home+"/"+remoteDir)
+		cmd = fmt.Sprintf("(setsid nohup %s --daemon >>%s 2>&1 </dev/null &)", bin, daemon.ShellQuote(t.dir()+"/daemon.log"))
 	}
 	_, err := t.c.Output(cmd)
 	return err

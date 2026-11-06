@@ -23,40 +23,17 @@ func configFile(name string) string {
 	return filepath.Join(home, ".config", "tps", name)
 }
 
-// legacyProject is a project as older dashboards listed them: their names are
-// carried over to the daemons that own the projects now, once each connects.
-type legacyProject struct {
-	Host string `json:"host"`
-	Dir  string `json:"dir"`
-	Name string `json:"name"`
-}
-
 // dashboardFile is dashboard.json: the ssh destinations to connect to, the
-// names given to hosts (by host id), the project order, and the names an older
-// dashboard gave the projects there.
+// names given to hosts (by host id), and the project order.
 type dashboardFile struct {
 	Hosts     []string          `json:"hosts"`
 	HostNames map[string]string `json:"hostNames"`
 	Order     []string          `json:"order"`
-	Projects  []legacyProject   `json:"projects,omitempty"`
 }
 
 func loadHosts() (saved dashboardFile) {
 	if data, err := os.ReadFile(configFile("dashboard.json")); err == nil {
 		_ = json.Unmarshal(data, &saved)
-		return saved
-	}
-	// Older still: hosts.json, with the hosts as objects.
-	var older struct {
-		Hosts []struct {
-			Dest string `json:"dest"`
-		} `json:"hosts"`
-	}
-	if data, err := os.ReadFile(configFile("hosts.json")); err == nil {
-		_ = json.Unmarshal(data, &older)
-	}
-	for _, h := range older.Hosts {
-		saved.Hosts = append(saved.Hosts, h.Dest)
 	}
 	return saved
 }

@@ -152,3 +152,13 @@ func (p *Project) deployedCommit() string {
 func fetchDeployed(repo string) {
 	_, _ = git(repo, "fetch", "--quiet", hostRemote, "+"+deployedRef+":"+deployedRef)
 }
+
+// fetchHost brings a workspace what the host has: the default branch, and the
+// deployed commit.
+func fetchHost(repo string) error {
+	if _, err := git(repo, "fetch", "--quiet", hostRemote); err != nil {
+		return err
+	}
+	fetchDeployed(repo)
+	return nil
+}

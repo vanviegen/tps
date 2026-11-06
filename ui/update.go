@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/vanviegen/tps/daemon"
 )
 
 // Version is the release tag this binary was built from, set by the release
@@ -19,6 +21,22 @@ import (
 var Version string
 
 var updating sync.Mutex
+
+var httpClient = &http.Client{Timeout: 2 * time.Minute}
+
+// unameArch is how uname -m names a GOARCH, and so the release assets for
+// Linux: tps-linux-<uname -m>.
+var unameArch = map[string]string{"amd64": "x86_64", "arm64": "aarch64", "riscv64": "riscv64"}
+
+// Executable is the path of our binary, symlinks resolved: the file a new
+// release replaces, and the one to start at login.
+func Executable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(exe)
+}
 
 // autoUpdate replaces our binary by the latest GitHub release when that is
 // another one than ours, and restarts into it with args. The daemons follow,
@@ -47,8 +65,7 @@ func autoUpdate(args []string) {
 // update installs the latest release over our executable, and returns its
 // path; an empty one when we run the latest already.
 func update() (string, error) {
-	client := &http.Client{Timeout: 2 * time.Minute}
-	resp, err := client.Get("https://api.github.com/repos/vanviegen/tps/releases/latest")
+	resp, err := httpClient.Get("https://api.github.com/repos/vanviegen/tps/releases/latest")
 	if err != nil {
 		return "", err
 	}
@@ -64,15 +81,12 @@ func update() (string, error) {
 		return "", nil
 	}
 	// The assets are named as uname -m names the architecture.
-	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[runtime.GOARCH]
+	arch := unameArch[runtime.GOARCH]
 	if runtime.GOOS == "darwin" && arch == "aarch64" {
 		arch = "arm64"
 	}
 	log.Printf("auto-update: %s replaces %s", latest.Tag, Version)
-	exe, err := os.Executable()
-	if err == nil {
-		exe, err = filepath.EvalSymlinks(exe)
-	}
+	exe, err := Executable()
 	if err != nil {
 		return "", err
 	}
@@ -85,8 +99,7 @@ func releaseBinary(arch string) (string, error) {
 	if Version == "" {
 		return "", fmt.Errorf("a linux/%s host needs a build of its own: pass one with --daemon-binary", arch)
 	}
-	home, _ := os.UserHomeDir()
-	root := filepath.Join(home, ".local", "share", "tps", "releases")
+	root := filepath.Join(daemon.DataDir(), "releases")
 	path := filepath.Join(root, Version, "tps-linux-"+arch)
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
@@ -105,8 +118,7 @@ func releaseBinary(arch string) (string, error) {
 
 // download puts a release's asset at path, executable.
 func download(tag, asset, path string) error {
-	client := &http.Client{Timeout: 2 * time.Minute}
-	resp, err := client.Get("https://github.com/vanviegen/tps/releases/download/" + tag + "/" + asset)
+	resp, err := httpClient.Get("https://github.com/vanviegen/tps/releases/download/" + tag + "/" + asset)
 	if err != nil {
 		return err
 	}

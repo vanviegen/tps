@@ -29,5 +29,5 @@ func (st *guestTool) showUserText(args []string) error {
 
 // syncUserTextL publishes the text the container shows the user, if any.
 func (t *Task) syncUserTextL() {
-	t.pubL("userText", nonEmpty(readFile(filepath.Join(t.servicesDir(), userTextFile))))
+	t.pubL("userText", orNil(readFile(filepath.Join(t.servicesDir(), userTextFile))))
 }

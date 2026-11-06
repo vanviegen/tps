@@ -100,40 +100,29 @@ func (s *askpassServer) answer(u *UI, req AskpassRequest) AskpassReply {
 	if have {
 		return AskpassReply{Answer: secret}
 	}
-	dest := req.Host
-	if l, err := u.link(req.Host); err == nil {
-		if t, ok := l.tr.(*sshTransport); ok {
-			dest = t.c.Host()
-		}
-	}
-	if strings.Contains(prompt, "(yes/no") { // an unknown host key
-		u.askHost(req.Host, key, "Unknown host "+dest, prompt, "confirm")
-	} else if refused {
-		u.askHost(req.Host, key, "SSH login to "+dest, "That did not work. "+prompt, "password")
-	} else {
-		u.askHost(req.Host, key, "SSH login to "+dest, prompt, "password")
-	}
-	return AskpassReply{Cancel: true}
-}
-
-// askHost puts a question to the user, on the host it is about. The one that
-// is already waiting there stands: ssh asking again after being turned down
-// is the same question, not a second one.
-func (u *UI) askHost(hid, key, title, text, kind string) {
-	l, err := u.link(hid)
+	l, err := u.link(req.Host)
 	if err != nil {
-		return
+		return AskpassReply{Cancel: true}
 	}
+	title, text, kind := "SSH login to "+l.name(), prompt, "password"
+	if strings.Contains(prompt, "(yes/no") { // an unknown host key
+		title, kind = "Unknown host "+l.name(), "confirm"
+	} else if refused {
+		text = "That did not work. " + prompt
+	}
+	// The question is put to the user on the host. One already waiting there
+	// stands: ssh asking again after being turned down is the same question,
+	// not a second one.
 	l.mu.Lock()
 	fresh := l.ask == nil
 	if fresh {
-		l.askKey = key
-		l.ask = map[string]any{"title": title, "text": text, "kind": kind}
+		l.ask, l.askKey = map[string]any{"title": title, "text": text, "kind": kind}, key
 	}
 	l.mu.Unlock()
 	if fresh {
 		l.publishHost()
 	}
+	return AskpassReply{Cancel: true}
 }
 
 // answer settles the question a host waits on: the answer is remembered for

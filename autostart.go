@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/vanviegen/tps/ui"
 )
 
 // autostart has this binary run, from where it is now, with --no-open (and
@@ -13,11 +15,8 @@ import (
 // before it goes on to run as usual. That is an XDG autostart entry, or a
 // launchd agent on macOS. Returns the file written.
 func autostart(autoUpdate bool) (string, error) {
-	exe, err := os.Executable()
+	exe, err := ui.Executable()
 	if err != nil {
-		return "", err
-	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return "", err
 	}
 	args := []string{"--no-open"}

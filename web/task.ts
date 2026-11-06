@@ -8,11 +8,11 @@ import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { drawHostNotice } from './hosts.ts';
-import { applyNotifyDefault, notifies, notifiesByDefault, toggleDefaultNotifies, toggleNotifies } from './notify.ts';
+import { applyNotifyDefault, notifies, toggleNotifies } from './notify.ts';
 import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectName, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
+import { branchOf, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectHost, projectName, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -48,22 +48,37 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 }
 
 /**
- * The task's whole menu: where it can go, and how it ends — plus what is not
- * a phase but belongs with them: starting a task that waits for this one, and
- * throwing it away. `extra` slots in between, for the callers that have more
- * to offer. A scheduled task goes nowhere, and has nothing to wait for.
+ * The task's whole menu, wherever it is opened: where it can go, and how it
+ * ends — plus what is not a phase but belongs with them: starting a task that
+ * waits for this one, what is for the human at the wheel, its settings, and
+ * throwing it away; below those its services and its forwarded ports. A
+ * scheduled task goes nowhere, and has nothing to wait for. A job is TPS's to
+ * move (see isJob): what is left to do with it is look at what runs in it.
  */
-export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEntry[] = []): S.MenuEntry[] {
-	const remove: S.MenuEntry = { label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) };
-	if (isSchedule($t)) return [...extra, remove];
-	return [
-		...phaseItems(pid, tid, $t),
-		...skipItems(pid, tid, $t),
-		{ separator: true },
-		{ label: 'Create dependent task', icon: plus, disabled: isFinished($t), click: () => void addTask(pid, { waitFor: [tid] }) },
-		...extra,
-		remove,
-	];
+export function taskMenuItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
+	const rebuild: S.MenuEntry = { label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) };
+	const items: S.MenuEntry[] = [];
+	if (isJob($t)) items.push(rebuild);
+	else {
+		if (!isSchedule($t)) {
+			items.push(...phaseItems(pid, tid, $t), ...skipItems(pid, tid, $t), { separator: true },
+				{ label: 'Create dependent task', icon: plus, disabled: isFinished($t), click: () => void addTask(pid, { waitFor: [tid] }) });
+		}
+		// Only while the task is yours: rebasing and rebuilding both move the
+		// ground under a running agent, and both are for the human at the wheel.
+		if (waitsForHuman($t)) {
+			if ($t.behind) items.push({ label: `Rebase onto the latest ${branchOf(pid)} (${$t.behind} behind)`, icon: arrowDownToLine, click: () => rebaseTask(pid, tid, $t) });
+			items.push(rebuild);
+		}
+		if ($state.projects[pid]?.scratch) items.push({ label: 'Turn into project…', icon: folderGit2, click: () => turnIntoProjectDialog(pid, tid) });
+		items.push(
+			{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) },
+			{ label: 'Delete…', icon: trash2, attrs: 'fg:$s-danger', click: () => void deleteTask(pid, tid, $t) },
+		);
+	}
+	if (hasServices($t)) items.push({ separator: true }, ...serviceItems(pid, tid, $t));
+	if ($t.ports?.length) items.push({ separator: true }, ...portItems($t));
+	return items;
 }
 
 /**
@@ -73,9 +88,8 @@ export function taskMenuItems(pid: string, tid: string, $t: any, extra: S.MenuEn
  */
 function skipItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	if ($t.phase !== 'merge' || !$state.projects[pid]?.test) return [];
-	return [$t.skipTests
-		? { label: 'Run the test', icon: flaskConical, click: () => void cmd('updateTask', { pid, tid, skipTests: false }) }
-		: { label: 'Skip the test', icon: flaskConicalOff, click: () => void cmd('updateTask', { pid, tid, skipTests: true }) }];
+	const skip = !$t.skipTests;
+	return [{ label: skip ? 'Skip the test' : 'Run the test', icon: skip ? flaskConicalOff : flaskConical, click: () => void cmd('updateTask', { pid, tid, skipTests: skip }) }];
 }
 
 /**
@@ -119,7 +133,13 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
  * daemon/mark.go) — and the one it was asked of is the one open.
  */
 function follow(pid: string, tid: string, to: unknown): void {
-	if (typeof to === 'string' && to !== tid && A.peek(selection).tid === tid) void route.go(pathTo(pid, to));
+	if (typeof to === 'string' && to !== tid) leaveTask(pid, tid, to);
+}
+
+/** Off the task, where it is the one open: to task `to` of the same project, or to the project's board. */
+function leaveTask(pid: string, tid: string, to?: string): void {
+	const shown = A.peek(selection);
+	if (shown.pid === pid && shown.tid === tid) void route.go(pathTo(pid, to));
 }
 
 /**
@@ -137,10 +157,13 @@ export async function deployProject(pid: string, commit?: string): Promise<void>
 	const names = (list: typeof commits) => list.length > 6 ? `${list.slice(0, 5).map(name).join(', ')} and ${list.length - 5} more` : list.map(name).join(', ');
 	const goes = commits.slice(to, at), back = commits.slice(at, to);
 	const what = [goes.length && `deploys ${names(goes)}`, back.length && `takes back ${names(back)}`].filter(Boolean).join(', and ');
-	const where = commit ? `up to ${name(commits[to] ?? { subject: commit.slice(0, 10) })}` : `at the tip of ${$p.defaultBranch ?? 'main'}`;
+	const where = commit ? `up to ${name(commits[to] ?? { subject: commit.slice(0, 10) })}` : `at the tip of ${branchOf(pid)}`;
 	const that = commit && goes.length === 1 && !back.length ? '' : ` That ${what || 'deploys it again as it is'}.`; // not the one `where` names already
 	if (await S.confirm(`Deploy ${projectName($p)} ${where}?${that} The Deploy task in the sidebar shows how it goes.`)) void cmd('deploy', { pid, commit });
 }
+
+/** What every question about a task with the agent at work in it adds. */
+const STILL_WORKING = 'The agent is still working; it is stopped first.';
 
 /**
  * Where a task sent back to Plan leaves its work: discarded, or kept, the task
@@ -154,12 +177,12 @@ async function planDialog($t: any): Promise<Phase | undefined> {
 		const pick = (phase: Phase) => { meant = phase; close(); };
 		A('p mt:0 #Keep the work and the conversation, so you can pick up the task later.');
 		A('p #Or discard all of it: the workspace, the conversation and any unmerged changes.');
-		if ($t.working) A('p #The agent is still working. Either way, it is stopped.');
-		A('div display:flex gap:$2 justify-content:flex-end', () => {
-			S.button({ content: 'Cancel', attrs: '.neutral fg:$s-muted', click: close });
+		if ($t.working) A('p text=', STILL_WORKING);
+		S.buttonGroup({ layout: 'spaced', attrs: 'align-self:flex-end', content: () => {
+			S.button({ content: 'Cancel', attrs: '.neutral', click: close });
 			S.button({ content: 'Discard', icon: trash2, attrs: '.danger .outlined', click: () => pick('plan') });
 			S.button({ content: 'Keep', icon: PHASE_ICONS.muted, click: () => pick('muted') });
-		});
+		}});
 	}});
 	return meant;
 }
@@ -170,7 +193,7 @@ async function planDialog($t: any): Promise<Phase | undefined> {
  */
 function finish(pid: string, tid: string, phase: 'done' | 'closed'): void {
 	void cmd('moveTask', { pid, tid, phase });
-	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
+	leaveTask(pid, tid);
 }
 
 /**
@@ -195,8 +218,8 @@ async function confirmOvertake(pid: string, $t: any): Promise<boolean> {
  * it — with what does not merge cleanly sent to the agent to resolve.
  */
 async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
-	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
-	const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped first.' : '';
+	const branch = A.peek(() => branchOf(pid));
+	const busy = A.peek($t, 'working') ? ' ' + STILL_WORKING : '';
 	if (!(await S.confirm(`Put this task's work onto the latest ${branch}? ${branch} is merged into the work — uncommitted `
 		+ `changes and untracked files alike — so nothing is lost. What does not merge cleanly is left in the files with `
 		+ `conflict markers, and the agent is sent in to resolve them.${busy}`))) return;
@@ -209,8 +232,8 @@ async function rebaseTask(pid: string, tid: string, $t: any): Promise<void> {
  * merging, its work kept off the branch. Which of the two is meant is worth
  * being sure of.
  */
-export function doneDialog(pid: string, tid: string, $t: any): void {
-	const branch = A.peek(() => $state.projects[pid]?.defaultBranch) ?? 'main';
+function doneDialog(pid: string, tid: string, $t: any): void {
+	const branch = A.peek(() => branchOf(pid));
 	const $merge = A.proxy({ message: (A.peek($t, 'commitMessage') || A.peek($t, 'title') || '') as string, skipTests: false });
 	void S.dialog({ header: 'Finish this task', attrs: 'w:44rem', content: close => {
 		const drawMerge = (): void => {
@@ -218,11 +241,11 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 				submit: () => {
 					close();
 					// The merge restarts a lot of machinery; the board is the nicer place to wait it out.
-					if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
+					leaveTask(pid, tid);
 					void cmd('mergeTask', { pid, tid, message: $merge.message, skipTests: $merge.skipTests });
 				},
 				content: () => {
-					A(() => { if ($t.working) A('div.s-s.warning.tonal p:$2 #The agent is still working; merging stops it first.'); });
+					A(() => { if ($t.working) drawStrip('warning', STILL_WORKING); });
 					S.textarea({
 						label: 'Commit message', help: `The whole working tree becomes one commit on ${branch}, and the task's workspace is cleaned up.`,
 						rows: 12, autoGrow: false, inputAttrs: 'font-family:monospace', bind: A.ref($merge, 'message'),
@@ -236,9 +259,10 @@ export function doneDialog(pid: string, tid: string, $t: any): void {
 			});
 		};
 		const drawDontMerge = (): void => {
-			A('p mt:0 rich=', `The task ends as it stands: its work is kept, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work back as it was, where it can still be merged.`);
-			A('div display:flex gap:$2 justify-content:flex-end', () => {
-				S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined', click: () => { close(); finish(pid, tid, 'closed'); } });
+			S.form({
+				submit: () => { close(); finish(pid, tid, 'closed'); },
+				content: () => A('p m:0 text=', `The task ends as it stands: its work is kept, off ${branch}, and its workspace is removed. Nothing else will see the work — but for as long as the task is not deleted it can be picked up again, which puts the work back as it was, where it can still be merged.`),
+				actions: () => S.button({ content: 'Finish without merging', icon: circleSlash, attrs: '.danger .outlined', type: 'submit' }),
 			});
 		};
 		S.tabs({ contentAttrs: 'pt:$3', tabs: [
@@ -290,7 +314,7 @@ const SAME_MODEL = 'Same as agent model';
  * model that host no longer lists still shows.
  */
 function modelOptions(pid: string, $t: any, field = 'model'): string[] {
-	const host = $state.hosts[$state.projects[pid]?.host];
+	const host = projectHost(pid);
 	const models = new Set<string>(host?.models ?? $state.models ?? []);
 	if ($t[field]) models.add($t[field]);
 	return [...models];
@@ -298,10 +322,9 @@ function modelOptions(pid: string, $t: any, field = 'model'): string[] {
 
 /** Why the list is the built-in one rather than what claude offers, if it is. */
 function modelsError(pid: string): string {
-	const hid = $state.projects[pid]?.host;
-	const host = $state.hosts[hid];
+	const host = projectHost(pid);
 	if (!host?.modelsError) return '';
-	return `claude on ${hostName(hid)} could not be asked which models it offers, so this is the built-in list: ${host.modelsError}`;
+	return `claude on ${hostName($state.projects[pid].host)} could not be asked which models it offers, so this is the built-in list: ${host.modelsError}`;
 }
 
 /**
@@ -360,25 +383,21 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 			},
 		});
 	});
-	S.textline({
-		label: 'Task budget limit (USD)', type: 'number', inputAttrs: 'step=0.01', placeholder: 'No limit',
-		help: 'The task is parked for you when spending reaches it.',
-		value: A.peek($t, 'budget') != null ? String(A.peek($t, 'budget')) : '',
-		input: debounce(600, (e: Event) => save({ budget: (e.target as HTMLInputElement).value })),
+	const budget = (field: string, label: string, placeholder: string, help: string) => S.textline({
+		label, type: 'number', inputAttrs: 'step=0.01', placeholder, help,
+		value: A.peek($t, field) != null ? String(A.peek($t, field)) : '',
+		input: debounce(600, (e: Event) => save({ [field]: (e.target as HTMLInputElement).value })),
 	});
+	budget('budget', 'Task budget limit (USD)', 'No limit', 'The task is parked for you when spending reaches it.');
 	// Only where the host can make OpenRouter keys at all. The flag is derived
 	// on its own, so the host's state changing does not redraw the field typed in.
 	const $or = A.proxy({ on: false });
-	A(() => { $or.on = !!$state.hosts[$state.projects[pid]?.host]?.openrouter; });
+	A(() => { $or.on = !!projectHost(pid)?.openrouter; });
 	A(() => {
 		if (!$or.on) return;
 		const granted = A.peek($t, 'openrouterGranted');
-		S.textline({
-			label: 'OpenRouter budget limit (USD)', type: 'number', inputAttrs: 'step=0.01', placeholder: 'None',
-			help: 'Separate from the task budget: what the agent may be handed in OpenRouter API keys without asking you.' + (granted ? ` $${granted.toFixed(2)} handed out so far.` : ''),
-			value: A.peek($t, 'openrouterBudget') != null ? String(A.peek($t, 'openrouterBudget')) : '',
-			input: debounce(600, (e: Event) => save({ openrouterBudget: (e.target as HTMLInputElement).value })),
-		});
+		budget('openrouterBudget', 'OpenRouter budget limit (USD)', 'None',
+			'Separate from the task budget: what the agent may be handed in OpenRouter API keys without asking you.' + (granted ? ` $${granted.toFixed(2)} handed out so far.` : ''));
 	});
 	drawReadyFields($t, save, !!$state.projects[pid]?.scratch);
 	// The odd one out: this setting is not the task's but this browser's, so it
@@ -390,15 +409,13 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 		help: tid
 			? 'A desktop notification when the task comes back to you. This browser only.'
 			: 'On for the tasks made here from now on. This browser only.',
-		checked: A.peek(() => tid ? notifies(pid, tid) : notifiesByDefault(pid)),
+		checked: A.peek(() => notifies(pid, tid)),
 		change: async (e: Event) => {
-			await (tid ? toggleNotifies(pid, tid) : toggleDefaultNotifies(pid));
-			(e.target as HTMLInputElement).checked = A.peek(() => tid ? notifies(pid, tid) : notifiesByDefault(pid));
+			await toggleNotifies(pid, tid);
+			(e.target as HTMLInputElement).checked = A.peek(() => notifies(pid, tid));
 		},
 	});
 }
-
-const BACK_TIP = 'The agent works through what the review asked for, and the work is reviewed again. What the last review still asks for comes to you, in the task’s message box.';
 
 /**
  * What becomes of finished work: one question per moment where it can go more
@@ -420,10 +437,10 @@ function drawReadyFields($t: any, save: (patch: object) => void, scratch: boolea
 	});
 	drawChoiceField('On review feedback', {
 		'0': { icon: user, title: 'Assign it to me', tip: 'What the review asks for comes to you, in the task’s message box.' },
-		'1': { text: '1×', icon: bot, title: 'Back to the agent, once', tip: BACK_TIP },
-		'2': { text: '2×', icon: bot, title: 'Back to the agent, twice', tip: BACK_TIP },
-		'3': { text: '3×', icon: bot, title: 'Back to the agent, three times', tip: BACK_TIP },
-		'10': { text: '10×', icon: bot, title: 'Back to the agent, ten times', tip: BACK_TIP },
+		...Object.fromEntries([[1, 'once'], [2, 'twice'], [3, 'three times'], [10, 'ten times']].map(([n, times]) => [n, {
+			text: `${n}×`, icon: bot, title: `Back to the agent, ${times}`,
+			tip: 'The agent works through what the review asked for, and the work is reviewed again. What the last review still asks for comes to you, in the task’s message box.',
+		}])),
 	}, {
 		get value() { return String($t.reviewLoops ?? 1); },
 		set value(reviewLoops: string) { if (reviewLoops) save({ reviewLoops }); },
@@ -465,16 +482,15 @@ function drawChoiceField(label: string, choices: Record<string, { icon: typeof b
  * goes with it. Whoever is showing it falls back to the board; the board
  * itself just loses a card.
  */
-export async function deleteTask(pid: string, tid: string, $t: any): Promise<void> {
-	const busy = A.peek($t, 'working') ? ' The agent is still working; it is stopped.' : '';
+async function deleteTask(pid: string, tid: string, $t: any): Promise<void> {
+	const busy = A.peek($t, 'working') ? ' ' + STILL_WORKING : '';
 	const title = A.peek($t, 'title');
 	if (!(await S.confirm(`Delete ${title ? `"${title}"` : 'this task'}? This removes the task, its workspace and its container; merged work stays merged.${busy}`))) return;
-	if (!(await cmd('deleteTask', { pid, tid }))) return;
-	if (A.peek(selection).tid === tid) void route.go(pathTo(pid));
+	if (await cmd('deleteTask', { pid, tid })) leaveTask(pid, tid);
 }
 
 /** Task settings behind a dialog, for wherever the top of the task's chat log is out of reach (see drawTaskSettings). */
-export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
+function taskSettingsDialog(pid: string, tid: string, $t: any): void {
 	void S.dialog({ header: 'Task settings', attrs: 'w:36rem', content: close => drawTaskSettings(pid, tid, $t, close) });
 }
 
@@ -485,7 +501,7 @@ export function taskSettingsDialog(pid: string, tid: string, $t: any): void {
  * stands in — which the field follows, while it is not being typed in. A task
  * still in Plan can move to another project as well.
  */
-export function drawTaskSettings(pid: string, tid: string, $t: any, close?: () => void): void {
+function drawTaskSettings(pid: string, tid: string, $t: any, close?: () => void): void {
 	const save = (patch: object) => void cmd('updateTask', { pid, tid, ...patch });
 	const field = A('div', () => S.textline({
 		label: 'Title',
@@ -559,40 +575,8 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 				tooltip: 'The agent reports the work ready to merge', click: () => doneDialog(pid, tid, $t) });
 		});
 		S.iconButton({ icon: menu, ariaLabel: 'Task menu', tooltip: 'Everything to do with this task',
-			click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: headerItems(pid, tid, $t) }); } });
+			click: (e: Event) => { S.showFloatingMenu({ anchor: e.currentTarget as HTMLElement, items: taskMenuItems(pid, tid, $t) }); } });
 	});
-}
-
-/**
- * The header's menu: the task's own (where it can go, and how it ends), with
- * what is for the human at the wheel and its settings slotted in, and below
- * those its services and its forwarded ports.
- */
-function headerItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
-	// A job is TPS's to move (see isJob): what is left to do with it is look
-	// at what runs in it.
-	if (isJob($t)) {
-		const items: S.MenuEntry[] = [{ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) }];
-		if (hasServices($t)) items.push({ separator: true }, ...serviceItems(pid, tid, $t));
-		if ($t.ports?.length) items.push({ separator: true }, ...portItems($t));
-		return items;
-	}
-	const extra: S.MenuEntry[] = [];
-	// Only while the task is yours: rebasing and rebuilding both move the
-	// ground under a running agent, and both are for the human at the wheel.
-	if (waitsForHuman($t)) {
-		if ($t.behind) {
-			const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-			extra.push({ label: `Rebase onto the latest ${branch} (${$t.behind} behind)`, icon: arrowDownToLine, click: () => rebaseTask(pid, tid, $t) });
-		}
-		extra.push({ label: 'Rebuild the container', icon: refreshCw, click: () => void cmd('reloadTask', { pid, tid }) });
-	}
-	if ($state.projects[pid]?.scratch) extra.push({ label: 'Turn into project…', icon: folderGit2, click: () => turnIntoProjectDialog(pid, tid) });
-	extra.push({ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) });
-	const items = taskMenuItems(pid, tid, $t, extra);
-	if (hasServices($t)) items.push({ separator: true }, ...serviceItems(pid, tid, $t));
-	if ($t.ports?.length) items.push({ separator: true }, ...portItems($t));
-	return items;
 }
 
 /**
@@ -629,26 +613,19 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 	const zone = A('div display:flex flex-direction:column gap:$3 flex:1 min-width:0 min-height:0', () => {
 		drawTaskHeader(pid, tid, $t);
 		drawChat(pid, tid, $t, () => drawTaskSettings(pid, tid, $t));
-		if (isJob($t)) return drawJobBar(pid, tid, $t);
+		if (isJob($t)) return drawJobBar(pid, $t);
 		A(() => {
-			if ($t.phase === 'closed') {
-				if ($state.projects[pid]?.scratch) return; // there was nothing to merge it into
-				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-				A('div.s-s.warning.tonal p:$2 text=', $t.changes?.length
-					? `⚠ Closed without merging: nothing of this task is on ${branch}; its work is kept.`
-					: `⚠ Closed without merging: nothing of this task is on ${branch}.`);
-				return;
-			}
+			const branch = branchOf(pid);
 			if ($t.phase === 'done') {
-				const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-				A('div.s-s.success.tonal p:$2 text=',
-					`✔ Merged into ${branch}. Messaging the agent carries on in a follow-up task: the agent keeps everything it `
-					+ `knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
+				return drawStrip('success', `✔ Merged into ${branch}. Messaging the agent carries on in a follow-up task: the agent keeps `
+					+ `everything it knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
+			}
+			if ($t.phase === 'closed') {
+				// A scratch task had nothing to merge it into.
+				if (!$state.projects[pid]?.scratch) drawStrip('warning', `⚠ Closed without merging: nothing of this task is on ${branch}${$t.changes?.length ? '; its work is kept' : ''}.`);
 				return;
 			}
-			if (waitingFor(pid, $t).length) {
-				A('div.s-s.warning.tonal p:$2 text=', `⏳ ${taskActivity(pid, $t).text}: what you send is held back for the agent until then.`);
-			}
+			if (waitingFor(pid, $t).length) drawStrip('warning', `⏳ ${taskActivity(pid, $t).text}: what you send is held back for the agent until then.`);
 			if ($t.phase === 'plan') return;
 			if (!waitsForHuman($t)) return;
 			// The last review's feedback is put in the message box, to send on as it
@@ -656,9 +633,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 			// the user's to weigh, and saying it back to the agent is a message like
 			// any other. A message half written wins (see offerDraftL in
 			// daemon/task.go).
-			if ($t.review) {
-				A('div.s-s.warning.tonal p:$2 #⚠ The automated review asks for changes; they are in the message box below, to send on, reword or clear');
-			}
+			if ($t.review) drawStrip('warning', '⚠ The automated review asks for changes; they are in the message box below, to send on, reword or clear');
 		});
 		// Asked mid-turn: the agent waits on the answer, whatever the phase says.
 		A(() => {
@@ -678,7 +653,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		A(() => {
 			if (!['building', 'starting', 'stopping', 'error'].includes($t.status)) return;
 			const { text, color } = taskActivity(pid, $t);
-			A(`div.s-s.${color}.tonal p:$2 text=`, text);
+			drawStrip(color, text);
 		});
 		// A scheduled task's prompt is one of its settings: there is no one to message.
 		if (!A.peek(() => isSchedule($t))) drawInputBar(pid, tid, $t);
@@ -700,8 +675,7 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
 		...(s.seeds ?? []).map((path: string) => `Seed: ${path}`),
 		...Object.entries(s.defaults ?? {}).map(([key, v]) => `Default ${key}: ${v ?? 'none'}`),
 	];
-	A('div.s-s.warning.tonal p:$2 display:flex flex-direction:column gap:$2', () => {
-		A('div font-weight:600 #The agent suggests a change to the project settings');
+	drawStrip('warning', '**The agent suggests a change to the project settings**', () => {
 		A(() => {
 			// What the suggestion replaces is the project's settings of the same kinds, as they are now.
 			const $p = $state.projects[pid] ?? {};
@@ -712,12 +686,12 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
 				defaults: Object.fromEntries(Object.keys(suggestion.defaults ?? {}).map(key => [key, $p.defaults?.[key]])),
 			});
 			const after = lines(suggestion);
-			A('div font-family:monospace font-size:0.9em white-space:pre-wrap', () => {
+			A('div flex-basis:100% font-family:monospace font-size:0.9em white-space:pre-wrap', () => {
 				for (const line of before) if (!after.includes(line)) A('div fg:$s-danger text=', '− ' + line);
 				for (const line of after) A(`div ${before.includes(line) ? 'fg:$s-muted' : 'fg:$s-success'} text=`, (before.includes(line) ? '  ' : '+ ') + line);
 			});
 		});
-		A('div display:flex gap:$2', () => {
+		A('div flex-basis:100% display:flex gap:$2', () => {
 			S.button({ content: 'Accept', attrs: '.small', click: () => void cmd('answerSuggestion', { pid, tid, accept: true }) });
 			S.button({ content: 'Reject', attrs: '.small .neutral', click: () => void cmd('answerSuggestion', { pid, tid, accept: false }) });
 		});
@@ -728,7 +702,7 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
  * Where a job's composer would be: what it is doing, and for the deploy, the
  * button that runs it again.
  */
-function drawJobBar(pid: string, tid: string, $t: any): void {
+function drawJobBar(pid: string, $t: any): void {
 	A('div display:flex align-items:center gap:$2', () => {
 		A(`span flex:1 fg:$s-muted ${ELLIPSIS}`, () => A('text=', $t.phase === 'merge' ? 'Running…'
 			: 'Deploys the default branch, with the files the project settings name.'));
@@ -789,14 +763,10 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 	// another dashboard — and takes the field, unless that has moved on since.
 	let stored = A.peek(() => (plan() ? $t.description : $t.draft) ?? '');
 	let planSent = false; // sent from Plan: the plan is the task's now, and no draft
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const store = (draft: string) => {
-		clearTimeout(timer);
-		timer = setTimeout(() => {
-			stored = draft;
-			void cmd('updateTask', { pid, tid, draft });
-		}, 600);
-	};
+	const store = debounce(600, (draft: string) => {
+		stored = draft;
+		void cmd('updateTask', { pid, tid, draft });
+	});
 	const $text = A.proxy({ value: stored });
 	const area = () => bar.querySelector('textarea') as HTMLTextAreaElement;
 	const fill = (text: string) => {
@@ -810,7 +780,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		// Sent from Plan, the task leaves it — unless the message is held back.
 		planSent = plan() && !A.peek(() => waits($t));
 		fill('');
-		clearTimeout(timer);
+		store.cancel();
 		stored = '';
 		if (!plan()) void cmd('updateTask', { pid, tid, draft: '' });
 		void cmd('chat', { pid, tid, text }).then(to => follow(pid, tid, to));
@@ -900,25 +870,19 @@ export function drawTaskCode(pid: string, tid: string, $t: any, left: string): v
  * there is any, and carries on; a merged one does that in a follow-up task.
  */
 export function drawDonePanel(pid: string, tid: string, $t: any): void {
-	const branch = $state.projects[pid]?.defaultBranch ?? 'main';
-	const closed = $t.phase === 'closed';
+	const branch = branchOf(pid);
 	const muted = $t.phase === 'muted';
 	const scratch = !!$state.projects[pid]?.scratch;
-	const files = `${$t.changes?.length} file${$t.changes?.length === 1 ? '' : 's'}`;
-	S.box({ header: muted ? 'Kept in Plan' : scratch ? 'Closed' : closed ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
-		A('p m:0 text=', muted
-			? `This task was put away for later. ${$t.changes?.length
-				? `Its work is kept, ${files}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
-				: 'It had no work to keep; its conversation is kept. Pick it back up to carry on.'}`
-		: scratch
-			? `This task was closed. ${$t.changes?.length
-				? `Its work is kept, ${files}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
-				: 'It had no work to keep; its conversation is kept. Pick it back up to carry on in an empty workspace.'}`
-		: closed ? `This task was closed without merging. ${$t.changes?.length
-				? `Its work is kept, ${files} off ${branch}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
-				: `It had no work to keep; its conversation is kept. Pick it back up to give it a fresh clone of ${branch} and carry on.`}`
-			: `This task's work is on ${branch}, and its workspace is gone. The conversation is kept: message the agent `
-				+ `to carry on in a follow-up task, with a fresh clone of ${branch}, or take that on yourself.`);
+	const unmerged = muted || $t.phase === 'closed';
+	const n = $t.changes?.length;
+	const kept = n
+		? `Its work is kept, ${n} file${n === 1 ? '' : 's'}${muted || scratch ? '' : ` off ${branch}`}, and its conversation with it: pick it back up to have the work back as it was and carry on.`
+		: `It had no work to keep; its conversation is kept. Pick it back up to ${muted ? 'carry on' : scratch ? 'carry on in an empty workspace' : `give it a fresh clone of ${branch} and carry on`}.`;
+	S.box({ header: muted ? 'Kept in Plan' : scratch ? 'Closed' : unmerged ? 'Not merged' : `Merged into ${branch}`, contentAttrs: 'display:flex flex-direction:column align-items:flex-start gap:$2', content: () => {
+		A('p m:0 text=', !unmerged
+			? `This task's work is on ${branch}, and its workspace is gone. The conversation is kept: message the agent `
+				+ `to carry on in a follow-up task, with a fresh clone of ${branch}, or take that on yourself.`
+			: `${muted ? 'This task was put away for later.' : scratch ? 'This task was closed.' : 'This task was closed without merging.'} ${kept}`);
 		A('div display:flex gap:$2 flex-wrap:wrap', () => {
 			S.button({ content: 'Pick up as human', icon: user, attrs: '.small', click: () => void cmd('moveTask', { pid, tid, phase: 'human' }).then(to => follow(pid, tid, to)) });
 			S.button({ content: 'Delete task…', icon: trash2, attrs: '.small .neutral', click: () => void deleteTask(pid, tid, $t) });

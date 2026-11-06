@@ -81,17 +81,39 @@ func exitCode(err error) int {
 	}
 }
 
+// cmdOK reports whether a command runs and exits 0.
+func cmdOK(argv []string, o RunOpts) bool {
+	o.NoCheck = true
+	r, err := runCmd(argv, o)
+	return err == nil && r.Code == 0
+}
+
 // git runs git in dir, returning trimmed stdout.
-func git(dir string, args ...string) (string, error) {
-	r, err := runCmd(append([]string{"git", "-C", dir}, args...), RunOpts{})
+func git(dir string, args ...string) (string, error) { return gitEnv(dir, nil, args...) }
+
+// gitEnv is git with variables added to its environment.
+func gitEnv(dir string, env []string, args ...string) (string, error) {
+	r, err := runCmd(append([]string{"git", "-C", dir}, args...), RunOpts{Env: env})
 	return strings.TrimSuffix(r.Out, "\n"), err
+}
+
+// gitSeq runs git commands in dir one after the other, up to the first that fails.
+func gitSeq(dir string, cmds ...[]string) error {
+	for _, args := range cmds {
+		if _, err := git(dir, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // gitOK reports whether a git command succeeds.
 func gitOK(dir string, args ...string) bool {
-	r, err := runCmd(append([]string{"git", "-C", dir}, args...), RunOpts{NoCheck: true})
-	return err == nil && r.Code == 0
+	return cmdOK(append([]string{"git", "-C", dir}, args...), RunOpts{})
 }
+
+// splitNul splits NUL-terminated fields, as `git -z` writes them.
+func splitNul(s string) []string { return strings.Split(strings.TrimSuffix(s, "\x00"), "\x00") }
 
 func sha256hex(text string) string {
 	sum := sha256.Sum256([]byte(text))
@@ -183,3 +205,6 @@ func anyImage() (string, error) {
 	}
 	return "", fmt.Errorf("no %s image to run rm in", imageRepo)
 }
+
+// DataDir is where TPS keeps its data on this machine.
+func DataDir() string { return filepath.Join(home(), ".local", "share", "tps") }

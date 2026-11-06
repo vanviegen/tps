@@ -10,9 +10,9 @@
  * has, a face of two dots stays a face and one of three turns to mush.
  */
 
-export type Part = 'lamp' | 'antenna' | 'head' | 'eyes' | 'hand-l' | 'hand-r' | 'keyboard';
+type Part = 'lamp' | 'antenna' | 'head' | 'eyes' | 'hand-l' | 'hand-r' | 'keyboard';
 
-export type Shape =
+type Shape =
 	| { part: Part; line: [number, number, number, number] }
 	| { part: Part; rrect: [number, number, number, number, number] }
 	| { part: Part; dot: [number, number, number] };
@@ -23,7 +23,7 @@ export const STROKE = 2;
 export const COLOR = '#00a884';
 
 /** What moves with what: the face and the antenna go where the head goes, and the lamp sits on the antenna. */
-export const PARENT: Partial<Record<Part, Part>> = { eyes: 'head', antenna: 'head', lamp: 'antenna' };
+const PARENT: Partial<Record<Part, Part>> = { eyes: 'head', antenna: 'head', lamp: 'antenna' };
 
 export const SHAPES: Shape[] = [
 	{ part: 'lamp', dot: [12, 2.4, 1.4] },
@@ -53,10 +53,10 @@ export function markup(): string {
  * turned and scaled about its own centre, and how opaque. Anything left out is
  * the drawn place.
  */
-export interface Pose { x?: number; y?: number; rot?: number; scale?: number; opacity?: number }
+interface Pose { x?: number; y?: number; rot?: number; scale?: number; opacity?: number }
 
 /** One cycle of work, in seconds: a burst of typing, then a moment's thought. */
-export const CYCLE = 4;
+const CYCLE = 4;
 
 /** A tap of a hand on the keyboard: down fast, back a little slower. */
 function tap(at: number): [number, Pose][] {
@@ -70,7 +70,7 @@ function tap(at: number): [number, Pose][] {
  * has — and the last third is for thinking: the eyes go up and away, the head
  * tilts, and the lamp on the antenna flickers with it.
  */
-export const KEYFRAMES: Partial<Record<Part, [number, Pose][]>> = {
+const KEYFRAMES: Partial<Record<Part, [number, Pose][]>> = {
 	'hand-l': [0, 11, 21, 29, 43, 52].flatMap(tap),
 	'hand-r': [5, 16, 25, 36, 48, 57].flatMap(tap),
 	// Down at the keys while typing, then up and away, one side and the other.
@@ -99,16 +99,4 @@ export function animationCss(): Record<string, string | Record<string, string>> 
 		css[`.tps-bot.tps-busy .${name}`] = `transform-box: fill-box; transform-origin: center; animation: ${name} ${CYCLE}s linear infinite;`;
 	}
 	return css;
-}
-
-/** A part's pose at `t` seconds into the cycle: what the CSS above would show. Used to preview the animation. */
-export function poseAt(part: Part, t: number): Pose {
-	const frames = [[0, {}] as [number, Pose], ...(KEYFRAMES[part] ?? []), [100, {}] as [number, Pose]];
-	const pct = ((t % CYCLE) / CYCLE) * 100;
-	let i = 0;
-	while (i + 1 < frames.length && frames[i + 1][0] <= pct) i++;
-	const [a0, p0] = frames[i], [a1, p1] = frames[Math.min(i + 1, frames.length - 1)];
-	const f = a1 > a0 ? (pct - a0) / (a1 - a0) : 0;
-	const mix = (k: keyof Pose, d: number) => (p0[k] ?? d) + ((p1[k] ?? d) - (p0[k] ?? d)) * f;
-	return { x: mix('x', 0), y: mix('y', 0), rot: mix('rot', 0), scale: mix('scale', 1), opacity: mix('opacity', 1) };
 }

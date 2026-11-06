@@ -214,7 +214,7 @@ func TestLeftoverDirectoryIsNoWorkspace(t *testing.T) {
 		t.Error("a bare directory passes for a workspace")
 	}
 	err := task.Merge("again", false)
-	if err == nil || !strings.Contains(err.Error(), "no workspace to merge") {
+	if err != errNoWorkspace {
 		t.Errorf("merging a leftover: %v", err)
 	}
 
@@ -580,8 +580,7 @@ func TestMuteParks(t *testing.T) {
 	}
 }
 
-// A closed task an older TPS left with its workspace in place is parked at
-// startup: its work becomes the bundle, the workspace goes.
+// A closed task found with its workspace in place is parked at startup: its work becomes the bundle, the workspace goes.
 func TestParkAtStartup(t *testing.T) {
 	task, _ := testTask(t)
 	if err := task.ensureWorkspace(); err != nil {

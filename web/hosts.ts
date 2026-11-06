@@ -21,7 +21,7 @@ export function hostOrder(hid: string): string {
 	return hid === 'local' ? '' : '1' + hostName(hid).toLowerCase();
 }
 
-export type HostState = {
+type HostState = {
 	/** A staffa style — neutral, warning, danger or success — for the strip it is written on. */
 	color: string;
 	icon: typeof serverCrash;
@@ -99,10 +99,9 @@ export function drawHostPage(hid: string): void {
 						A(`span fg:${hostInk(state.color)} text=`, state.ok ? 'Connected' : state.color === 'neutral' ? state.text : 'Needs attention');
 					});
 				});
-				const scratch = scratchOf(hid);
-				S.button({ content: 'View scratch board', icon: squareKanban, attrs: '.neutral', disabled: !scratch, click: () => void route.go(pathTo(scratch!)) });
-				S.button({ content: 'Create scratch task', icon: plus, attrs: '.neutral', disabled: !scratch, click: () => addTask(scratch!) });
-				S.button({ content: 'Add project', icon: plus, disabled: $h.status !== 'connected', click: () => addProjectDialog(hid) });
+				for (const action of hostActions(hid, $h)) {
+					if (!action.about) S.button({ content: action.label, icon: action.icon, attrs: action.main ? '' : '.neutral', disabled: action.disabled, click: action.click });
+				}
 			});
 			if (!state.ok) drawStrip(state.color, state.text, () => drawAction(state));
 		});
@@ -116,12 +115,12 @@ export function drawHostPage(hid: string): void {
 		}});
 		// Outside the scopes above: a redraw while typing would take the cursor with it.
 		drawHostSettings(hid);
-		A(() => drawHostActions(hid, $state.hosts?.[hid]?.status));
+		A(() => drawHostActions(hid, $state.hosts?.[hid]));
 	});
 }
 
 /** The way out of what a host is doing, where its state has one. */
-export function drawAction(state: HostState): void {
+function drawAction(state: HostState): void {
 	if (state.action) S.button({ content: state.action.label, attrs: `.small .${state.color}`, click: state.action.run });
 }
 
@@ -199,54 +198,69 @@ function drawHostSettings(hid: string): void {
 }
 
 /**
- * The things to do with a host, each on a line that says what it does. The
- * daemon's own only while it is there to be asked.
+ * Something to do with a host. Its page has the ones with an `about` in its
+ * Actions box, each on a line saying what it does, and the rest at its top;
+ * the menu of its row in the sidebar has those that can be done right now.
  */
-function drawHostActions(hid: string, status: string | undefined): void {
-	const rows: [string, string, S.ButtonOptions][] = [];
-	if (status === 'connected') {
+interface HostAction {
+	label: string;
+	icon: typeof plus;
+	click: () => unknown;
+	disabled?: boolean;
+	/** The page's one filled button. */
+	main?: boolean;
+	danger?: boolean;
+	/** The heading and the line it has in the Actions box. */
+	about?: [string, string];
+}
+
+/** What there is to do with a host. The daemon's own only while it is there to be asked. */
+function hostActions(hid: string, $h: any): HostAction[] {
+	const scratch = scratchOf(hid);
+	const connected = $h?.status === 'connected';
+	const actions: HostAction[] = [
+		{ label: 'View scratch board', icon: squareKanban, disabled: !scratch, click: () => void route.go(pathTo(scratch!)) },
+		{ label: 'Create scratch task', icon: plus, disabled: !scratch, click: () => addTask(scratch!) },
+		{ label: 'Add project…', icon: plus, main: true, disabled: !connected, click: () => addProjectDialog(hid) },
+	];
+	if (connected) {
 		// Also for a login that still works, to replace it with another account.
-		rows.push(['Claude account', 'Sign in on this host, again or with another account.',
-			{ content: 'Sign in to claude', icon: keyRound, click: () => signIn(hid) }]);
-		rows.push(['Stop the daemon', 'Its running workspaces are shut down; Connect starts it again.',
-			{ content: 'Stop daemon', icon: power, click: () => stopDaemon(hid) }]);
+		actions.push({ label: 'Sign in to claude', icon: keyRound, click: () => signIn(hid),
+			about: ['Claude account', 'Sign in on this host, again or with another account.'] });
+		actions.push({ label: 'Stop daemon…', icon: power, click: () => stopDaemon(hid),
+			about: ['Stop the daemon', 'Its running workspaces are shut down; Connect starts it again.'] });
 	}
 	if (hid !== 'local') {
-		rows.push(['Remove this host', 'Takes it and its projects off the list; nothing on the host is thrown away.',
-			{ content: 'Remove host', icon: trash2, attrs: '.small .danger .tonal', click: () => removeHost(hid) }]);
+		actions.push({ label: 'Remove host…', icon: trash2, danger: true, click: () => removeHost(hid),
+			about: ['Remove this host', 'Takes it and its projects off the list; nothing on the host is thrown away.'] });
 	}
+	return actions;
+}
+
+/** The host's page's Actions box. */
+function drawHostActions(hid: string, $h: any): void {
+	const rows = hostActions(hid, $h).filter(action => action.about);
 	if (!rows.length) return;
 	S.box({ header: 'Actions', attrs: 'mt:0', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => {
-		for (const [title, text, button] of rows) {
+		for (const { label, icon, click, danger, about } of rows) {
 			A('div display:flex align-items:center gap:$3 flex-wrap:wrap', () => {
 				A('div flex:1 min-width:12rem display:flex flex-direction:column', () => {
-					A('b text=', title);
-					A('small fg:$s-muted text=', text);
+					A('b text=', about![0]);
+					A('small fg:$s-muted text=', about![1]);
 				});
-				S.button({ attrs: '.small .neutral', ...button });
+				S.button({ content: label, icon, attrs: danger ? '.small .danger .outlined' : '.small .neutral', click });
 			});
 		}
 	}});
 }
 
-/** What there is to do with a host, as the menu of its row in the sidebar. */
+/** The host's menu, from its row in the sidebar: what there is to do with it now, the removal set apart. */
 export function hostMenuItems(hid: string, $h: any): S.MenuEntry[] {
 	const items: S.MenuEntry[] = [];
-	const scratch = scratchOf(hid);
-	if ($h.status === 'connected') {
-		if (scratch) items.push(
-			{ label: 'View scratch board', icon: squareKanban, click: () => void route.go(pathTo(scratch)) },
-			{ label: 'Create scratch task', icon: plus, click: () => addTask(scratch) },
-		);
-		items.push(
-			{ label: 'Add project…', icon: plus, click: () => addProjectDialog(hid) },
-			{ label: 'Sign in to claude', icon: keyRound, click: () => void signIn(hid) },
-			{ label: 'Stop daemon…', icon: power, click: () => void stopDaemon(hid) },
-		);
-	}
-	if (hid !== 'local') {
-		if (items.length) items.push({ separator: true });
-		items.push({ label: 'Remove host…', icon: trash2, attrs: 'fg:$s-danger', click: () => void removeHost(hid) });
+	for (const { label, icon, click, disabled, danger } of hostActions(hid, $h)) {
+		if (disabled) continue;
+		if (danger && items.length) items.push({ separator: true });
+		items.push({ label, icon, attrs: danger ? 'fg:$s-danger' : '', click: () => void click() });
 	}
 	return items;
 }
@@ -286,9 +300,9 @@ function unavailableDialog(hid: string): void {
 	void S.dialog({ header: () => A('text=', `${hostName(hid)} is unavailable`), attrs: 'w:40rem', content: close => {
 		A('p mt:0 #TPS cannot run projects on this host. Other hosts work as they are.');
 		A('pre white-space:pre-wrap overflow:auto max-height:20rem m:0 text=', $state.hosts?.[hid]?.error ?? '');
-		A('div display:flex justify-content:flex-end mt:$3', () => {
+		S.buttonGroup({ layout: 'spaced', attrs: 'align-self:flex-end', content: () => {
 			S.button({ content: 'Try again', icon: refreshCw, click: () => { void cmd('connectHost', { hid }); close(); } });
-		});
+		}});
 	}});
 }
 

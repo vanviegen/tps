@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/vanviegen/tps/daemon"
 )
@@ -27,12 +26,11 @@ func (u *UI) addProject(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir := strings.TrimSpace(args.Dir)
-	if dir == "" {
-		return nil, errors.New("Give a directory, like ~/projects/app")
+	dir, err := dirArg(args.Dir)
+	if err != nil {
+		return nil, err
 	}
-	l.Wake()
-	if err := l.awaitConnection(10 * time.Minute); err != nil {
+	if err := l.connect(); err != nil {
 		return nil, err
 	}
 	res, err := l.cmd("addProject", map[string]any{"dir": dir, "name": strings.TrimSpace(args.Name), "init": args.Init})
@@ -52,15 +50,7 @@ func (u *UI) addProject(raw json.RawMessage) (any, error) {
 // turnIntoProject is a task command like those forwarded as they are, but
 // what it answers with is a project the dashboard has yet to hear of.
 func (u *UI) turnIntoProject(raw json.RawMessage) (any, error) {
-	args := map[string]any{}
-	_ = json.Unmarshal(raw, &args)
-	id, _ := args["pid"].(string)
-	l, pid, err := u.resolve(id)
-	if err != nil {
-		return nil, err
-	}
-	args["pid"] = pid
-	res, err := l.cmd("turnIntoProject", args)
+	l, res, err := u.forwardCmd("turnIntoProject", raw)
 	if err != nil {
 		return nil, err
 	}
@@ -87,11 +77,11 @@ func (u *UI) copyProject(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(args.Dir) == "" {
-		return nil, errors.New("Give a directory, like ~/projects/app")
+	dir, err := dirArg(args.Dir)
+	if err != nil {
+		return nil, err
 	}
-	to.Wake()
-	if err := to.awaitConnection(10 * time.Minute); err != nil {
+	if err := to.connect(); err != nil {
 		return nil, err
 	}
 	var src struct {
@@ -106,7 +96,7 @@ func (u *UI) copyProject(raw json.RawMessage) (any, error) {
 		Dir     string `json:"dir"`
 		Staging string `json:"staging"`
 	}
-	if err := cmdInto(to, "prepareImport", map[string]any{"dir": strings.TrimSpace(args.Dir)}, &dst); err != nil {
+	if err := cmdInto(to, "prepareImport", map[string]any{"dir": dir}, &dst); err != nil {
 		return nil, err
 	}
 	res, err := func() (json.RawMessage, error) {
@@ -134,6 +124,14 @@ func (u *UI) copyProject(raw json.RawMessage) (any, error) {
 		}
 	}
 	return to.newProject(res)
+}
+
+// dirArg is the directory the user typed, which they have to have.
+func dirArg(dir string) (string, error) {
+	if dir = strings.TrimSpace(dir); dir == "" {
+		return "", errors.New("Give a directory, like ~/projects/app")
+	}
+	return dir, nil
 }
 
 // cmdInto sends a daemon a command and reads its answer into out.
@@ -207,7 +205,7 @@ func (u *UI) addHost(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	u.addHostEntry(dest)
-	u.linkTo(dest, nil).Wake()
+	u.linkTo(dest).Wake()
 	return map[string]any{"hid": hostID(dest)}, nil
 }
 
@@ -238,7 +236,7 @@ func (u *UI) setHost(raw json.RawMessage) (any, error) {
 	u.unlist(l)
 	u.renameHostEntry(l.dest, dest)
 	u.publish()
-	u.linkTo(dest, nil).Wake()
+	u.linkTo(dest).Wake()
 	return map[string]any{"hid": hostID(dest)}, nil
 }
 

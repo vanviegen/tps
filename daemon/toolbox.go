@@ -30,7 +30,7 @@ const codeServerVersion = "4.135.0"
 // says which one it runs on and a bumped version is a new directory.
 var toolboxKey = "code-server-" + codeServerVersion + "_claude-" + claudeVersion
 
-func toolboxRoot() string    { return filepath.Join(home(), ".local", "share", "tps", "toolbox") }
+func toolboxRoot() string    { return filepath.Join(DataDir(), "toolbox") }
 func toolboxDir() string     { return filepath.Join(toolboxRoot(), toolboxKey) }
 func toolboxInstalled() bool { return exists(toolboxDir()) }
 

@@ -72,18 +72,13 @@ func Run(o Options) error {
 	u.registerCmds()
 	u.hub.OnWatch = u.onWatch
 	saved := loadHosts()
-	hosts, legacy := saved.Hosts, saved.Projects
 	u.order, u.names = saved.Order, saved.HostNames
 	if u.names == nil {
 		u.names = map[string]string{}
 	}
-	// This machine is always shown, and shown first; the rest are those listed
-	// (and those a project of an older dashboard lived on).
+	// This machine is always shown, and shown first; the rest are those listed.
 	seen := map[string]bool{"": true}
-	for _, l := range legacy {
-		hosts = append(hosts, l.Host)
-	}
-	for _, dest := range hosts {
+	for _, dest := range saved.Hosts {
 		if !seen[dest] {
 			seen[dest] = true
 			u.hosts = append(u.hosts, dest)
@@ -93,9 +88,9 @@ func Run(o Options) error {
 	u.saveL()
 	u.mu.Unlock()
 	u.publish()
-	u.linkTo("", legacy)
+	u.linkTo("")
 	for _, dest := range u.hosts {
-		u.linkTo(dest, legacy)
+		u.linkTo(dest)
 	}
 	u.hub.Set([]string{"ready"}, true)
 	ln, err := net.Listen("tcp", o.Addr)
@@ -115,8 +110,7 @@ func Run(o Options) error {
 }
 
 // linkTo returns the link to a host, making (and starting) one when needed.
-// Names an older dashboard gave the projects there are handed over once.
-func (u *UI) linkTo(dest string, legacy []legacyProject) *Link {
+func (u *UI) linkTo(dest string) *Link {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	hid := hostID(dest)
@@ -128,11 +122,6 @@ func (u *UI) linkTo(dest string, legacy []legacyProject) *Link {
 		tr = newSSHTransport(u, hid, dest)
 	}
 	l := newLink(u, hid, dest, tr)
-	for _, e := range legacy {
-		if e.Host == dest && e.Name != "" {
-			l.names[e.Dir] = e.Name
-		}
-	}
 	u.links[hid] = l
 	go l.run()
 	return l
@@ -168,18 +157,26 @@ func (u *UI) onWatch(key string, count int) {
 	}
 }
 
+// forwardCmd sends a project's daemon one of its commands, the project id in
+// the arguments translated into the pid it knows the project by.
+func (u *UI) forwardCmd(name string, raw json.RawMessage) (*Link, json.RawMessage, error) {
+	args := map[string]any{}
+	_ = json.Unmarshal(raw, &args)
+	id, _ := args["pid"].(string)
+	l, pid, err := u.resolve(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	args["pid"] = pid
+	res, err := l.cmd(name, args)
+	return l, res, err
+}
+
 func (u *UI) registerCmds() {
 	for _, name := range daemonCmds {
 		u.hub.Cmds[name] = func(raw json.RawMessage) (any, error) {
-			args := map[string]any{}
-			_ = json.Unmarshal(raw, &args)
-			id, _ := args["pid"].(string)
-			l, pid, err := u.resolve(id)
-			if err != nil {
-				return nil, err
-			}
-			args["pid"] = pid
-			return l.cmd(name, args)
+			_, res, err := u.forwardCmd(name, raw)
+			return res, err
 		}
 	}
 	u.hub.Cmds["addProject"] = u.addProject
@@ -214,24 +211,13 @@ func (u *UI) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.SetReadLimit(16 << 20)
-	client := u.hub.AddClient()
 	ctx := context.Background()
-	go func() {
-		for raw := range client.Out {
-			if err := c.Write(ctx, websocket.MessageText, raw); err != nil {
-				break
-			}
-		}
-		c.Close(websocket.StatusNormalClosure, "")
-	}()
-	for {
+	u.hub.Serve(func() ([]byte, error) {
 		_, data, err := c.Read(ctx)
-		if err != nil {
-			break
-		}
-		u.hub.Handle(client, data)
-	}
-	u.hub.RemoveClient(client)
+		return data, err
+	}, func(raw []byte, _ bool) error {
+		return c.Write(ctx, websocket.MessageText, raw)
+	}, func() { c.Close(websocket.StatusNormalClosure, "") })
 	if u.autoUpdate && u.hub.ClientCount() == 0 {
 		go autoUpdate(append(slices.Clone(os.Args), "--no-open"))
 	}

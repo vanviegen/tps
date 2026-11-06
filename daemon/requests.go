@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -100,7 +100,7 @@ func readRequests(servicesDir, kind string, all bool) []guestRequest {
 			reqs = append(reqs, req)
 		}
 	}
-	sort.Slice(reqs, func(i, j int) bool { return reqs[i].ID < reqs[j].ID })
+	slices.SortFunc(reqs, func(a, b guestRequest) int { return strings.Compare(a.ID, b.ID) })
 	return reqs
 }
 

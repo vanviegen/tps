@@ -30,7 +30,7 @@ import (
 // as a link to the login it inherits (see demo/seed.sh), and podman needs the
 // real path.
 func authDir() string {
-	dir := filepath.Join(home(), ".local", "share", "tps", "claude")
+	dir := filepath.Join(DataDir(), "claude")
 	_ = os.MkdirAll(dir, 0o700)
 	if real, err := filepath.EvalSymlinks(dir); err == nil {
 		return real

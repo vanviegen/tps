@@ -56,7 +56,7 @@ func TestHub(t *testing.T) {
 		t.Errorf("stream: %v", got)
 	}
 	h.RemoveClient(c)
-	if watched["p/1"] != 0 || h.WatcherCount("p/1") != 0 {
+	if watched["p/1"] != 0 {
 		t.Error("watch count after leave")
 	}
 }

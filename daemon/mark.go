@@ -154,13 +154,7 @@ func lastStep(repo string) (string, error) {
 // included. Ignored files are not work (see the merge, which stages the same
 // set).
 func writeTree(repo string) (string, error) {
-	env, cleanup, err := stageAll(repo)
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	r, err := runCmd([]string{"git", "-C", repo, "write-tree"}, RunOpts{Env: env})
-	return strings.TrimSpace(r.Out), err
+	return stagedGit(repo, []string{"write-tree"})
 }
 
 // dirtyTree: the working tree has something the last step does not hold.
@@ -216,12 +210,7 @@ func (t *Task) checkoutStep(repo, step string) error {
 	if err != nil {
 		return err
 	}
-	for _, args := range [][]string{{"reset", "--quiet", "--hard", step}, {"clean", "--quiet", "-fd"}, {"update-ref", "refs/heads/" + stepsBranch, step}, {"reset", "--quiet", base}} {
-		if _, err := git(repo, args...); err != nil {
-			return err
-		}
-	}
-	return nil
+	return gitSeq(repo, []string{"reset", "--quiet", "--hard", step}, []string{"clean", "--quiet", "-fd"}, []string{"update-ref", "refs/heads/" + stepsBranch, step}, []string{"reset", "--quiet", base})
 }
 
 // markSummary is how long a one-line summary of a run may be: a commit subject.
@@ -453,22 +442,13 @@ func (p *Project) forkTitleL(title string) string {
 // a title of its own. It waits for a human — a fork is something to look at
 // before it is sent anywhere.
 func (p *Project) newForkL(src *TaskInfo, title string) *Task {
-	tid := strconv.Itoa(p.info.NextTask)
-	p.info.NextTask++
-	info := &TaskInfo{
+	return p.addTaskL(&TaskInfo{
 		Title: title, Description: src.Description, Model: src.Model,
 		ReviewModel: src.ReviewModel, OnReady: src.OnReady, OnAccept: src.OnAccept,
 		ReviewLoops: copyPtr(src.ReviewLoops), Budget: copyPtr(src.Budget), ORBudget: copyPtr(src.ORBudget),
 		Phase: PhaseHuman, PhaseAt: time.Now().UnixMilli(),
 		TitleAsked: true,
-	}
-	p.info.Tasks[tid] = info
-	t := newTask(p, tid, info)
-	p.tasks[tid] = t
-	p.touchL()
-	p.m.saveL()
-	t.publishL()
-	return t
+	})
 }
 
 // fork is the same rewind, done to a copy: a new task in the same project that
@@ -521,12 +501,8 @@ func (t *Task) fork(chat chatPoint, work *chatPoint, log []byte, prompt string) 
 	if err := rewindTranscripts(f.claudeDir(), chat.Mark.Claude); err != nil {
 		return f.tid, err
 	}
-	f.lock()
-	f.info.Started = len(f.transcripts()) > 0
-	f.p.m.saveL()
-	f.unlock()
-	f.note(fmt.Sprintf("Forked from %q, at its save point %q", src.Title, oneLine(chat.Text, 60)))
-	if err := f.ensureWorkspace(); err != nil {
+	if err := t.openFork(f, fmt.Sprintf("Forked from %q, at its save point %q", src.Title, oneLine(chat.Text, 60)),
+		fmt.Sprintf("Forked from this point into %q", title)); err != nil {
 		return f.tid, err
 	}
 	f.lock()
@@ -538,20 +514,32 @@ func (t *Task) fork(chat chatPoint, work *chatPoint, log []byte, prompt string) 
 	}
 	f.offerDraftL(nextPrompt(log[chat.at:]))
 	f.unlock()
-	f.loadChat()
-	t.note(fmt.Sprintf("Forked from this point into %q", title))
-	go f.refreshChanges()
 	return f.tid, nil
+}
+
+// openFork brings a task made from this one to life, once its files are in
+// place: the agent picks up the session its transcripts hold, if any, each
+// log gets its note, and the fork's workspace is made.
+func (t *Task) openFork(f *Task, note, ours string) error {
+	f.lock()
+	f.info.Started = len(f.transcripts()) > 0
+	f.p.m.saveL()
+	f.unlock()
+	f.note(note)
+	if err := f.ensureWorkspace(); err != nil {
+		return err
+	}
+	f.loadChat()
+	t.note(ours)
+	go f.refreshChanges()
+	return nil
 }
 
 // workable is the task to work on in this one's stead: itself, unless it is
 // merged. A merged task stays as it is, on the board as in the git log, so
 // picking it up makes a follow-up instead (see followUp).
 func (t *Task) workable() (*Task, error) {
-	t.lock()
-	merged := t.info.Phase == PhaseDone
-	t.unlock()
-	if merged {
+	if t.phase() == PhaseDone {
 		return t.followUp()
 	}
 	return t, nil
@@ -582,18 +570,8 @@ func (t *Task) followUp() (*Task, error) {
 			return f, err
 		}
 	}
-	f.lock()
-	f.info.Started = len(f.transcripts()) > 0
-	f.p.m.saveL()
-	f.unlock()
-	f.note(fmt.Sprintf("Follows up on %q, which is merged: the workspace is a fresh clone of %s", src.Title, t.p.defaultBranch))
-	if err := f.ensureWorkspace(); err != nil {
-		return f, err
-	}
-	f.loadChat()
-	t.note(fmt.Sprintf("Followed up on in %q", title))
-	go f.refreshChanges()
-	return f, nil
+	return f, t.openFork(f, fmt.Sprintf("Follows up on %q, which is merged: the workspace is a fresh clone of %s", src.Title, t.p.defaultBranch),
+		fmt.Sprintf("Followed up on in %q", title))
 }
 
 // copyTree copies a directory, if it is there at all.

@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -92,12 +91,10 @@ func parseAnswer(raw any, offered ...Answer) (Answer, bool) {
 	if !ok {
 		return "", false
 	}
-	for _, a := range offered {
-		if Answer(s) == a {
-			return a, true
-		}
+	if !slices.Contains(offered, Answer(s)) {
+		return "", false
 	}
-	return "", false
+	return Answer(s), true
 }
 
 // TaskInfo is the persisted part of a task (in projects.json).
@@ -157,6 +154,26 @@ type flight[T any] struct {
 	done chan struct{}
 	val  T
 	err  error
+}
+
+// shareL runs do as the flight in *slot, or joins the one there already, and
+// waits for its outcome. Expects the lock, and returns without it.
+func shareL[T any](t *Task, slot **flight[T], do func() (T, error)) (T, error) {
+	f := *slot
+	if f == nil {
+		f = &flight[T]{done: make(chan struct{})}
+		*slot = f
+		go func() {
+			f.val, f.err = do()
+			t.lock()
+			*slot = nil
+			t.unlock()
+			close(f.done)
+		}()
+	}
+	t.unlock()
+	<-f.done
+	return f.val, f.err
 }
 
 // Task: its workspace is a plain clone of the project repo (git hardlinks the
@@ -235,6 +252,9 @@ func (t *Task) touchL()               { t.lastActivity = time.Now() }
 // transcripts, and whatever else it writes beside them (see claudeMounts).
 func (t *Task) claudeDir() string { return filepath.Join(t.dir(), "claude") }
 
+// errNoWorkspace turns down what needs a workspace in a task that has none.
+var errNoWorkspace = errors.New("The task has no workspace: it is still in Plan, or finished already")
+
 // hasWorkspace: the task has a clone to work in. A bare directory is not one
 // and must not pass for one: podman makes the mount point back whenever a
 // container starts without one there — after a merge dropped it, above all —
@@ -289,6 +309,20 @@ func (t *Task) agentPhaseL() bool {
 	return t.info.Phase == PhaseAgent || t.info.Phase == PhaseReview || t.info.Phase == PhaseMerge
 }
 
+// toHumanL hands a task an agent may be at work in to the user.
+func (t *Task) toHumanL() {
+	if t.agentPhaseL() {
+		t.setPhaseL(PhaseHuman)
+	}
+}
+
+// phase is the task's phase, for a caller that holds no lock.
+func (t *Task) phase() Phase {
+	t.lock()
+	defer t.unlock()
+	return t.info.Phase
+}
+
 // systemPromptL is what the task's own agent is told above its conversation.
 func (t *Task) systemPromptL() string {
 	if t.p.info.Scratch {
@@ -311,11 +345,13 @@ func (t *Task) pubL(field string, value any) {
 	t.p.m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid, field}, value)
 }
 
-func nonEmpty(s string) any {
-	if s == "" {
+// orNil is a value to publish, or nil (deleting the field) for its zero.
+func orNil[T comparable](v T) any {
+	var zero T
+	if v == zero {
 		return nil
 	}
-	return s
+	return v
 }
 
 func (t *Task) publishL() {
@@ -324,8 +360,8 @@ func (t *Task) publishL() {
 		t.pubL("job", t.tid)
 	}
 	t.pubL("description", t.info.Description)
-	t.pubL("requested", nonEmpty(t.info.Requested))
-	t.pubL("draft", nonEmpty(t.info.Draft))
+	t.pubL("requested", orNil(t.info.Requested))
+	t.pubL("draft", orNil(t.info.Draft))
 	t.pubL("model", t.info.Model)
 	t.pubL("onReady", string(t.onReadyL()))
 	t.pubL("onAccept", string(t.onAcceptL()))
@@ -335,17 +371,17 @@ func (t *Task) publishL() {
 		t.pubL("agentPrompt", nil)
 	}
 	t.pubL("reviewLoops", reviewLoops(t.info.ReviewLoops))
-	t.pubL("reviewModel", nonEmpty(t.info.ReviewModel))
-	t.pubL("review", nonEmpty(t.info.Review))
+	t.pubL("reviewModel", orNil(t.info.ReviewModel))
+	t.pubL("review", orNil(t.info.Review))
 	t.pubL("phase", t.info.Phase)
 	t.pubL("phaseAt", t.info.PhaseAt)
-	t.pubL("commitMessage", nonEmpty(t.info.CommitMessage))
+	t.pubL("commitMessage", orNil(t.info.CommitMessage))
 	t.pubL("skipTests", t.info.SkipTests)
-	t.pubL("spent", nonZero(t.info.Spent))
+	t.pubL("spent", orNil(t.info.Spent))
 	t.pubL("budget", optional(t.info.Budget))
 	t.pubL("openrouterBudget", optional(t.info.ORBudget))
-	t.pubL("openrouterGranted", nonZero(t.info.ORGranted))
-	t.pubL("openrouterAsk", nonZero(t.info.ORAsk))
+	t.pubL("openrouterGranted", orNil(t.info.ORGranted))
+	t.pubL("openrouterAsk", orNil(t.info.ORAsk))
 	if t.info.Suggestion != nil {
 		t.pubL("suggestion", t.info.Suggestion)
 	} else {
@@ -358,24 +394,12 @@ func (t *Task) publishL() {
 	} else {
 		t.pubL("waitFor", nil)
 	}
-	t.pubL("deferred", nonEmpty(t.info.Deferred))
+	t.pubL("deferred", orNil(t.info.Deferred))
 	// Whether there is a workspace to open at all: a task in Plan has none yet,
 	// a finished one no longer.
-	if t.hasWorkspace() {
-		t.pubL("worktree", true)
-	} else {
-		t.pubL("worktree", nil)
-	}
-	if t.behind > 0 {
-		t.pubL("behind", t.behind)
-	} else {
-		t.pubL("behind", nil)
-	}
-	if t.info.LimitUntil > 0 {
-		t.pubL("limitUntil", t.info.LimitUntil)
-	} else {
-		t.pubL("limitUntil", nil)
-	}
+	t.pubL("worktree", orNil(t.hasWorkspace()))
+	t.pubL("behind", orNil(t.behind))
+	t.pubL("limitUntil", orNil(t.info.LimitUntil))
 	t.pubL("status", t.status)
 	t.pubL("statusDetail", t.statusDetail)
 	t.pubL("working", t.workingL())
@@ -391,27 +415,14 @@ func (t *Task) publishL() {
 		t.pubL("codePort", nil)
 		t.pubL("codeStart", nil)
 	}
-	t.pubL("codeError", nonEmpty(t.codeError))
-}
-
-func nonZero(v float64) any {
-	if v == 0 {
-		return nil
-	}
-	return v
+	t.pubL("codeError", orNil(t.codeError))
 }
 
 // parseBudget reads a spending limit as it arrives from a dashboard: a number
 // or the text of a number field. Anything that is not a limit (empty, zero,
 // nonsense) means no limit at all.
 func parseBudget(raw any) *float64 {
-	var budget float64
-	switch v := raw.(type) {
-	case float64:
-		budget = v
-	case string:
-		fmt.Sscanf(strings.TrimSpace(v), "%g", &budget)
-	}
+	budget, _ := parseNumber(raw)
 	if budget <= 0 || math.IsInf(budget, 0) {
 		return nil
 	}
@@ -427,18 +438,26 @@ const maxReviewLoops = 10
 // text of one, and reports whether it was a count at all. Anything that is not
 // leaves the limit as it stands.
 func parseLoops(raw any) (int, bool) {
-	var loops float64
-	switch v := raw.(type) {
-	case float64:
-		loops = v
-	case string:
-		if n, _ := fmt.Sscanf(strings.TrimSpace(v), "%g", &loops); n != 1 {
-			return 0, false
-		}
-	default:
+	loops, ok := parseNumber(raw)
+	if !ok {
 		return 0, false
 	}
 	return min(max(int(loops), 0), maxReviewLoops), true
+}
+
+// parseNumber reads a number as a dashboard sends one: as it is, or as the
+// text of a number field.
+func parseNumber(raw any) (float64, bool) {
+	var n float64
+	switch v := raw.(type) {
+	case float64:
+		return v, true
+	case string:
+		if c, _ := fmt.Sscanf(strings.TrimSpace(v), "%g", &n); c == 1 {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 // optional turns a nil pointer into nil (deleting the field) and otherwise the value.
@@ -813,19 +832,14 @@ func (t *Task) waitOverL() bool {
 // it; a wait taken up again meanwhile goes on.
 func (t *Task) endWait() {
 	defer t.p.m.work()()
-	t.lock()
-	plan := t.info.Phase == PhasePlan
-	t.unlock()
-	if !plan {
+	if t.phase() != PhasePlan {
 		_, _ = t.rebase()
 	}
 	t.lock()
 	t.ending = false
 	waited, text := len(t.info.WaitFor) > 0, t.info.Deferred
 	if waited && t.blockedL() { // waiting again: the conflicts of the rebase wait with the rest
-		if t.agentPhaseL() {
-			t.setPhaseL(PhaseHuman)
-		}
+		t.toHumanL()
 		t.unlock()
 		return
 	}
@@ -962,7 +976,7 @@ func (t *Task) setDraftL(draft string) {
 	}
 	t.info.Draft = draft
 	t.p.m.saveL()
-	t.pubL("draft", nonEmpty(draft))
+	t.pubL("draft", orNil(draft))
 }
 
 // offerDraftL puts a message in the composer for the user to send as it
@@ -1169,9 +1183,7 @@ func (t *Task) kick(text string) {
 	t.holdL("", nil) // the work is about to change: a merge held back makes its commit anew
 	if t.overBudgetL() && !t.overrunL() {
 		t.noteBudgetL()
-		if t.agentPhaseL() {
-			t.setPhaseL(PhaseHuman)
-		}
+		t.toHumanL()
 		t.unlock()
 		return
 	}
@@ -1196,14 +1208,13 @@ func (t *Task) kick(text string) {
 	review := t.info.Phase == PhaseReview
 	old := t.session
 	restart := old != nil && (t.sessionReview != review || !sameBudget(t.sessionBudget, t.info.Budget) || t.sessionSystem != t.systemPromptL())
-	branch := t.p.defaultBranch
 	t.unlock()
 	go func() {
 		if restart {
 			t.stopSession(old)
 		}
 		if pickedUp {
-			t.note("Picked up again: the workspace is a fresh clone of " + branch)
+			t.notePickedUp()
 		}
 		// The workspace is made before the container comes up on it. Anywhere
 		// but out of a finished task there is one already, and this is a
@@ -1244,9 +1255,7 @@ func (t *Task) failKick(prefix string, err error) {
 	t.noteErr(prefix, err)
 	t.lock()
 	defer t.unlock()
-	if t.agentPhaseL() {
-		t.setPhaseL(PhaseHuman)
-	}
+	t.toHumanL()
 }
 
 func (t *Task) stopSession(s *Session) {
@@ -1317,9 +1326,7 @@ func (t *Task) stopAgent() bool {
 		t.stopSession(s)
 	}
 	t.lock()
-	if t.agentPhaseL() {
-		t.setPhaseL(PhaseHuman)
-	}
+	t.toHumanL()
 	t.unlock()
 	return cutOff
 }
@@ -1333,11 +1340,7 @@ func (t *Task) MoveTo(phase Phase) error {
 	if scheduled {
 		return errScheduled
 	}
-	valid := false
-	for _, p := range phases {
-		valid = valid || p == phase
-	}
-	if !valid || phase == current {
+	if !slices.Contains(phases, phase) || phase == current {
 		return nil
 	}
 	// A muted task is parked: going anywhere it is worked on brings its
@@ -1443,7 +1446,7 @@ func (t *Task) setCommitMessageL(message string) {
 			t.pubL("title", t.info.Title)
 		}
 		t.p.m.saveL()
-		t.pubL("commitMessage", nonEmpty(message))
+		t.pubL("commitMessage", orNil(message))
 	}
 }
 
@@ -1466,26 +1469,19 @@ func (t *Task) freshen() error {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
 	repo := t.repoDir()
-	if _, err := git(repo, "fetch", "--quiet", hostRemote); err != nil {
+	if err := fetchHost(repo); err != nil {
 		return err
 	}
-	defer fetchDeployed(repo)
-	if gitOK(repo, "merge-base", "--is-ancestor", hostRemote+"/"+t.p.defaultBranch, "HEAD") {
+	if gitOK(repo, "merge-base", "--is-ancestor", t.upstream(), "HEAD") {
 		return nil
 	}
 	changes, err := t.changes()
 	if err != nil || len(changes) > 0 {
 		return err
 	}
-	for _, args := range [][]string{
-		{"reset", "--quiet", "--hard", hostRemote + "/" + t.p.defaultBranch},
-		{"update-ref", "refs/heads/" + stepsBranch, "HEAD"},
-	} {
-		if _, err := git(repo, args...); err != nil {
-			return err
-		}
-	}
-	return nil
+	return gitSeq(repo,
+		[]string{"reset", "--quiet", "--hard", t.upstream()},
+		[]string{"update-ref", "refs/heads/" + stepsBranch, "HEAD"})
 }
 
 // leavePlan is the last dashboard leaving a task in Plan. The task is named
@@ -1546,12 +1542,9 @@ func (t *Task) Merge(message string, skipTests bool) error {
 		return errors.New("A scratch task has nothing to merge into: turn it into a project first")
 	}
 	if !t.hasWorkspace() {
-		return errors.New("The task has no workspace to merge: it is still in Plan, or finished already")
+		return errNoWorkspace
 	}
-	t.lock()
-	queued := t.info.Phase == PhaseMerge
-	t.unlock()
-	if queued {
+	if t.phase() == PhaseMerge {
 		return nil
 	}
 	t.stopAgent()
@@ -1571,16 +1564,7 @@ func (t *Task) Merge(message string, skipTests bool) error {
 // the workspace but the files that speak to TPS (see commitMessageFile and
 // continueFile).
 func landingTree(repo string) (string, error) {
-	env, cleanup, err := stageAll(repo)
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	if _, err := runCmd([]string{"git", "-C", repo, "rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile, continueFile}, RunOpts{Env: env}); err != nil {
-		return "", err
-	}
-	r, err := runCmd([]string{"git", "-C", repo, "write-tree"}, RunOpts{Env: env})
-	return strings.TrimSpace(r.Out), err
+	return stagedGit(repo, []string{"rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile, continueFile}, []string{"write-tree"})
 }
 
 // landed finishes a task whose work is on the branch now, as commit (or that
@@ -1672,7 +1656,7 @@ func (t *Task) rebase() (bool, error) {
 	defer t.p.m.work()()
 	repo := t.repoDir()
 	if !t.hasWorkspace() {
-		return false, errors.New("The task has no workspace to rebase")
+		return false, errNoWorkspace
 	}
 	_ = t.StopAgent()
 	branch := t.p.defaultBranch
@@ -1707,38 +1691,30 @@ func (t *Task) rebase() (bool, error) {
 // are markers in the files, and the work is uncommitted on top of the branch
 // again, whatever the outcome.
 
-// tmpIndex is a place for a throwaway index, so the real one stays untouched;
-// the environment makes git use it (and make it: git wants none or a whole one).
-func tmpIndex() (env []string, cleanup func(), err error) {
+// stagedGit runs git commands on the whole tree staged in a copy of the index
+// (unchanged files then need no rehashing), so the real one stays untouched:
+// the tree's every difference from a commit, untracked files included, is a
+// `diff --cached` away. It answers the last command's output. The index is
+// refreshed first: one written in the same second as the files it lists — a
+// fresh clone's — cannot vouch for any of them, and a copy of it would have
+// every file of the tree read again, each time.
+func stagedGit(repo string, cmds ...[]string) (string, error) {
+	_, _ = git(repo, "update-index", "-q", "--refresh") // a lock held elsewhere only costs the rehash
 	// Outside the task's own directory: a changes overview runs in the
 	// background (see refreshChanges) and can still be writing this while the
 	// task is being parked or thrown away, which would put a file back in a
 	// directory something else is busy emptying. Git wants no particular
-	// place for an index it is handed.
+	// place for an index it is handed, and none or a whole one there.
 	f, err := os.CreateTemp("", "tps-index-*")
 	if err != nil {
-		return nil, nil, err
+		return "", err
 	}
 	f.Close()
-	os.Remove(f.Name())
-	return []string{"GIT_INDEX_FILE=" + f.Name()}, func() { os.Remove(f.Name()) }, nil
-}
-
-// stageAll stages the whole tree in a copy of the index (unchanged files then
-// need no rehashing): the tree's every difference from a commit, untracked
-// files included, is a `diff --cached` away. The index is refreshed first:
-// one written in the same second as the files it lists — a fresh clone's —
-// cannot vouch for any of them, and a copy of it would have every file of
-// the tree read again, each time.
-func stageAll(repo string) (env []string, cleanup func(), err error) {
-	_, _ = git(repo, "update-index", "-q", "--refresh") // a lock held elsewhere only costs the rehash
-	env, cleanup, err = tmpIndex()
-	if err != nil {
-		return nil, nil, err
-	}
+	copied := f.Name()
+	os.Remove(copied)
+	defer os.Remove(copied)
 	index := filepath.Join(repo, ".git", "index")
 	if data, err := os.ReadFile(index); err == nil {
-		copied := strings.TrimPrefix(env[0], "GIT_INDEX_FILE=")
 		_ = os.WriteFile(copied, data, 0o644)
 		// With the original's time: git trusts what the index says of a file
 		// changed no later than the index itself, and a copy made now would
@@ -1747,17 +1723,23 @@ func stageAll(repo string) (env []string, cleanup func(), err error) {
 			_ = os.Chtimes(copied, st.ModTime(), st.ModTime())
 		}
 	}
-	if _, err := runCmd([]string{"git", "-C", repo, "add", "-A"}, RunOpts{Env: env}); err != nil {
-		cleanup()
-		return nil, nil, err
+	env := []string{"GIT_INDEX_FILE=" + copied}
+	out := ""
+	for _, args := range append([][]string{{"add", "-A"}}, cmds...) {
+		if out, err = gitEnv(repo, env, args...); err != nil {
+			return "", err
+		}
 	}
-	return env, cleanup, nil
+	return out, nil
 }
+
+// upstream is the default branch as a workspace has it from the host.
+func (t *Task) upstream() string { return hostRemote + "/" + t.p.defaultBranch }
 
 // base is the commit of the default branch that the work up to a commit —
 // HEAD's, a step's — stands on.
 func (t *Task) base(repo, of string) (string, error) {
-	return git(repo, "merge-base", of, hostRemote+"/"+t.p.defaultBranch)
+	return git(repo, "merge-base", of, t.upstream())
 }
 
 // plant merges the latest default branch into the last step, in the working
@@ -1773,18 +1755,16 @@ func (t *Task) plant(repo string) ([]string, error) {
 		return nil, err
 	}
 	var conflicts []string
-	onto := hostRemote + "/" + branch
+	onto := t.upstream()
 	_, err := git(repo, "merge", "--quiet", "--no-commit", onto)
 	if out, _ := git(repo, "diff", "--name-only", "-z", "--diff-filter=U"); out != "" {
-		conflicts, err = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00"), nil
+		conflicts, err = splitNul(out), nil
 	}
 	if err != nil {
 		onto = branch // the merge never started: back where HEAD was, the branch not having moved
 	}
-	for _, args := range [][]string{{"merge", "--quit"}, {"symbolic-ref", "HEAD", "refs/heads/" + branch}, {"reset", "--quiet", onto}} {
-		if _, err := git(repo, args...); err != nil {
-			return nil, err
-		}
+	if err := gitSeq(repo, []string{"merge", "--quit"}, []string{"symbolic-ref", "HEAD", "refs/heads/" + branch}, []string{"reset", "--quiet", onto}); err != nil {
+		return nil, err
 	}
 	if err != nil {
 		return nil, err
@@ -1800,15 +1780,13 @@ func (t *Task) plant(repo string) ([]string, error) {
 // it answers those that merged cleanly but were changed the same way on both
 // sides (see doubledFiles), which are as much the agent's to look at.
 func (t *Task) replant(repo string) (conflicts, doubled []string, err error) {
-	branch := t.p.defaultBranch
-	if _, err := git(repo, "fetch", "--quiet", hostRemote); err != nil {
+	if err := fetchHost(repo); err != nil {
 		return nil, nil, err
 	}
-	fetchDeployed(repo)
 	if err := t.mark("Human", ""); err != nil {
 		return nil, nil, err
 	}
-	target, err := git(repo, "rev-parse", hostRemote+"/"+branch)
+	target, err := git(repo, "rev-parse", t.upstream())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1843,7 +1821,7 @@ func doubledFiles(repo, base, ours, theirs string) []string {
 			}
 		}
 	}
-	sort.Strings(files)
+	slices.Sort(files)
 	return files
 }
 
@@ -1878,17 +1856,12 @@ func (t *Task) markedFiles(repo string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	env, cleanup, err := stageAll(repo)
-	if err != nil {
+	marker := "^>>>>>>> " + regexp.QuoteMeta(t.upstream())
+	out, err := stagedGit(repo, []string{"diff", "--cached", "--name-only", "-z", "-E", "-G" + marker, base})
+	if err != nil || out == "" {
 		return nil, err
 	}
-	defer cleanup()
-	marker := "^>>>>>>> " + hostRemote + "/" + regexp.QuoteMeta(t.p.defaultBranch)
-	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--name-only", "-z", "-E", "-G" + marker, base}, RunOpts{Env: env})
-	if err != nil || r.Out == "" {
-		return nil, err
-	}
-	return strings.Split(strings.TrimSuffix(r.Out, "\x00"), "\x00"), nil
+	return splitNul(out), nil
 }
 
 // --- the work as a bundle ---
@@ -1952,23 +1925,18 @@ func (t *Task) bundleChanges() ([]change, error) {
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
-	for _, args := range [][]string{
-		{"clone", "--quiet", "--bare", "--shared", t.p.dir(), tmp},
-		{"-C", tmp, "fetch", "--quiet", t.bundleFile(), workRef},
-	} {
-		if _, err := runCmd(append([]string{"git"}, args...), RunOpts{}); err != nil {
-			return nil, err
-		}
+	if err := gitSeq(tmp, []string{"clone", "--quiet", "--bare", "--shared", t.p.dir(), tmp}, []string{"fetch", "--quiet", t.bundleFile(), workRef}); err != nil {
+		return nil, err
 	}
 	base, err := git(tmp, "merge-base", "FETCH_HEAD", t.p.defaultBranch)
 	if err != nil {
 		return nil, err
 	}
-	r, err := runCmd([]string{"git", "-C", tmp, "diff", "--numstat", "--no-renames", "-z", base, "FETCH_HEAD"}, RunOpts{})
+	out, err := git(tmp, "diff", "--numstat", "--no-renames", "-z", base, "FETCH_HEAD")
 	if err != nil {
 		return nil, err
 	}
-	t.bundled = parseNumstat(r.Out)
+	t.bundled = parseNumstat(out)
 	return t.bundled, nil
 }
 
@@ -1984,13 +1952,11 @@ var archived = []string{"claude", "chat.jsonl", "uploads", "services"}
 // as a bundle, unless the task was merged and its work is on the branch — and
 // what the task keeps is compressed (see archived). Picking the task up
 // undoes it (see ensureWorkspace). Done when a task finishes or is muted, and
-// at startup for those an older TPS left as they were.
+// at startup for those still as they were (see parkAll).
 func (t *Task) park() {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
-	t.lock()
-	phase := t.info.Phase
-	t.unlock()
+	phase := t.phase()
 	if phase != PhaseDone && phase != PhaseClosed && phase != PhaseMuted {
 		return
 	}
@@ -2140,6 +2106,11 @@ func (t *Task) dropWorkspace() error {
 	return nil
 }
 
+// notePickedUp says that a finished task is being worked in again.
+func (t *Task) notePickedUp() {
+	t.note("Picked up again: the workspace is a fresh clone of " + t.p.defaultBranch)
+}
+
 // reopen picks a finished task back up, for a human to work in: a workspace
 // from the branch as it is now — a closed task's work put back on top of it
 // (see ensureWorkspace) — with the conversation it kept. The agent gets the
@@ -2150,7 +2121,7 @@ func (t *Task) reopen() error {
 	from := t.info.Phase
 	t.setPhaseL(PhaseHuman) // first, so that park (which runs at startup too) leaves the task alone
 	t.unlock()
-	t.note("Picked up again: the workspace is a fresh clone of " + t.p.defaultBranch)
+	t.notePickedUp()
 	if err := t.ensureWorkspace(); err != nil {
 		t.noteErr("Workspace failed", err)
 		t.lock()
@@ -2198,18 +2169,44 @@ func (t *Task) adoptL() {
 	}
 }
 
-// Discard: back to plan, all work is thrown away (the UI asks for confirmation).
-func (t *Task) Discard() error {
-	defer t.p.m.work()()
+// wipe throws away everything the task has on disk and in podman: its agent,
+// its container and whatever that made, its workspace and its data.
+func (t *Task) wipe() {
 	t.stopAgent()
 	t.down()
 	nestPurge(t.containerName(), nestDir(t.dir()))
 	_ = rmContainer(t.containerName()) // also one the daemon never knew about
 	t.cloneMu.Lock()                   // see refreshChanges
 	if err := rmTree(t.dir()); err != nil {
-		logf("%s: discarding the workspace: %v", t.key(), err)
+		logf("%s: removing the task's files: %v", t.key(), err)
 	}
 	t.cloneMu.Unlock()
+}
+
+// dropContainer removes the task's container, and the sub-containers it
+// started, socket and all (see nestDown).
+func (t *Task) dropContainer() {
+	nestDown(t.containerName(), nestDir(t.dir()))
+	_ = rmContainer(t.containerName())
+}
+
+// dropTaskL takes the task off its project: the board, the queue, and the
+// waits of the tasks that waited for it.
+func (t *Task) dropTaskL() {
+	t.p.dequeueL(t)
+	delete(t.p.info.Tasks, t.tid)
+	delete(t.p.tasks, t.tid)
+	t.p.m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid}, nil)
+	t.p.m.hub.SetChat(t.key(), nil)
+	t.p.touchL()
+	t.p.m.saveL()
+	t.p.endWaitsL() // a task gone is no longer something to wait for
+}
+
+// Discard: back to plan, all work is thrown away (the UI asks for confirmation).
+func (t *Task) Discard() error {
+	defer t.p.m.work()()
+	t.wipe()
 	t.lock()
 	defer t.unlock()
 	t.info.Started = false
@@ -2225,25 +2222,10 @@ func (t *Task) Discard() error {
 
 func (t *Task) Delete() error {
 	defer t.p.m.work()()
-	t.stopAgent()
-	t.down()
-	nestPurge(t.containerName(), nestDir(t.dir()))
-	_ = rmContainer(t.containerName())
-	t.cloneMu.Lock() // see refreshChanges
-	if err := rmTree(t.dir()); err != nil {
-		logf("%s: deleting the workspace: %v", t.key(), err)
-	}
-	t.cloneMu.Unlock()
+	t.wipe()
 	t.lock()
 	defer t.unlock()
-	t.p.dequeueL(t)
-	delete(t.p.info.Tasks, t.tid)
-	delete(t.p.tasks, t.tid)
-	t.p.m.hub.Set([]string{"projects", t.p.pid, "tasks", t.tid}, nil)
-	t.p.m.hub.SetChat(t.key(), nil)
-	t.p.touchL()
-	t.p.m.saveL()
-	t.p.endWaitsL() // a deleted task is no longer something to wait for
+	t.dropTaskL()
 	return nil
 }
 
@@ -2257,7 +2239,7 @@ type change struct {
 }
 
 // changes lists what the working tree changed since the commit the task
-// started from, untracked files included (see stageAll) — or, for a parked
+// started from, untracked files included (see stagedGit) — or, for a parked
 // task, what its bundle holds.
 func (t *Task) changes() ([]change, error) {
 	repo := t.repoDir()
@@ -2271,16 +2253,11 @@ func (t *Task) changes() ([]change, error) {
 	if err != nil {
 		return nil, err
 	}
-	env, cleanup, err := stageAll(repo)
+	out, err := stagedGit(repo, []string{"diff", "--cached", "--numstat", "--no-renames", "-z", base})
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
-	r, err := runCmd([]string{"git", "-C", repo, "diff", "--cached", "--numstat", "--no-renames", "-z", base}, RunOpts{Env: env})
-	if err != nil {
-		return nil, err
-	}
-	return parseNumstat(r.Out), nil
+	return parseNumstat(out), nil
 }
 
 // parseNumstat reads `git diff --numstat -z`: "added\tdeleted\tpath\0" per file, "-" counts for binaries.
@@ -2360,11 +2337,7 @@ func (t *Task) refreshBehind() {
 		return
 	}
 	t.behind = behind
-	if behind > 0 {
-		t.pubL("behind", behind)
-	} else {
-		t.pubL("behind", nil)
-	}
+	t.pubL("behind", orNil(behind))
 }
 
 // --- workspace (clone + container) ---
@@ -2464,27 +2437,17 @@ func matchRemotes(repo, project string) error {
 // The branch is made at the base already: were it missing, VS Code would
 // find the base unresolvable and put the default one in its place.
 func showSteps(repo, branch string) error {
-	for _, args := range [][]string{
-		{"update-ref", "refs/heads/" + stepsBranch, "HEAD"},
-		{"symbolic-ref", "refs/remotes/tps/steps", "refs/heads/" + stepsBranch},
-		{"config", "branch." + branch + ".vscode-merge-base", "tps/steps"},
-	} {
-		if _, err := git(repo, args...); err != nil {
-			return err
-		}
-	}
-	return nil
+	return gitSeq(repo,
+		[]string{"update-ref", "refs/heads/" + stepsBranch, "HEAD"},
+		[]string{"symbolic-ref", "refs/remotes/tps/steps", "refs/heads/" + stepsBranch},
+		[]string{"config", "branch." + branch + ".vscode-merge-base", "tps/steps"})
 }
 
 // setIdentity gives a clone the identity its commits are made under: TPS's own
 // ones, and whatever is committed by hand in its container.
 func (t *Task) setIdentity(repo string) error {
 	id := t.p.m.gitIdentity()
-	if _, err := git(repo, "config", "user.name", id.Name); err != nil {
-		return err
-	}
-	_, err := git(repo, "config", "user.email", id.Email)
-	return err
+	return gitSeq(repo, []string{"config", "user.name", id.Name}, []string{"config", "user.email", id.Email})
 }
 
 // Open is a dashboard's retry after a workspace failure: bring the workspace
@@ -2599,23 +2562,10 @@ func (t *Task) bgUp() {
 
 func (t *Task) up() (*Container, error) {
 	t.lock()
-	f := t.upFlight
-	if f == nil {
-		f = &flight[*Container]{done: make(chan struct{})}
-		t.upFlight = f
-		go func() {
-			done := t.p.m.work()
-			f.val, f.err = t.doUp()
-			done()
-			t.lock()
-			t.upFlight = nil
-			t.unlock()
-			close(f.done)
-		}()
-	}
-	t.unlock()
-	<-f.done
-	return f.val, f.err
+	return shareL(t, &t.upFlight, func() (*Container, error) {
+		defer t.p.m.work()()
+		return t.doUp()
+	})
 }
 
 func (t *Task) failUp(err error) (*Container, error) {
@@ -2627,7 +2577,7 @@ func (t *Task) failUp(err error) (*Container, error) {
 
 func (t *Task) doUp() (*Container, error) {
 	if !t.hasWorkspace() {
-		return nil, errors.New("The task has no workspace: it is still in Plan, or finished already")
+		return nil, errNoWorkspace
 	}
 	cf := t.containerfile()
 	tag := imageTag(cf)
@@ -2678,7 +2628,7 @@ func (t *Task) doUp() (*Container, error) {
 		t.container = nil
 		t.setStatusL(StatusDown, "")
 		t.unlock()
-		return nil, errors.New("The task has no workspace: it is still in Plan, or finished already")
+		return nil, errNoWorkspace
 	}
 	t.lock()
 	t.container, t.lastTag = c, tag
@@ -2741,7 +2691,7 @@ func (t *Task) start(cf, toolbox string) (*Container, error) {
 				return
 			case <-tick.C:
 				t.lock()
-				t.pubL("buildLog", nonEmpty(out))
+				t.pubL("buildLog", orNil(out))
 				t.unlock()
 			}
 		}
@@ -2794,7 +2744,7 @@ func (t *Task) down() {
 		s.Kill()
 	}
 	if c != nil {
-		c.Rm(nestDir(t.dir())) // what its services and its sub-containers were running goes with it
+		t.dropContainer() // what its services and its sub-containers were running goes with it
 	}
 	t.lock()
 	t.container = nil
@@ -2813,7 +2763,7 @@ func (t *Task) Reload() error {
 	working := t.workingL()
 	t.unlock()
 	if noWorkspace {
-		return errors.New("The task has no workspace: it is still in Plan, or finished already")
+		return errNoWorkspace
 	}
 	if working {
 		return errors.New("The agent is working; stop it before rebuilding the container")
@@ -2838,21 +2788,7 @@ func (t *Task) ensureSession() (*Session, error) {
 		t.unlock()
 		return s, nil
 	}
-	f := t.sessionFlight
-	if f == nil {
-		f = &flight[*Session]{done: make(chan struct{})}
-		t.sessionFlight = f
-		go func() {
-			f.val, f.err = t.startSession()
-			t.lock()
-			t.sessionFlight = nil
-			t.unlock()
-			close(f.done)
-		}()
-	}
-	t.unlock()
-	<-f.done
-	return f.val, f.err
+	return shareL(t, &t.sessionFlight, t.startSession)
 }
 
 func (t *Task) startSession() (*Session, error) {

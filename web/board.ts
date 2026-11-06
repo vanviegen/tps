@@ -1,10 +1,10 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, settings, x } from 'staffa/icons.js';
+import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
-import { deployProject, moveTask, taskMenuItems, taskSettingsDialog } from './task.ts';
-import { busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
+import { deployProject, moveTask, taskMenuItems } from './task.ts';
+import { branchOf, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -111,12 +111,13 @@ function drawDeployButton(pid: string): void {
 	A(() => {
 		const $p = $state.projects[pid];
 		if (!$p?.deploy?.declared) return;
-		if (deploying($p)) return void S.iconButton({ icon: rocket, ariaLabel: 'Deploying', attrs: `.small fg:$s-success ${busyAttrs(rocket)}`,
-			tooltip: 'Deploying: the Deploy task shows how it goes', click: () => void route.go(pathTo(pid, 'deploy')) });
-		const branch = $p.defaultBranch ?? 'main';
-		S.iconButton({ icon: rocket, ariaLabel: 'Deploy', attrs: $p.deploy.pending ? '.small fg:$s-success' : '.small',
-			tooltip: $p.deploy.pending ? `Deploy: ${branch} holds work not deployed yet` : `Deploy ${branch} again: it is deployed as it is`,
-			click: () => void deployProject(pid) });
+		const busy = deploying($p);
+		const branch = branchOf(pid);
+		S.iconButton({ icon: rocket, ariaLabel: busy ? 'Deploying' : 'Deploy',
+			attrs: `.small ${busy || $p.deploy.pending ? 'fg:$s-success' : ''} ${busy ? busyAttrs(rocket) : ''}`,
+			tooltip: busy ? 'Deploying: the Deploy task shows how it goes'
+				: $p.deploy.pending ? `Deploy: ${branch} holds work not deployed yet` : `Deploy ${branch} again: it is deployed as it is`,
+			click: () => void (busy ? route.go(pathTo(pid, 'deploy')) : deployProject(pid)) });
 	});
 }
 
@@ -396,9 +397,7 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 		},
 		'click=', () => { if (!dragged) void route.go(pathTo(pid, tid)); },
 		() => {
-			S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
-				return taskMenuItems(pid, tid, $t, [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }]);
-			}});
+			S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] { return taskMenuItems(pid, tid, $t); } });
 			// The title runs on as text does, so a long one takes the card's whole
 			// width: what goes with it sits inline, at its start and its end.
 			S.box({ attrs: `cursor:pointer border-left: 3px solid ${projectColor($state.projects[pid])};`, contentAttrs: 'display:flex flex-direction:column gap:$1', content: () => {
@@ -428,7 +427,7 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 					else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
 					else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');
 					else if ($t.phase === 'merge') A('small fg:$s-muted text=', mergeText($t));
-					else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${$state.projects[pid]?.defaultBranch ?? 'main'}`);
+					else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${branchOf(pid)}`);
 				});
 			}});
 			// After the box, which a margin would push down were it not the first child.

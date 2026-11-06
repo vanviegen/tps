@@ -63,7 +63,7 @@ func podmanAPI() (string, error) {
 		podman.sock = sock
 		return sock, nil
 	}
-	socks := []string{filepath.Join(home(), ".local", "share", "tps", "podman.sock")}
+	socks := []string{filepath.Join(DataDir(), "podman.sock")}
 	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
 		socks = append([]string{filepath.Join(dir, "podman", "podman.sock")}, socks...)
 	}

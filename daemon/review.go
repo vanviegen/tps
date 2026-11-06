@@ -45,7 +45,7 @@ func (t *Task) setReviewL(text string) {
 	}
 	t.info.Review = text
 	t.p.m.saveL()
-	t.pubL("review", nonEmpty(text))
+	t.pubL("review", orNil(text))
 }
 
 // StartReview reviews the work as it stands, whatever the task's round limit
@@ -53,7 +53,7 @@ func (t *Task) setReviewL(text string) {
 // one. Its verdict is acted on like any other round's.
 func (t *Task) StartReview() error {
 	if !t.hasWorkspace() {
-		return errors.New("The task has no workspace to review: it is still in Plan, or finished already")
+		return errNoWorkspace
 	}
 	// A clone of the branch with nothing on top of it — a merged task picked
 	// back up, say — is nothing to show a reviewer, and reading an empty diff

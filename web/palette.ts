@@ -4,7 +4,7 @@ import { claimKeyInCode } from './code.ts';
 import { showTab, taskTabs } from './pages.ts';
 import { closeBase, sortedProjects } from './projects.ts';
 import { addTask } from './task.ts';
-import { isFinished, pathTo, phaseOrder, PHASE_LABELS, projectName, selection, taskTitle, type Phase } from './util.ts';
+import { compareKeys, isFinished, pathTo, phaseOrder, PHASE_LABELS, projectName, selection, taskTitle, type Phase } from './util.ts';
 
 /**
  * Go anywhere without the mouse: a key opens a field, you type a few letters of
@@ -86,10 +86,7 @@ function destinations(): Destination[] {
 		else if (!$p.scratch) out.push({ value: pathTo(pid, 'base'), label: `${name} › Open project directory` });
 		out.push({ value: CREATE + pid, label: `${name} › Create task` });
 		const tasks = (Object.entries($p.tasks ?? {}) as [string, any][]).filter(([, $t]) => !isFinished($t));
-		tasks.sort((a, b) => {
-			const [ka, kb] = [phaseOrder(a[1], a[0]), phaseOrder(b[1], b[0])];
-			return ka[0] - kb[0] || ka[1] - kb[1];
-		});
+		tasks.sort((a, b) => compareKeys(phaseOrder(a[1], a[0]), phaseOrder(b[1], b[0])));
 		for (const [tid, $t] of tasks) {
 			const phase = PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 			out.push({ value: pathTo(pid, tid), label: `${name} › ${taskTitle($t)} · ${phase}` });

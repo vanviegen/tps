@@ -1,12 +1,12 @@
 import A from 'aberdeen';
 import * as route from 'aberdeen/route';
 import * as S from 'staffa';
-import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, settings, stickyNote, x } from 'staffa/icons.js';
+import { chevronDown, chevronLeft, chevronRight, folder, panelLeftClose, panelLeftOpen, plus, stickyNote, x } from 'staffa/icons.js';
 import { bot } from './bot.ts';
 import { $state } from './conn.ts';
 import { addHostDialog, hostInk, hostMenuItems, hostOrder, hostState } from './hosts.ts';
 import { closeBase, projectMenuItems, projectSortKey, reorderProjects } from './projects.ts';
-import { taskMenuItems, taskSettingsDialog } from './task.ts';
+import { taskMenuItems } from './task.ts';
 import { drawBadge, drawTaskIcon, hostName, hostPath, pathTo, phaseOrder, projectColor, requested, selection, taskTip, taskTitle, unseenText } from './util.ts';
 
 /**
@@ -199,10 +199,7 @@ function drawProject(pid: string, $p: any): void {
 					reorderProjects(moved, pid);
 				},
 				'click=', (e: MouseEvent) => { if (dragged) e.preventDefault(); });
-			A(() => {
-				const { pid: shown, tid } = selection();
-				A('.tps-current=', shown === pid && !tid);
-			});
+			markCurrent(pid);
 			A(() => {
 				if ($ui.collapsed) S.addTooltip({ tip: () => A('text=', $p.name), placement: 'right' });
 			});
@@ -211,10 +208,7 @@ function drawProject(pid: string, $p: any): void {
 				if ($p.error) A('span flex-shrink:0 fg:$s-danger #⚠', () => S.addTooltip({ tip: $p.error }));
 			});
 		});
-		A.onEach($p.tasks, ($t: any, tid: string) => {
-			if (!isOpen(pid, tid, $t)) return;
-			drawTask(pid, tid, $t);
-		}, phaseOrder);
+		drawOpenTasks(pid, $p);
 		A(() => {
 			const { pid: shown, tid } = selection();
 			if ($p.codePort || (shown === pid && tid === 'base')) drawBase(pid);
@@ -229,9 +223,22 @@ function drawProject(pid: string, $p: any): void {
 function drawScratch(pid: string, $p: any): void {
 	A('div', () => {
 		A(() => A('--tps-color:' + projectColor($p)));
-		A.onEach($p.tasks, ($t: any, tid: string) => {
-			if (isOpen(pid, tid, $t)) drawTask(pid, tid, $t);
-		}, phaseOrder);
+		drawOpenTasks(pid, $p);
+	});
+}
+
+/** The project's open tasks (see isOpen), a row each. */
+function drawOpenTasks(pid: string, $p: any): void {
+	A.onEach($p.tasks, ($t: any, tid: string) => {
+		if (isOpen(pid, tid, $t)) drawTask(pid, tid, $t);
+	}, phaseOrder);
+}
+
+/** Mark the row as what is on screen while it is: the project's board, or with `tid` a task of it or its directory. */
+function markCurrent(pid: string, tid?: string): void {
+	A(() => {
+		const shown = selection();
+		A('.tps-current=', shown.pid === pid && shown.tid === tid);
 	});
 }
 
@@ -254,15 +261,10 @@ function isOpen(pid: string, tid: string, $t: any): boolean {
 
 function drawTask(pid: string, tid: string, $t: any): void {
 	A('a.tps-row.tps-task', 'href=', pathTo(pid, tid), () => {
-		S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] {
-			return taskMenuItems(pid, tid, $t, [{ label: 'Settings…', icon: settings, click: () => taskSettingsDialog(pid, tid, $t) }]);
-		}});
+		S.addContextMenu({ link: pathTo(pid, tid), get items(): S.MenuEntry[] { return taskMenuItems(pid, tid, $t); } });
 		// Yours to act on: it waits for you, or it is a plan you have yet to start.
 		A(() => A('.tps-yours=', $t.phase === 'human' || $t.phase === 'plan'));
-		A(() => {
-			const { pid: shown, tid: shownTid } = selection();
-			A('.tps-current=', shown === pid && shownTid === tid);
-		});
+		markCurrent(pid, tid);
 		A(() => {
 			// Collapsed, the row is the title and nothing else: the icon's width is
 			// a word of the title, and what it says — the phase, and the work going
@@ -293,10 +295,7 @@ function drawTask(pid: string, tid: string, $t: any): void {
 function drawBase(pid: string): void {
 	A('a.tps-row.tps-task', 'href=', pathTo(pid, 'base'), () => {
 		S.addContextMenu({ link: pathTo(pid, 'base'), items: [{ label: 'Close project directory', icon: x, click: () => closeBase(pid) }] });
-		A(() => {
-			const { pid: shown, tid } = selection();
-			A('.tps-current=', shown === pid && tid === 'base');
-		});
+		markCurrent(pid, 'base');
 		A(() => {
 			// Collapsed the row is its text and nothing else, as a task's is; the
 			// italic is what tells the checkout from a task either way.

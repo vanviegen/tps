@@ -8,8 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
+	"slices"
 	"strings"
 	"time"
 )
@@ -74,11 +73,6 @@ type serviceState struct {
 }
 
 var instructionRe = regexp.MustCompile(`^(?i)(CMD|FROM|LABEL)\s+(.*)$`)
-
-// containerfileServices reads the services a Containerfile declares (see containerfileDeclarations).
-func containerfileServices(text string) []declaredService {
-	return containerfileDeclarations(text).services
-}
 
 // containerDecl is what a Containerfile declares to TPS.
 type containerDecl struct {
@@ -146,22 +140,13 @@ func containerfileDeclarations(text string) (d containerDecl) {
 		labels = append(labels, declaredService{testService, d.test})
 	}
 	for _, l := range labels {
-		if i := indexService(d.services, l.Name); i >= 0 {
+		if i := slices.IndexFunc(d.services, func(s declaredService) bool { return s.Name == l.Name }); i >= 0 {
 			d.services[i] = l
 		} else {
 			d.services = append(d.services, l)
 		}
 	}
 	return d
-}
-
-func indexService(list []declaredService, name string) int {
-	for i, s := range list {
-		if s.Name == name {
-			return i
-		}
-	}
-	return -1
 }
 
 // parseLabels reads the key=value pairs of a LABEL instruction: values (and
@@ -249,10 +234,14 @@ func ShellQuote(a string) string {
 
 func (t *Task) servicesDir() string { return filepath.Join(t.dir(), "services") }
 
-// writeDeclared puts the declared commands where the tool finds them:
-// .declared/<name> in the services dir, one line each.
+// declaredDir is where in the services dir the tool finds the declared
+// commands: a file per service, named after it.
+const declaredDir = ".declared"
+
+// writeDeclared puts the declared commands where the tool finds them, one
+// line each.
 func writeDeclared(dir string, declared []declaredService) {
-	d := filepath.Join(dir, ".declared")
+	d := filepath.Join(dir, declaredDir)
 	_ = os.RemoveAll(d)
 	if len(declared) == 0 {
 		return
@@ -315,7 +304,7 @@ func readServices(dir string, declared []declaredService) []serviceState {
 			rest = append(rest, e.Name())
 		}
 	}
-	sort.Strings(rest)
+	slices.Sort(rest)
 	for _, name := range rest {
 		out = append(out, readService(dir, name))
 	}
@@ -329,7 +318,7 @@ func serviceArgv(dir string) []string {
 	if raw == "" {
 		return nil
 	}
-	return strings.Split(strings.TrimSuffix(raw, "\x00"), "\x00")
+	return splitNul(raw)
 }
 
 // serviceCmd is that command as one would type it.
@@ -350,7 +339,7 @@ func readService(dir, name string) serviceState {
 	s.Started = pid.ModTime().UnixMilli()
 	s.Status = "running"
 	if exit, err := os.Stat(filepath.Join(d, "exit")); err == nil {
-		code, _ := strconv.Atoi(strings.TrimSpace(readFile(filepath.Join(d, "exit"))))
+		code := readInt(filepath.Join(d, "exit"))
 		s.Code = &code
 		s.Ended = exit.ModTime().UnixMilli()
 		s.Status = "exited"
@@ -408,23 +397,11 @@ func (t *Task) syncDeclared() {
 	declared, _ := t.declarations(t.containerfile())
 	t.lock()
 	defer t.unlock()
-	if t.status != StatusUp || sameDeclared(declared, t.declared) {
+	if t.status != StatusUp || slices.Equal(declared, t.declared) {
 		return
 	}
 	t.setDeclaredL(declared)
 	t.syncServicesL(t.viewers > 0)
-}
-
-func sameDeclared(a, b []declaredService) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // servicesL is what the dashboard shows: nil while there is no container.

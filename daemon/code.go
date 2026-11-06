@@ -3,7 +3,6 @@ package daemon
 import (
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -162,10 +161,8 @@ func freePort() (int, error) {
 }
 
 func waitCode(port int) error {
-	client := &http.Client{Timeout: time.Second}
 	for i := 0; i < 60; i++ {
-		if resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port)); err == nil {
-			resp.Body.Close()
+		if codeAlive(port) {
 			return nil
 		}
 		time.Sleep(250 * time.Millisecond)

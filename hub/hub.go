@@ -182,7 +182,6 @@ func (h *Hub) Chat(key string, e Entry) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.appendChat(key, e)
-	h.toWatchers(key, map[string]any{"c": key, "e": e.V})
 }
 
 // ChatUpdate re-sends a changed entry; it replaces the newest one with the same id.
@@ -198,7 +197,6 @@ func (h *Hub) ChatUpdate(key string, e Entry) {
 		}
 	}
 	h.appendChat(key, e)
-	h.toWatchers(key, map[string]any{"c": key, "e": e.V})
 }
 
 // SetChat replaces a task's whole log (initial load, or a discard).
@@ -206,7 +204,7 @@ func (h *Hub) SetChat(key string, entries []Entry) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.chats[key] = fold(entries)
-	h.toWatchers(key, map[string]any{"c": key, "es": values(h.chats[key])})
+	h.toWatchers(key, h.replay(key))
 }
 
 // LastChat is the newest entry of a task's log, if it has one.
@@ -222,6 +220,12 @@ func (h *Hub) LastChat(key string) (Entry, bool) {
 
 func (h *Hub) appendChat(key string, e Entry) {
 	h.chats[key] = fold(append(h.chats[key], e))
+	h.toWatchers(key, map[string]any{"c": key, "e": e.V})
+}
+
+// replay is the message that hands a watcher a task's whole log.
+func (h *Hub) replay(key string) map[string]any {
+	return map[string]any{"c": key, "es": values(h.chats[key])}
 }
 
 // ClientCount is how many peers are connected, which is how a daemon tells
@@ -230,12 +234,6 @@ func (h *Hub) ClientCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return len(h.clients)
-}
-
-func (h *Hub) WatcherCount(key string) int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.watcherCount(key)
 }
 
 func (h *Hub) watcherCount(key string) int {
@@ -280,6 +278,13 @@ func (c *Client) send(raw []byte) {
 	select {
 	case c.Out <- raw:
 	default:
+		c.drop()
+	}
+}
+
+// drop ends the peer's output, once.
+func (c *Client) drop() {
+	if !c.dead {
 		c.dead = true
 		close(c.Out)
 	}
@@ -303,24 +308,42 @@ func (h *Hub) RemoveClient(c *Client) {
 		return
 	}
 	delete(h.clients, c)
-	if !c.dead {
-		c.dead = true
-		close(c.Out)
-	}
-	var changed []string
-	for key := range c.watches {
-		changed = append(changed, key)
-	}
+	c.drop()
 	counts := map[string]int{}
-	for _, key := range changed {
+	for key := range c.watches {
 		counts[key] = h.watcherCount(key)
 	}
 	h.mu.Unlock()
 	if h.OnWatch != nil {
-		for _, key := range changed {
-			h.OnWatch(key, counts[key])
+		for key, n := range counts {
+			h.OnWatch(key, n)
 		}
 	}
+}
+
+// Serve connects one peer for as long as it stays: recv reads its messages
+// until it fails, send writes it the hub's (more says another is queued right
+// behind, for a buffered writer to wait with flushing), and hangUp closes the
+// connection once either direction ends.
+func (h *Hub) Serve(recv func() ([]byte, error), send func(raw []byte, more bool) error, hangUp func()) {
+	c := h.AddClient()
+	go func() {
+		for raw := range c.Out {
+			if send(raw, len(c.Out) > 0) != nil {
+				break
+			}
+		}
+		hangUp()
+	}()
+	for {
+		raw, err := recv()
+		if err != nil {
+			break
+		}
+		h.Handle(c, raw)
+	}
+	h.RemoveClient(c)
+	hangUp()
 }
 
 type inMsg struct {
@@ -346,7 +369,7 @@ func (h *Hub) Handle(c *Client, raw []byte) {
 		h.mu.Lock()
 		if msg.On {
 			c.watches[key] = true
-			replay, _ := json.Marshal(map[string]any{"c": key, "es": values(h.chats[key])})
+			replay, _ := json.Marshal(h.replay(key))
 			c.send(replay)
 		} else {
 			delete(c.watches, key)

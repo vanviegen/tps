@@ -1,15 +1,15 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,7 +30,7 @@ var (
 )
 
 func sharedVscodeDir() (string, error) {
-	dir := filepath.Join(home(), ".local", "share", "tps", "code-server")
+	dir := filepath.Join(DataDir(), "code-server")
 	sharedVscodeOnce.Do(func() { sharedVscodeErr = seedVscodeDir(dir) })
 	return dir, sharedVscodeErr
 }
@@ -256,8 +256,7 @@ func imageTag(containerfile string) string {
 }
 
 func imageExists(tag string) bool {
-	r, err := runCmd([]string{"podman", "image", "exists", tag}, RunOpts{NoCheck: true})
-	return err == nil && r.Code == 0
+	return cmdOK([]string{"podman", "image", "exists", tag}, RunOpts{})
 }
 
 type writerFunc func(string)
@@ -327,7 +326,7 @@ func exposedPorts(image string) ([]int, error) {
 			ports = append(ports, port)
 		}
 	}
-	sort.Ints(ports)
+	slices.Sort(ports)
 	return ports, nil
 }
 
@@ -655,8 +654,8 @@ func rmContainer(name string) error {
 // publishedContainer describes the container by the ports podman gave it;
 // nil when it has none for code-server, which means it isn't one of ours.
 func publishedContainer(name string) *Container {
-	r, err := runCmd([]string{"podman", "inspect", "--format", "{{json .NetworkSettings.Ports}}", name}, RunOpts{NoCheck: true})
-	if err != nil || r.Code != 0 {
+	r, err := runCmd([]string{"podman", "inspect", "--format", "{{json .NetworkSettings.Ports}}", name}, RunOpts{})
+	if err != nil {
 		return nil
 	}
 	c := &Container{Name: name}
@@ -691,13 +690,13 @@ func parsePublishedPorts(text string) []PortMap {
 			ports = append(ports, PortMap{port, host})
 		}
 	}
-	sort.Slice(ports, func(i, j int) bool { return ports[i].Port < ports[j].Port })
+	slices.SortFunc(ports, func(a, b PortMap) int { return cmp.Compare(a.Port, b.Port) })
 	return ports
 }
 
 func (c *Container) waitReady() error {
 	for i := 0; i < 40; i++ {
-		if r, err := runCmd([]string{"podman", "exec", c.Name, "true"}, RunOpts{NoCheck: true}); err == nil && r.Code == 0 {
+		if cmdOK([]string{"podman", "exec", c.Name, "true"}, RunOpts{}) {
 			return nil
 		}
 		time.Sleep(250 * time.Millisecond)
@@ -775,31 +774,18 @@ func (c *Container) TerminalBusy() bool {
 // OpenInCode opens a file in the VS Code window connected to the container's
 // code-server, through its session socket.
 func (c *Container) OpenInCode(path string) error {
-	r, err := runCmd([]string{"podman", "exec", c.Name, "/tps/bin/code-server",
-		"--session-socket", codeSocket, "--reuse-window", path}, RunOpts{Timeout: 10 * time.Second, NoCheck: true})
-	if err == nil && r.Code != 0 {
-		err = fmt.Errorf("code-server could not open %s", path)
+	if !cmdOK([]string{"podman", "exec", c.Name, "/tps/bin/code-server",
+		"--session-socket", codeSocket, "--reuse-window", path}, RunOpts{Timeout: 10 * time.Second}) {
+		return fmt.Errorf("code-server could not open %s", path)
 	}
-	return err
+	return nil
 }
 
 // codeAlive: does a code-server answer on this (host) port?
-func codeAlive(port int) bool {
-	client := &http.Client{Timeout: time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return true
-}
+func codeAlive(port int) bool { return answersHTTP(port, "/healthz") }
 
 // Exec runs a bash script in the container and waits for it.
 func (c *Container) Exec(script string) error {
-	return exec.CommandContext(context.Background(), "podman", "exec", c.Name, "bash", "-lc", script).Run()
-}
-
-func (c *Container) Rm(nestDir string) {
-	nestDown(c.Name, nestDir)
-	_ = rmContainer(c.Name)
+	_, err := runCmd([]string{"podman", "exec", c.Name, "bash", "-lc", script}, RunOpts{})
+	return err
 }

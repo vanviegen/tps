@@ -14,15 +14,15 @@ func TestContainerfileServices(t *testing.T) {
 	cf := "FROM a\nCMD [\"old\"]\nLABEL tps.service.gone=\"x\"\nFROM b\n# CMD nope\nRUN echo CMD\n  cmd npm \\\nrun dev\n" +
 		"LABEL org.opencontainers.image.title=\"TPS\" tps.service.test=\"npm test -- --ci\" tps.service.review=storybook\n" +
 		"LABEL tps.service.bad/name=\"x\" tps.service.empty=\"\"\n"
-	got := containerfileServices(cf)
+	got := containerfileDeclarations(cf).services
 	want := []declaredService{{"app", "npm run dev"}, {"test", "npm test -- --ci"}, {"review", "storybook"}}
 	if !slices.Equal(got, want) {
 		t.Errorf("declared: %v", got)
 	}
-	if got := containerfileServices("FROM x\nCMD [\"node\", \"a b.js\"]\nLABEL tps.service.app=\"make run\"\n"); !slices.Equal(got, []declaredService{{"app", "make run"}}) {
+	if got := containerfileDeclarations("FROM x\nCMD [\"node\", \"a b.js\"]\nLABEL tps.service.app=\"make run\"\n").services; !slices.Equal(got, []declaredService{{"app", "make run"}}) {
 		t.Errorf("label overrides CMD: %v", got)
 	}
-	if got := containerfileServices("FROM x\nCMD [\"node\", \"a b.js\", \"it's\"]\n"); !slices.Equal(got, []declaredService{{"app", `node 'a b.js' 'it'\''s'`}}) {
+	if got := containerfileDeclarations("FROM x\nCMD [\"node\", \"a b.js\", \"it's\"]\n").services; !slices.Equal(got, []declaredService{{"app", `node 'a b.js' 'it'\''s'`}}) {
 		t.Errorf("exec form: %v", got)
 	}
 	if caches := containerfileDeclarations("FROM x\nLABEL tps.cache=\"/a/b, /c\" tps.service.t=x\nLABEL tps.cache=\"rel /d\"\n").caches; !slices.Equal(caches, []string{"/a/b", "/c", "/d"}) {
@@ -42,7 +42,7 @@ func TestContainerfileServices(t *testing.T) {
 	if d := containerfileDeclarations("FROM x\nLABEL tps.service.test=\"make test\"\n"); d.test != "" {
 		t.Errorf("a service named test is no test: %q", d.test)
 	}
-	if containerfileServices(defaultContainerfile) != nil {
+	if containerfileDeclarations(defaultContainerfile).services != nil {
 		t.Error("no CMD")
 	}
 }

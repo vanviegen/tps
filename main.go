@@ -58,12 +58,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Usage: tps [--port 4820] [--host 127.0.0.1] [--no-open] [--daemon-binary FILE] [--auto-start] [--auto-update] | tps --daemon")
 		flag.PrintDefaults()
 	}
-	// --autostart is what --auto-start was once called.
-	for i, arg := range os.Args {
-		if arg == "--autostart" || arg == "-autostart" {
-			os.Args[i] = "--auto-start"
-		}
-	}
 	flag.Parse()
 
 	if *relayPath != "" {

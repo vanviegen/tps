@@ -13,12 +13,14 @@ import (
 	"net/http/httputil"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/vanviegen/tps/hub"
+	"github.com/vanviegen/tps/sshx"
 )
 
 // A Link is the dashboard's connection to one daemon. It mirrors the daemon's
@@ -26,12 +28,11 @@ import (
 // watches the other way, and for remote hosts turns the ports tasks publish
 // into local listeners so the browser can open them.
 type Link struct {
-	ui     *UI
-	hid    string
-	dest   string // "" for the local daemon
-	remote bool
-	tr     transport
-	proxy  *httputil.ReverseProxy
+	ui    *UI
+	hid   string
+	dest  string // "" for the local daemon
+	tr    transport
+	proxy *httputil.ReverseProxy
 
 	mu       sync.Mutex
 	conn     net.Conn
@@ -43,27 +44,27 @@ type Link struct {
 	forwards map[string]map[int]*forward // task key → port on the host → local listener piped to it
 	wake     chan struct{}
 	closed   bool
-	stopped  bool              // the user stopped the daemon: don't start it again until asked
-	names    map[string]string // dir → name, from an older dashboard; handed to the daemon once
+	stopped  bool // the user stopped the daemon: don't start it again until asked
 
 	// What the host shows: the connection state plus what the daemon reported.
 	status, errText string
 	ask             map[string]any // the question ssh raised on the way here (see askpass.go)
 	askKey          string         // what its answer is remembered as
 	build           string         // the daemon's build id
-	homeDir         string         // the daemon user's home there, for showing paths as ~/…
-	protocol        int
 	restarting      bool
-	models          []any          // the models this host's claude offers
-	modelsError     string         // why they are the built-in fallback instead
-	agentPrompt     string         // the rules its daemon puts above every agent conversation
-	login           string         // what its claude login needs, if anything (see daemon/login.go)
-	openrouter      bool           // it has an OpenRouter management key to make agents' keys with
+	reported        map[string]any // by reportedKeys
 	signin          string         // how a sign-in for it here is going, or failed (see login.go)
 	signinURL       string         // the page it is made on, while it can be
 	signinCode      io.WriteCloser // where the code that page shows goes, while a sign-in is under way
 	autoUpgraded    bool           // this UI already asked the daemon to restart into its build
 }
+
+// reportedKeys are the daemon's top-level state the host shows as the daemon
+// reported it: its user's home (for showing paths as ~/…), the models its
+// claude offers (or why they are the built-in fallback), the rules above every
+// agent conversation, what its claude login needs (see daemon/login.go), and
+// whether it has an OpenRouter management key to make agents' keys with.
+var reportedKeys = []string{"home", "models", "modelsError", "agentPrompt", "login", "openrouter"}
 
 type replyFn func(result json.RawMessage, err error)
 
@@ -109,9 +110,9 @@ type proxyTarget struct {
 }
 
 func newLink(u *UI, hid, dest string, tr transport) *Link {
-	l := &Link{ui: u, hid: hid, dest: dest, remote: dest != "", tr: tr,
+	l := &Link{ui: u, hid: hid, dest: dest, tr: tr,
 		pending: map[int]replyFn{}, mirrored: map[string]bool{}, watches: map[string]bool{}, forwards: map[string]map[int]*forward{},
-		names: map[string]string{}, wake: make(chan struct{}, 1)}
+		reported: map[string]any{}, wake: make(chan struct{}, 1)}
 	l.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			t := pr.In.Context().Value(proxyKey{}).(proxyTarget)
@@ -138,10 +139,10 @@ func newLink(u *UI, hid, dest string, tr transport) *Link {
 
 // name is the host as shown to the user: without the ssh options in front.
 func (l *Link) name() string {
-	if fields := strings.Fields(l.dest); len(fields) > 0 {
-		return fields[len(fields)-1]
+	if l.dest == "" {
+		return "this machine"
 	}
-	return "this machine"
+	return sshx.Host(l.dest)
 }
 
 func (l *Link) setStatus(status, errText string) {
@@ -157,24 +158,14 @@ func (l *Link) publishHost() {
 		warning = w.Warning()
 	}
 	l.mu.Lock()
-	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning, "home": l.homeDir}
+	host := map[string]any{"name": l.name(), "dest": l.dest, "status": l.status, "error": l.errText, "warning": warning}
 	if l.ask != nil {
 		host["ask"] = l.ask
 	}
-	if l.models != nil {
-		host["models"] = l.models
-	}
-	if l.modelsError != "" {
-		host["modelsError"] = l.modelsError
-	}
-	if l.agentPrompt != "" {
-		host["agentPrompt"] = l.agentPrompt
-	}
-	if l.login != "" {
-		host["login"] = l.login
-	}
-	if l.openrouter {
-		host["openrouter"] = true
+	for k, v := range l.reported {
+		if v != nil && v != "" && v != false {
+			host[k] = v
+		}
 	}
 	if l.signin != "" {
 		host["signin"] = l.signin
@@ -275,10 +266,11 @@ func (l *Link) Wake() {
 	}
 }
 
-// awaitConnection waits for the link to be connected, or for its current
-// attempt to have failed.
-func (l *Link) awaitConnection(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+// connect retries the link right away and waits for it to be connected, or
+// for that attempt to have failed.
+func (l *Link) connect() error {
+	l.Wake()
+	deadline := time.Now().Add(10 * time.Minute)
 	for time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
 		l.mu.Lock()
@@ -418,22 +410,18 @@ func (l *Link) renewWatches() {
 func (l *Link) onHello(state map[string]any) {
 	l.mu.Lock()
 	l.build, _ = state["build"].(string)
-	proto, _ := state["protocol"].(float64)
-	l.protocol = int(proto)
 	l.restarting, _ = state["restarting"].(bool)
-	l.models, _ = state["models"].([]any)
-	l.modelsError, _ = state["modelsError"].(string)
-	l.agentPrompt, _ = state["agentPrompt"].(string)
-	l.login, _ = state["login"].(string)
-	l.openrouter, _ = state["openrouter"].(bool)
-	l.homeDir, _ = state["home"].(string)
+	for _, k := range reportedKeys {
+		l.reported[k] = state[k]
+	}
 	l.mu.Unlock()
+	protocol, _ := state["protocol"].(float64)
 	switch {
-	case l.protocol > hub.Protocol:
+	case protocol > hub.Protocol:
 		// Never touch a newer daemon; it is this TPS that needs updating.
 		l.setStatus("incompatible", "this host runs a newer TPS; update this one")
 		return
-	case l.protocol < hub.MinProtocol:
+	case protocol < hub.MinProtocol:
 		l.setStatus("updating", "")
 		go l.upgrade()
 		return
@@ -445,7 +433,6 @@ func (l *Link) onHello(state map[string]any) {
 	}
 	l.renewWatches()
 	l.handOverIdentity()
-	l.handOverNames(projects)
 	l.setStatus("connected", "")
 	// A daemon of another build reports stale state (the model list included)
 	// until someone presses "Update daemon"; do it for them, once per host per
@@ -496,27 +483,6 @@ func gitIdentity() (string, string) {
 	return name, email
 }
 
-// handOverNames gives the daemon the names an older dashboard kept for its
-// projects, once, so upgrading does not rename them all to their directory.
-func (l *Link) handOverNames(projects map[string]any) {
-	l.mu.Lock()
-	names := l.names
-	l.names = map[string]string{}
-	l.mu.Unlock()
-	if len(names) == 0 {
-		return
-	}
-	for pid, v := range projects {
-		project, _ := v.(map[string]any)
-		dir, _ := project["dir"].(string)
-		name := names[dir]
-		if name == "" || name == project["name"] {
-			continue
-		}
-		l.call("setProject", map[string]any{"pid": pid, "name": name}, func(json.RawMessage, error) {})
-	}
-}
-
 func (l *Link) onPatch(path []any, value any, del bool) {
 	p := make([]string, len(path))
 	for i, seg := range path {
@@ -524,21 +490,14 @@ func (l *Link) onPatch(path []any, value any, del bool) {
 	}
 	// Top-level daemon state the host card shows.
 	if len(p) == 1 {
-		l.mu.Lock()
-		switch p[0] {
-		case "models":
-			l.models, _ = value.([]any)
-		case "modelsError":
-			l.modelsError, _ = value.(string)
-		case "login":
-			l.login, _ = value.(string)
-		case "openrouter":
-			l.openrouter, _ = value.(bool)
-		case "restarting":
-			l.restarting, _ = value.(bool)
-		default:
-			l.mu.Unlock()
+		if p[0] != "restarting" && !slices.Contains(reportedKeys, p[0]) {
 			return
+		}
+		l.mu.Lock()
+		if p[0] == "restarting" {
+			l.restarting, _ = value.(bool)
+		} else {
+			l.reported[p[0]] = value
 		}
 		l.mu.Unlock()
 		l.publishHost()
@@ -593,7 +552,7 @@ func (l *Link) translateProject(pid string, project map[string]any) map[string]a
 
 func (l *Link) translateTask(key string, v any) any {
 	task, ok := v.(map[string]any)
-	if !ok || !l.remote {
+	if !ok || l.dest == "" {
 		return v
 	}
 	if ports, ok := task["ports"]; ok {
@@ -609,7 +568,7 @@ func (l *Link) translateTask(key string, v any) any {
 // per host port, kept across rounds and dropped when the port is gone. The
 // browser then sees the local port in "host".
 func (l *Link) forwardPorts(key string, v any) any {
-	if !l.remote {
+	if l.dest == "" {
 		return v
 	}
 	list, _ := v.([]any)
@@ -762,7 +721,10 @@ func (l *Link) upgrade() error {
 	if p, ok := l.tr.(pusher); ok {
 		if err := p.Push(); err != nil {
 			log.Printf("host %s: installing the new binary failed: %v", l.hid, err)
-			l.setStatus(l.status, err.Error())
+			l.mu.Lock()
+			l.errText = err.Error()
+			l.mu.Unlock()
+			l.publishHost()
 			return err
 		}
 	}

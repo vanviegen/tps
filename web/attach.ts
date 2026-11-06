@@ -43,11 +43,9 @@ function fitting(files: File[]): File[] {
 	const fits: File[] = [];
 	let taken = 0;
 	for (const file of files) {
-		if (file.size > MAX_BYTES) {
-			S.toast({ title: file.name || 'Attachment', message: `Larger than ${MAX_BYTES >> 20} MB`, type: 'danger' });
-		} else if (taken + file.size > MAX_TOTAL_BYTES) {
-			S.toast({ title: file.name || 'Attachment', message: `No more than ${MAX_TOTAL_BYTES >> 20} MB can be attached at once`, type: 'danger' });
-		} else {
+		if (file.size > MAX_BYTES) refuse(file, `Larger than ${MAX_BYTES >> 20} MB`);
+		else if (taken + file.size > MAX_TOTAL_BYTES) refuse(file, `No more than ${MAX_TOTAL_BYTES >> 20} MB can be attached at once`);
+		else {
 			fits.push(file);
 			taken += file.size;
 		}
@@ -63,8 +61,13 @@ async function carry(file: File): Promise<{ name: string; data: string } | undef
 	try {
 		return { name: fileName(file), data: base64(await file.arrayBuffer()) };
 	} catch (e) {
-		S.toast({ title: file.name || 'Attachment', message: (e as Error).message, type: 'danger' });
+		refuse(file, (e as Error).message);
 	}
+}
+
+/** Say why a file is not attached. */
+function refuse(file: File, why: string): void {
+	S.toast({ title: file.name || 'Attachment', message: why, type: 'danger' });
 }
 
 /** How a field takes files on, answering with the paths its text should carry. */

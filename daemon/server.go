@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -15,7 +16,7 @@ import (
 
 // SocketPath is where the daemon listens, on every host.
 func SocketPath() string {
-	return filepath.Join(home(), ".local", "share", "tps", "daemon.sock")
+	return filepath.Join(DataDir(), "daemon.sock")
 }
 
 // Serve runs the daemon until it is told to stop or restart. buildID is
@@ -78,26 +79,19 @@ func Serve(buildID string) error {
 
 // serveConn speaks the hub protocol as JSON lines over one connection.
 func serveConn(h *hub.Hub, conn net.Conn) {
-	client := h.AddClient()
-	go func() {
-		w := bufio.NewWriter(conn)
-		for raw := range client.Out {
-			if _, err := w.Write(append(raw, '\n')); err != nil {
-				break
-			}
-			if len(client.Out) == 0 {
-				if err := w.Flush(); err != nil {
-					break
-				}
-			}
-		}
-		conn.Close()
-	}()
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 1<<20), 256<<20)
-	for sc.Scan() {
-		h.Handle(client, append([]byte(nil), sc.Bytes()...))
-	}
-	h.RemoveClient(client)
-	conn.Close()
+	w := bufio.NewWriter(conn)
+	h.Serve(func() ([]byte, error) {
+		if !sc.Scan() {
+			return nil, io.EOF
+		}
+		return sc.Bytes(), nil
+	}, func(raw []byte, more bool) error {
+		w.Write(raw)
+		if err := w.WriteByte('\n'); err != nil || more {
+			return err
+		}
+		return w.Flush()
+	}, func() { conn.Close() })
 }

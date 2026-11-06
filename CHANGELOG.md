@@ -19,9 +19,11 @@
 - Tasks run on Claude Code alone; pi support is removed.
 - Workspaces carry the project checkout's remotes, so a deploy's
   `git push origin` works.
+- A task's right-click menu, on the board and in the sidebar, is the same as
+  its header menu.
 - Fixes: podman sockets that stop answering are picked anew, toolbox
-  downloads retry, and terminal output in log details plays out as in service
-  consoles.
+  downloads retry, terminal output in log details plays out as in service
+  consoles, and SSH hosts whose home directory has a space in it work.
 
 ## 0.5.0
 

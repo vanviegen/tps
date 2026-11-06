@@ -26,30 +26,33 @@ import (
 const RelayOK = "TPS-RELAY-OK\n"
 
 type Client struct {
-	// Dest is the destination as the user gave it: what they would type after
+	// dest is the destination as the user gave it: what they would type after
 	// `ssh`, so options like `-p 2222` or `-J jump` in front of the host work.
-	Dest string
-	// Env gives what every ssh process gets in its environment (the askpass
+	dest string
+	// env gives what every ssh process gets in its environment (the askpass
 	// hookup), for a fresh run id per process.
-	Env  func(run string) []string
-	dest []string // Dest split into ssh arguments
+	env  func(run string) []string
+	args []string // dest split into ssh arguments
 	mux  []string // our own multiplexing options, when the user's config has none
 }
 
-// Host is the destination without the options in front: what to show the user.
-func (c *Client) Host() string {
-	if len(c.dest) == 0 {
-		return c.Dest
+// Host is a destination without the options in front: what to show the user.
+func Host(dest string) string {
+	if fields := strings.Fields(dest); len(fields) > 0 {
+		return fields[len(fields)-1]
 	}
-	return c.dest[len(c.dest)-1]
+	return dest
 }
 
+// Host is the client's destination as shown to the user.
+func (c *Client) Host() string { return Host(c.dest) }
+
 func New(dest string, env func(run string) []string) *Client {
-	c := &Client{Dest: dest, Env: env, dest: strings.Fields(dest)}
+	c := &Client{dest: dest, env: env, args: strings.Fields(dest)}
 	// Multiplex through the user's control socket when they have one
 	// configured (their live session is then reused); otherwise keep a
 	// master of our own so the host authenticates once, not per command.
-	out, _ := exec.Command("ssh", append([]string{"-G"}, c.dest...)...).Output()
+	out, _ := exec.Command("ssh", append([]string{"-G"}, c.args...)...).Output()
 	if !controlPathSet(string(out)) {
 		home, _ := os.UserHomeDir()
 		dir := filepath.Join(home, ".local", "share", "tps", "ssh")
@@ -76,7 +79,7 @@ func (c *Client) command(args ...string) *exec.Cmd {
 	cmd := exec.Command("ssh", append(base, args...)...)
 	run := make([]byte, 6)
 	_, _ = rand.Read(run)
-	cmd.Env = append(os.Environ(), c.Env(hex.EncodeToString(run))...)
+	cmd.Env = append(os.Environ(), c.env(hex.EncodeToString(run))...)
 	return cmd
 }
 
@@ -87,7 +90,7 @@ type RunResult struct {
 
 // Shell is a shell command on the host, for the caller to hook up and run.
 func (c *Client) Shell(cmd string) *exec.Cmd {
-	return c.command(append(append([]string{}, c.dest...), "--", cmd)...)
+	return c.command(append(append([]string{}, c.args...), "--", cmd)...)
 }
 
 // Run executes a shell command on the host, feeding it stdin if given.
@@ -102,7 +105,7 @@ func (c *Client) Run(cmd string, stdin io.Reader) (RunResult, error) {
 	if errors.As(err, &exit) {
 		r.Code = exit.ExitCode()
 		if r.Code == 255 { // ssh itself failed: no connection, no login
-			return r, fmt.Errorf("ssh %s: %s", c.Dest, lastLine(r.Err))
+			return r, fmt.Errorf("ssh %s: %s", c.dest, lastLine(r.Err))
 		}
 		return r, nil
 	}
@@ -116,7 +119,7 @@ func (c *Client) Output(cmd string) (string, error) {
 		return "", err
 	}
 	if r.Code != 0 {
-		return "", fmt.Errorf("`%s` on %s failed (%d): %s", cmd, c.Dest, r.Code, lastLine(r.Err+r.Out))
+		return "", fmt.Errorf("`%s` on %s failed (%d): %s", cmd, c.dest, r.Code, lastLine(r.Err+r.Out))
 	}
 	return strings.TrimSpace(r.Out), nil
 }
@@ -128,13 +131,14 @@ func lastLine(s string) string {
 
 // DialTCP connects to 127.0.0.1:port on the host (ssh -W).
 func (c *Client) DialTCP(port int) (net.Conn, error) {
-	return c.stdio(c.command(append([]string{"-W", fmt.Sprintf("127.0.0.1:%d", port)}, c.dest...)...), false)
+	return c.stdio(c.command(append([]string{"-W", fmt.Sprintf("127.0.0.1:%d", port)}, c.args...)...), false)
 }
 
-// DialUnix connects to a unix socket on the host, through `tps --relay`
-// running there (bin is the remote path of our binary).
-func (c *Client) DialUnix(bin, path string) (net.Conn, error) {
-	return c.stdio(c.command(append(append([]string{}, c.dest...), "--", bin+" --relay "+path)...), true)
+// DialRelay connects to a unix socket on the host through relay, a shell
+// command there (`tps --relay <socket>`) that says RelayOK once it reached the
+// socket and then pipes its stdio to it.
+func (c *Client) DialRelay(relay string) (net.Conn, error) {
+	return c.stdio(c.Shell(relay), true)
 }
 
 // stdio turns an ssh process into a connection: its stdin and stdout are the
@@ -159,7 +163,7 @@ func (c *Client) stdio(cmd *exec.Cmd, handshake bool) (net.Conn, error) {
 		buf := make([]byte, len(RelayOK))
 		if _, err := io.ReadFull(stdout, buf); err != nil || string(buf) != RelayOK {
 			conn.Close()
-			return nil, fmt.Errorf("ssh %s: %s", c.Dest, lastLine(errb.String()+"\nrelay failed"))
+			return nil, fmt.Errorf("ssh %s: %s", c.dest, lastLine(errb.String()+"\nrelay failed"))
 		}
 	}
 	return conn, nil

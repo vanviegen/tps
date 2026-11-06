@@ -58,8 +58,8 @@ func probeContext(c *Container, model, system string) (ContextWindow, bool) {
 	r, err := runCmd([]string{"podman", "exec",
 		"-e", "TPS_MODEL=" + model,
 		"-e", "TPS_SYSTEM=" + system,
-		c.Name, "bash", "-lc", probeScript}, RunOpts{Timeout: probeTimeout, NoCheck: true})
-	if err != nil || r.Code != 0 {
+		c.Name, "bash", "-lc", probeScript}, RunOpts{Timeout: probeTimeout})
+	if err != nil {
 		return ContextWindow{}, false
 	}
 	var out struct {

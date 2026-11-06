@@ -3,12 +3,9 @@ package daemon
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -27,7 +24,6 @@ func (m *Manager) inhibitLoop() {
 	if _, err := exec.LookPath("systemd-inhibit"); err != nil {
 		return
 	}
-	killStaleInhibitors(inhibitWho)
 	var release *os.File
 	var gone *atomic.Bool // raised when the helper died on its own
 	var broken atomic.Bool
@@ -98,79 +94,4 @@ func (m *Manager) wakeLoop() {
 		}
 		set = at
 	}
-}
-
-// Daemons before this one left their helper running when they died, so a
-// machine that restarts the daemon often collects a row of "TPS" entries in
-// the desktop's power dialog. Take out whatever is still holding one of ours,
-// along with the process it was babysitting.
-func killStaleInhibitors(who string) {
-	uid := os.Getuid()
-	children := map[int][]int{}
-	var stale []int
-	for _, dir := range procDirs() {
-		pid, err := strconv.Atoi(filepath.Base(dir))
-		if err != nil {
-			continue
-		}
-		if ppid, ok := procParent(dir); ok {
-			children[ppid] = append(children[ppid], pid)
-		}
-		if !isOurInhibitor(dir, uid, who) {
-			continue
-		}
-		stale = append(stale, pid)
-	}
-	for _, pid := range stale {
-		for _, child := range children[pid] {
-			syscall.Kill(child, syscall.SIGKILL)
-		}
-		syscall.Kill(pid, syscall.SIGKILL)
-	}
-	if len(stale) > 0 {
-		logf("Released %d suspend inhibitor(s) left by an earlier daemon", len(stale))
-	}
-}
-
-func procDirs() []string {
-	dirs, _ := filepath.Glob("/proc/[0-9]*")
-	return dirs
-}
-
-// isOurInhibitor reports whether a /proc entry is a systemd-inhibit of ours
-// holding the TPS inhibitor.
-func isOurInhibitor(dir string, uid int, who string) bool {
-	fi, err := os.Stat(dir)
-	if err != nil {
-		return false
-	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok || int(st.Uid) != uid {
-		return false
-	}
-	cmdline, err := os.ReadFile(dir + "/cmdline")
-	if err != nil {
-		return false
-	}
-	args := strings.Split(strings.TrimSuffix(string(cmdline), "\x00"), "\x00")
-	return len(args) > 0 && filepath.Base(args[0]) == "systemd-inhibit" && slices.Contains(args, "--who="+who)
-}
-
-// procParent reads the parent pid out of /proc/<pid>/stat, whose second field
-// is the (possibly space-ridden) command name in parentheses.
-func procParent(dir string) (int, bool) {
-	data, err := os.ReadFile(dir + "/stat")
-	if err != nil {
-		return 0, false
-	}
-	i := strings.LastIndex(string(data), ")")
-	if i < 0 {
-		return 0, false
-	}
-	fields := strings.Fields(string(data)[i+1:])
-	if len(fields) < 2 {
-		return 0, false
-	}
-	ppid, err := strconv.Atoi(fields[1])
-	return ppid, err == nil
 }

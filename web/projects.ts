@@ -8,7 +8,7 @@ import { drawCode } from './code.ts';
 import { $state, watch } from './conn.ts';
 import { drawHostNotice, hostInk, hostOrder, hostState } from './hosts.ts';
 import { addTask, drawTaskFields } from './task.ts';
-import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, PROJECT_COLORS, projectColor, projectName, selection, shortDir } from './util.ts';
+import { branchOf, cmd, compareKeys, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathTo, PROJECT_COLORS, projectColor, projectName, selection, shortDir } from './util.ts';
 
 /**
  * Projects: what the sidebar lists, in the order the user put them in (kept
@@ -20,7 +20,7 @@ import { cmd, debounce, drawStrip, ELLIPSIS, hostIcon, hostName, hostPath, pathT
  * Where a project sits in the list, as a sort key: the user's order, the
  * unplaced ones after that by name, and the hosts' scratch tasks last of all.
  */
-export function projectOrder(pid: string, $p: any): (number | string)[] {
+function projectOrder(pid: string, $p: any): (number | string)[] {
 	if ($p.scratch) return [Infinity, hostName($p.host)];
 	const order: string[] = $state.projectOrder ?? [];
 	const i = order.indexOf(pid);
@@ -39,14 +39,6 @@ export function projectSortKey($p: any, pid: string): (number | string)[] | unde
 export function sortedProjects(): [string, any][] {
 	return (Object.entries($state.projects ?? {}) as [string, any][])
 		.sort((a, b) => compareKeys(projectOrder(a[0], a[1]), projectOrder(b[0], b[1])));
-}
-
-function compareKeys(a: (number | string)[], b: (number | string)[]): number {
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] < b[i]) return -1;
-		if (a[i] > b[i]) return 1;
-	}
-	return 0;
 }
 
 /** The projects on one host, by name; its scratch project is none of them. */
@@ -180,7 +172,7 @@ export function drawProjectPage(pid: string, $p: any): void {
 			// The name in the project's colour, as the sidebar has it.
 			A(() => A(`h2 m:0 font-size:1.15em min-width:0 ${ELLIPSIS} fg:${projectColor($p)} text=`, projectName($p)));
 			if ($p.scratch) A('span font-size:0.9em fg:$s-muted #Tasks that belong to no project, each in an empty repository of its own');
-			else A(() => drawProjectFacts($p));
+			else A(() => drawProjectFacts(pid, $p));
 			A('div flex:1');
 			// The keys are on these rather than on the board's ✛ or the menu's
 			// rows, so each is bound once while the project is on screen (see
@@ -289,7 +281,7 @@ function dirName(dir: string): string {
 }
 
 /** A strip per thing worth knowing: the host's state, the project, its checkout. */
-export function drawNotices(pid: string, $p: any): void {
+function drawNotices(pid: string, $p: any): void {
 	A(() => drawHostNotice($p.host));
 	A(() => {
 		// What the host says about the project itself, which it can only say
@@ -310,12 +302,12 @@ export function drawNotices(pid: string, $p: any): void {
  * it lives on. Nothing here is a button — reading is all it is for, and colour
  * is left to say what wants a second look.
  */
-export function drawProjectFacts($p: any): void {
+function drawProjectFacts(pid: string, $p: any): void {
 	const facts: Array<() => void> = [
 		() => {
 			S.addTooltip({ tip: 'The branch task workspaces start from, and merge back into' });
 			gitBranch({ size: '1em' });
-			A('span', () => A('text=', $p.defaultBranch ?? 'main'));
+			A('span', () => A('text=', branchOf(pid)));
 		},
 		// Its own scope: work appearing in the checkout must not redraw the line.
 		() => A(() => {
@@ -347,7 +339,7 @@ export function drawProjectFacts($p: any): void {
  * itself as it is changed, so there is nothing here to confirm and nothing
  * lost by closing the dialog.
  */
-export function projectSettingsDialog(pid: string, $p: any): void {
+function projectSettingsDialog(pid: string, $p: any): void {
 	const save = (patch: object) => void cmd('setProject', { pid, ...patch });
 	void S.dialog({ header: 'Project settings', attrs: 'w:36rem', contentAttrs: 'display:flex flex-direction:column gap:$3', content: () => {
 		// The values are read once and written back by the fields themselves: a
@@ -363,20 +355,25 @@ export function projectSettingsDialog(pid: string, $p: any): void {
 		drawDeployFields($p, save);
 		drawMounts($p, save);
 		drawSeeds($p, save);
-		// A section of its own under a heading, so what it is about is not
-		// mistaken for more of the project's own settings.
-		A('div display:flex flex-direction:column gap:$2', () => {
-			A('h3 m:0 mt:$2 font-size:1em #Default task settings');
-			A('p.s-help m:0 #Copied into every new task of this project; the tasks that exist keep what they have.');
-			A(() => {
-				// The defaults land with the project itself; each is patched on its
-				// own, so typing in one is not interrupted by another being saved.
-				const $d = $p.defaults;
-				if (!$d) return;
-				drawTaskFields(pid, undefined, $d, patch => save({ defaults: patch }));
-			});
-		});
+		// A section of its own, so what it is about is not mistaken for more of the
+		// project's own settings.
+		drawSection('Default task settings', 'Copied into every new task of this project; the tasks that exist keep what they have.', () => A(() => {
+			// The defaults land with the project itself; each is patched on its
+			// own, so typing in one is not interrupted by another being saved.
+			const $d = $p.defaults;
+			if (!$d) return;
+			drawTaskFields(pid, undefined, $d, patch => save({ defaults: patch }));
+		}));
 	}});
+}
+
+/** A part of the settings under a heading of its own, and a line on what it is about. */
+function drawSection(title: string, help: string, content: () => void): void {
+	A('div display:flex flex-direction:column gap:$2', () => {
+		A('h3 m:0 mt:$2 font-size:1em text=', title);
+		A('p.s-help m:0 text=', help);
+		content();
+	});
 }
 
 /**
@@ -384,9 +381,7 @@ export function projectSettingsDialog(pid: string, $p: any): void {
  * can be settled before an agent is asked to set deploys up.
  */
 function drawDeployFields($p: any, save: (patch: object) => void): void {
-	A('div display:flex flex-direction:column gap:$2', () => {
-		A('h3 m:0 mt:$2 font-size:1em #Deploy');
-		A('p.s-help m:0 #A LABEL tps.deploy line in Containerfile.dev declares how this project is deployed (ask an agent to set it up). TPS runs that on the default branch, in a container of its own.');
+	drawSection('Deploy', 'A LABEL tps.deploy line in Containerfile.dev declares how this project is deployed (ask an agent to set it up). TPS runs that on the default branch, in a container of its own.', () => {
 		S.checkbox({
 			label: 'Deploy after every merge',
 			help: 'Otherwise when you press Deploy. Merged work then runs with the files below without anyone pressing anything, including work merged by an agent.',
@@ -399,59 +394,52 @@ function drawDeployFields($p: any, save: (patch: object) => void): void {
 /**
  * The files and directories of this host the project's containers get, a row
  * each: whether the deploy alone gets it or every task, whether it may write
- * there, and the path. An empty row at the end takes the next one; rows left
- * empty are not kept.
+ * there, and the path.
  */
 function drawMounts($p: any, save: (patch: object) => void): void {
-	const $rows = A.proxy(A.peek(() => A.clone($p.mounts ?? [])));
-	A(() => {
-		const last = $rows[$rows.length - 1];
-		if (!last || last.path) $rows.push({ path: '', write: false, allTasks: false });
-	});
-	const store = debounce(600, () => save({ mounts: A.peek(() => A.clone($rows)) }));
-	const choice = ($row: any, key: string, off: string, on: string) => S.select({
-		attrs: 'w:9rem', options: [off, on],
-		bind: {
-			get value() { return $row[key] ? on : off; },
-			set value(label: string) { $row[key] = label === on; store(); },
-		},
-	});
-	A('div display:flex flex-direction:column gap:$2', () => {
-		A('h3 m:0 mt:$2 font-size:1em #Host file permissions');
-		A('p.s-help m:0 #Files and directories of this host mounted into the containers at the same path, ~/ being your home here and the container user’s there. A relative path is one in the project’s checkout here, mounted at its place in the container’s own checkout (/work).');
-		A.onEach($rows, ($row: any, i: number) => {
-			A('div display:flex align-items:center gap:$2', () => {
-				choice($row, 'allTasks', 'Deploy', 'All tasks');
-				choice($row, 'write', 'Read-only', 'Read/write');
-				S.textline({ attrs: 'flex:1', placeholder: '~/.npmrc', bind: A.ref($row, 'path'), input: store });
-				S.iconButton({ icon: trash2, tooltip: 'Remove', attrs: 'fg:$s-muted', click: () => { $rows.splice(i, 1); store(); } });
+	drawSection('Host file permissions', 'Files and directories of this host mounted into the containers at the same path, ~/ being your home here and the container user’s there. A relative path is one in the project’s checkout here, mounted at its place in the container’s own checkout (/work).', () => {
+		drawPathRows(A.peek(() => A.clone($p.mounts ?? [])), { write: false, allTasks: false }, '~/.npmrc', rows => save({ mounts: rows }), ($row, store) => {
+			const choice = (key: string, off: string, on: string) => S.select({
+				attrs: 'w:9rem', options: [off, on],
+				bind: {
+					get value() { return $row[key] ? on : off; },
+					set value(label: string) { $row[key] = label === on; store(); },
+				},
 			});
+			choice('allTasks', 'Deploy', 'All tasks');
+			choice('write', 'Read-only', 'Read/write');
 		});
 		A('p.s-help m:0 #What all tasks get is in the hands of their agents, which work without asking. A running task gets changes here once its container is made anew, as it is after idling.');
 	});
 }
 
-/**
- * What of the project's checkout a new workspace starts with, a row each, as
- * the host file permissions are; rows left empty are not kept.
- */
+/** What of the project's checkout a new workspace starts with, a path a row. */
 function drawSeeds($p: any, save: (patch: object) => void): void {
-	const $rows = A.proxy(A.peek(() => ($p.seeds ?? []).map((path: string) => ({ path }))));
+	drawSection('Seeds', 'Paths in the project’s checkout here that git ignores, such as node_modules or a build’s output, which every new workspace starts with, so that its first install or build has less to do. Copied as reflinks where the filesystem has them (btrfs, XFS), which cost next to nothing; elsewhere, such as on ext4, as copies in full.', () => {
+		drawPathRows(A.peek(() => ($p.seeds ?? []).map((path: string) => ({ path }))), {}, 'node_modules', rows => save({ seeds: rows.map(r => r.path) }));
+		A('p.s-help m:0 #Every agent reads what its workspace holds: seed nothing secret.');
+	});
+}
+
+/**
+ * A list of paths to edit, a row each, with what else a row holds drawn by
+ * `fields` before its path; an empty row at the end, made of `blank`, takes
+ * the next one, and rows left empty are not kept. The rows go to `store` a
+ * moment after each change.
+ */
+function drawPathRows(rows: any[], blank: object, placeholder: string, store: (rows: any[]) => void, fields?: ($row: any, changed: () => void) => void): void {
+	const $rows = A.proxy(rows);
 	A(() => {
 		const last = $rows[$rows.length - 1];
-		if (!last || last.path) $rows.push({ path: '' });
+		if (!last || last.path) $rows.push({ ...blank, path: '' });
 	});
-	const store = debounce(600, () => save({ seeds: A.peek(() => $rows.map((r: any) => r.path)) }));
-	A('div display:flex flex-direction:column gap:$2', () => {
-		A('h3 m:0 mt:$2 font-size:1em #Seeds');
-		A('p.s-help m:0 #Paths in the project’s checkout here that git ignores, such as node_modules or a build’s output, which every new workspace starts with, so that its first install or build has less to do. Copied as reflinks where the filesystem has them (btrfs, XFS), which cost next to nothing; elsewhere, such as on ext4, as copies in full.');
-		A.onEach($rows, ($row: any, i: number) => {
-			A('div display:flex align-items:center gap:$2', () => {
-				S.textline({ attrs: 'flex:1', placeholder: 'node_modules', bind: A.ref($row, 'path'), input: store });
-				S.iconButton({ icon: trash2, tooltip: 'Remove', attrs: 'fg:$s-muted', click: () => { $rows.splice(i, 1); store(); } });
-			});
+	const changed = debounce(600, () => store(A.peek(() => A.clone($rows))));
+	A.onEach($rows, ($row: any, i: number) => {
+		A('div display:flex align-items:center gap:$2', () => {
+			fields?.($row, changed);
+			S.textline({ attrs: 'flex:1', placeholder, bind: A.ref($row, 'path'), input: changed });
+			S.iconButton({ icon: trash2, tooltip: 'Remove', attrs: 'fg:$s-muted', click: () => { $rows.splice(i, 1); changed(); } });
 		});
-		A('p.s-help m:0 #Every agent reads what its workspace holds: seed nothing secret.');
 	});
 }
 

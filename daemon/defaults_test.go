@@ -1,8 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/vanviegen/tps/hub"
@@ -56,19 +54,5 @@ func TestProjectFallbacks(t *testing.T) {
 	}
 	if !colorRe.MatchString(p.info.Color) {
 		t.Errorf("a project should be given a colour: %q", p.info.Color)
-	}
-}
-
-// The deploy's paths in a projects.json saved by 0.4 are the project's
-// read-only mounts for the deploy.
-func TestDeployMountsMigrate(t *testing.T) {
-	var info ProjectInfo
-	if err := json.Unmarshal([]byte(`{"dir":"/tmp/project","deployMounts":["~/.npmrc"]}`), &info); err != nil {
-		t.Fatal(err)
-	}
-	p := newProject(testManager(), "project", &info)
-	want := []Mount{{Path: "~/.npmrc"}}
-	if !reflect.DeepEqual(p.info.Mounts, want) || p.info.DeployMounts != nil {
-		t.Errorf("got mounts %+v, deploy mounts %+v", p.info.Mounts, p.info.DeployMounts)
 	}
 }

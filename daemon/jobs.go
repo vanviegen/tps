@@ -57,14 +57,11 @@ func (t *Task) reset(commit string) (string, error) {
 		return "", err
 	}
 	repo, branch := t.repoDir(), t.p.defaultBranch
-	for _, args := range [][]string{
-		{"fetch", "--quiet", hostRemote},
-		{"checkout", "--quiet", "--force", "-B", branch, cmp.Or(commit, hostRemote+"/"+branch)},
-		{"clean", "--quiet", "-fd"},
-	} {
-		if _, err := git(repo, args...); err != nil {
-			return "", err
-		}
+	if err := gitSeq(repo,
+		[]string{"fetch", "--quiet", hostRemote},
+		[]string{"checkout", "--quiet", "--force", "-B", branch, cmp.Or(commit, t.upstream())},
+		[]string{"clean", "--quiet", "-fd"}); err != nil {
+		return "", err
 	}
 	return git(repo, "rev-parse", "HEAD")
 }
