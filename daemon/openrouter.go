@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -17,10 +19,12 @@ import (
 // <usd>': to reach models its own agent does not offer, or to test something
 // that calls an LLM API. What it gets is the task's key, made on this host's
 // OpenRouter account with the management key the user set for the host at the
-// first request, and its limit raised by what each later one asks for, so the
-// agent keeps the one key it has. The task's OpenRouter budget is how much of
-// that may be handed out without asking; a request beyond it waits for the
-// user, who may raise the budget or turn the request down.
+// first request, so the agent keeps the one key it has. A request names how
+// much the key should have left to spend, and its limit is raised by what it
+// lacks of that: nothing, where the agent merely asks for the key again. The
+// task's OpenRouter budget is how much may be handed out so without asking; a
+// raise beyond it waits for the user, who may raise the budget or turn the
+// request down.
 //
 // The tool asks with a request of the kind "openrouter" (see requests.go),
 // whose body is the amount; one at a time is taken up.
@@ -56,33 +60,64 @@ type orKey struct {
 // of one made before, sets that one's limit; and returns the key and its hash
 // (the key itself only when it was made).
 func openRouterKey(mgmtKey, hash, name string, limit float64) (key, keyHash string, err error) {
-	method, url, fields := "POST", "https://openrouter.ai/api/v1/keys", map[string]any{"name": name, "limit": limit}
+	method, path, fields := "POST", "", map[string]any{"name": name, "limit": limit}
 	if hash != "" {
-		method, url, fields = "PATCH", url+"/"+hash, map[string]any{"limit": limit}
+		method, path, fields = "PATCH", "/"+hash, map[string]any{"limit": limit}
 	}
-	body, _ := json.Marshal(fields)
-	req, _ := http.NewRequest(method, url, bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+mgmtKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := openRouterClient.Do(req)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
 	var out struct {
 		Key  string `json:"key"`
 		Data struct {
 			Hash string `json:"hash"`
 		} `json:"data"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if resp.StatusCode/100 != 2 || hash == "" && (out.Key == "" || out.Data.Hash == "") {
-		return "", "", fmt.Errorf("OpenRouter answered %s %s", resp.Status, out.Error.Message)
+	if err := openRouterKeys(mgmtKey, method, path, fields, &out); err != nil {
+		return "", "", err
+	}
+	if hash == "" && (out.Key == "" || out.Data.Hash == "") {
+		return "", "", errors.New("OpenRouter answered without a key")
 	}
 	return out.Key, cmp.Or(hash, out.Data.Hash), nil
+}
+
+// openRouterLeft is what the key of that hash has left to spend.
+func openRouterLeft(mgmtKey, hash string) (float64, error) {
+	var out struct {
+		Data struct {
+			Left float64 `json:"limit_remaining"`
+		} `json:"data"`
+	}
+	err := openRouterKeys(mgmtKey, "GET", "/"+hash, nil, &out)
+	return out.Data.Left, err
+}
+
+// openRouterKeys calls OpenRouter's key management API at path, under
+// /api/v1/keys, with fields as the body unless nil, and decodes the answer
+// into out.
+func openRouterKeys(mgmtKey, method, path string, fields map[string]any, out any) error {
+	var body io.Reader
+	if fields != nil {
+		data, _ := json.Marshal(fields)
+		body = bytes.NewReader(data)
+	}
+	req, _ := http.NewRequest(method, "https://openrouter.ai/api/v1/keys"+path, body)
+	req.Header.Set("Authorization", "Bearer "+mgmtKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := openRouterClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		var e struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(data, &e)
+		return fmt.Errorf("OpenRouter answered %s %s", resp.Status, e.Error.Message)
+	}
+	return json.Unmarshal(data, out)
 }
 
 // orRoomL is what is left of the task's OpenRouter budget.
@@ -94,8 +129,7 @@ func (t *Task) orRoomL() float64 {
 }
 
 // checkORRequestL takes up a request the tool left that nothing is answering
-// yet: a key, when the budget has room for it, and otherwise the question for
-// the user.
+// yet (see takeORRequest).
 func (t *Task) checkORRequestL() {
 	if t.orBusy || t.info.ORAsk > 0 {
 		return
@@ -112,18 +146,47 @@ func (t *Task) checkORRequestL() {
 	case t.p.m.orKey == "":
 		t.note("The agent asked for OpenRouter access, which this host has no management key for")
 		t.answerOR(orAnswer{Error: "this host has no OpenRouter management key, so TPS cannot make keys here"})
-	case amount > t.orRoomL()+0.005 && t.info.Scheduled != "":
-		t.note(fmt.Sprintf("The agent asked for $%g of OpenRouter spending, more than this scheduled run's OpenRouter budget has left; refused, nobody being there to raise it", amount))
+	default:
+		t.orBusy = true
+		go t.takeORRequest(amount)
+	}
+}
+
+// takeORRequest answers a request for a key with amount USD left to spend:
+// with the key as it is, where it has that left; with its limit raised by what
+// it lacks, where the budget has room for that; and otherwise with the
+// question for the user.
+func (t *Task) takeORRequest(amount float64) {
+	t.lock()
+	mgmtKey, k := t.p.m.orKey, t.info.ORKey
+	t.unlock()
+	var err error
+	left := 0.0
+	if k != nil {
+		left, err = openRouterLeft(mgmtKey, k.Hash)
+	}
+	raise := math.Ceil((amount-left)*100) / 100 // in whole cents
+	t.lock()
+	defer t.unlock()
+	switch {
+	case err != nil:
+		t.noteErr("Reading what the OpenRouter key has left failed", err)
+		t.answerOR(orAnswer{Error: err.Error()})
+	case raise <= 0:
+		t.answerOR(orAnswer{Key: k.Key, Limit: k.Limit})
+	case raise > t.orRoomL()+0.005 && t.info.Scheduled != "":
+		t.note(fmt.Sprintf("The agent asked for $%g more of OpenRouter spending, more than this scheduled run's OpenRouter budget has left; refused, nobody being there to raise it", raise))
 		t.answerOR(orAnswer{Error: "that is more than this scheduled run's OpenRouter budget has left, and nobody is there to raise it"})
-	case amount > t.orRoomL()+0.005:
-		t.note(fmt.Sprintf("The agent asks for $%g of OpenRouter spending, more than the task's OpenRouter budget has left", amount))
-		t.info.ORAsk = amount
+	case raise > t.orRoomL()+0.005:
+		t.note(fmt.Sprintf("The agent asks for $%g more of OpenRouter spending, more than the task's OpenRouter budget has left", raise))
+		t.info.ORAsk = raise
 		t.p.m.saveL()
 		t.publishL()
 	default:
-		t.orBusy = true
-		go t.grantOpenRouter(amount)
+		go t.grantOpenRouter(raise) // keeps orBusy
+		return
 	}
+	t.orBusy = false
 }
 
 // answerOR answers the request taken up: the oldest one standing.

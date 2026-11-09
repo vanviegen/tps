@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A request beyond the task's OpenRouter budget waits for the user, the budget
@@ -25,7 +26,7 @@ func TestOpenRouterRequestBeyondBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	task.checkORRequestL()
+	task.takeORRequest(3)
 	if task.info.ORAsk != 3 || task.orBusy {
 		t.Fatalf("the request should wait for the user: asking %g", task.info.ORAsk)
 	}
@@ -90,5 +91,53 @@ func TestOpenRouterRaisesTheKey(t *testing.T) {
 	}
 	if len(calls) != 2 || !strings.HasPrefix(calls[0], "POST /api/v1/keys ") || calls[1] != `PATCH /api/v1/keys/h1 {"limit":3.5}` {
 		t.Errorf("calls: %q", calls)
+	}
+}
+
+// A request the key has enough left for answers with the key as it is, and one
+// it has too little left for raises its limit by what it lacks.
+func TestOpenRouterRaisesWhatTheKeyLacks(t *testing.T) {
+	task, _ := testTask(t)
+	dir := task.servicesDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	budget := 5.0
+	task.info.ORBudget, task.info.ORGranted = &budget, 2
+	task.info.ORKey = &orKey{Key: "sk-or-1", Hash: "h1", Limit: 2}
+	var calls []string
+	transport := openRouterClient.Transport
+	openRouterClient.Transport = orStub(func(r *http.Request) *http.Response {
+		body := ""
+		if r.Body != nil {
+			data, _ := io.ReadAll(r.Body)
+			body = string(data)
+		}
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+body)
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":{"hash":"h1","limit_remaining":1.5}}`))}
+	})
+	defer func() { openRouterClient.Transport = transport }()
+	st := &guestTool{root: dir}
+
+	if _, err := st.put("openrouter", 1); err != nil {
+		t.Fatal(err)
+	}
+	task.takeORRequest(1)
+	if code := st.openRouter([]string{"1"}); code != 0 || task.info.ORGranted != 2 || len(calls) != 1 {
+		t.Fatalf("a key with enough left should be handed out as it is: %d, granted %g, calls %q", code, task.info.ORGranted, calls)
+	}
+
+	if _, err := st.put("openrouter", 2); err != nil {
+		t.Fatal(err)
+	}
+	task.orBusy = true
+	task.takeORRequest(2)
+	for busy := true; busy; time.Sleep(10 * time.Millisecond) {
+		task.lock()
+		busy = task.orBusy
+		task.unlock()
+	}
+	if k := task.info.ORKey; k.Limit != 2.5 || task.info.ORGranted != 2.5 || calls[2] != `PATCH /api/v1/keys/h1 {"limit":2.5}` {
+		t.Errorf("got %+v, granted %g, calls %q", k, task.info.ORGranted, calls)
 	}
 }

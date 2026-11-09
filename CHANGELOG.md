@@ -35,7 +35,9 @@
   its header menu.
 - Fixes: podman sockets that stop answering are picked anew, toolbox
   downloads retry, terminal output in log details plays out as in service
-  consoles, and SSH hosts whose home directory has a space in it work.
+  consoles, SSH hosts whose home directory has a space in it work, and an
+  agent asking for its OpenRouter key again takes from the task's OpenRouter
+  budget only what the key lacks.
 
 ## 0.5.0
 

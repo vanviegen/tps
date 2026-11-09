@@ -638,7 +638,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		// Asked mid-turn: the agent waits on the answer, whatever the phase says.
 		A(() => {
 			if (!$t.openrouterAsk) return;
-			drawStrip('warning', `⚠ The agent asks for $${$t.openrouterAsk} of OpenRouter spending, beyond the task’s OpenRouter budget`,
+			drawStrip('warning', `⚠ The agent asks for $${$t.openrouterAsk} more of OpenRouter spending, beyond the task’s OpenRouter budget`,
 				() => S.button({ content: 'Answer…', attrs: '.small .warning', click: () => openRouterDialog(pid, tid, $t) }));
 		});
 		A(() => { if ($t.openrouterAsk) openRouterDialog(pid, tid, $t); });
@@ -732,7 +732,7 @@ function openRouterDialog(pid: string, tid: string, $t: any): void {
 		S.form({
 			submit: async () => { if (await cmd('grantOpenRouter', { pid, tid, budget: $form.budget })) close(); },
 			content: () => {
-				A('p m:0 text=', `The agent asks for an OpenRouter API key with a limit of $${ask}. This task’s OpenRouter budget is `
+				A('p m:0 text=', `The agent asks for its OpenRouter API key’s limit to be raised by $${ask}. This task’s OpenRouter budget is `
 					+ `$${budget}, of which $${granted.toFixed(2)} has been handed out already, so the OpenRouter budget would need to be raised to grant it.`);
 				S.textline({ label: 'OpenRouter budget limit (USD)', type: 'number', inputAttrs: 'step=0.01', bind: A.ref($form, 'budget') });
 			},

@@ -81,15 +81,13 @@ test suites, builds.
 
 Other commands:
 
-  openrouter <usd>         Ask TPS for that many USD more of OpenRouter
-                           spending, for models you lack (audio, video) or a
-                           system under test that calls an LLM API. Prints the
-                           task's key, the same one each time, its limit raised
-                           by that much. A request beyond the task's OpenRouter
+  openrouter <usd>         Print the task's OpenRouter key, the same one each
+                           time, for models you lack (audio, video) or a
+                           system under test that calls an LLM API; its limit
+                           is raised where it has less than that many USD left
+                           to spend. A raise beyond the task's OpenRouter
                            budget waits for the user, half an hour at most; one
-                           they have not answered by then exits 124. Ask only
-                           once OpenRouter turns the key down for want of
-                           credit.
+                           they have not answered by then exits 124.
 
   settings                 Print the project's settings as JSON: name, color,
                            autoDeploy (whether every merge deploys), mounts
