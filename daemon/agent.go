@@ -391,12 +391,14 @@ const (
 var statusRe = regexp.MustCompile(`^\[(done|merge|merge-and-continue|blocked)\]:[*_]*\s+(.+)$`)
 
 // statusOf reads the status and that sentence out of the turn's last message,
-// "" for both when its last paragraph is not one.
-func statusOf(text string) (status, summary string) {
-	paras := strings.Split(strings.TrimSpace(text), "\n\n")
-	m := statusRe.FindStringSubmatch(strings.Trim(strings.TrimSpace(paras[len(paras)-1]), "*_"))
+// along with the message before it; "" for both and the message whole when its
+// last paragraph is not one.
+func statusOf(text string) (status, summary, rest string) {
+	text = strings.TrimSpace(text)
+	i := strings.LastIndex(text, "\n\n") + 1
+	m := statusRe.FindStringSubmatch(strings.Trim(strings.TrimSpace(text[i:]), "*_"))
 	if m == nil {
-		return "", ""
+		return "", "", text
 	}
-	return m[1], strings.TrimSpace(strings.Trim(m[2], " *_"))
+	return m[1], strings.TrimSpace(strings.Trim(m[2], " *_")), strings.TrimSpace(text[:i])
 }

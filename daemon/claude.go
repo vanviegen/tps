@@ -219,6 +219,10 @@ func (s *Session) onEvent(ev *event) {
 				s.noLogin = s.noLogin || authGone(b.Text)
 				if text != "" {
 					s.lastText = text
+				}
+				// The status line is for TPS, not the user: the save point the
+				// turn ends on carries its sentence.
+				if _, _, text = statusOf(text); text != "" {
 					e := s.entry("text")
 					e.Text = text
 					s.opts.OnEntry(e)

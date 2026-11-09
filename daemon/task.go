@@ -3096,7 +3096,7 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// to ask for one and the chat says as much. Where the task goes is left to
 	// the rest of this, as with any other failed turn. A status line means the
 	// agent was talking about logins rather than failing on one.
-	status, summary := statusOf(end.Text)
+	status, summary, _ := statusOf(end.Text)
 	if end.Failed && end.NoLogin && status == "" {
 		t.p.m.loginExpired()
 		t.note(loginNote)

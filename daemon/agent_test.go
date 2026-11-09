@@ -82,17 +82,17 @@ func TestHelpers(t *testing.T) {
 
 // The status line an agent ends its turn on: the last paragraph of its last message.
 func TestStatus(t *testing.T) {
-	cases := []struct{ in, status, summary string }{
-		{"All set.\n\n[merge]: Read the config at startup.", turnMerge, "Read the config at startup."},
-		{"**[merge-and-continue]:** Fixed the sidebar.", turnMergeAndContinue, "Fixed the sidebar."},
-		{"[blocked]: one\n\nMore words after it.", "", ""},
-		{"[finished]: Did it.", "", ""},
-		{"Summary: Did it.", "", ""},
-		{"", "", ""},
+	cases := []struct{ in, status, summary, rest string }{
+		{"All set.\n\n[merge]: Read the config at startup.", turnMerge, "Read the config at startup.", "All set."},
+		{"**[merge-and-continue]:** Fixed the sidebar.", turnMergeAndContinue, "Fixed the sidebar.", ""},
+		{"[blocked]: one\n\nMore words after it.", "", "", "[blocked]: one\n\nMore words after it."},
+		{"[finished]: Did it.", "", "", "[finished]: Did it."},
+		{"Summary: Did it.", "", "", "Summary: Did it."},
+		{"", "", "", ""},
 	}
 	for _, c := range cases {
-		if status, summary := statusOf(c.in); status != c.status || summary != c.summary {
-			t.Errorf("statusOf(%q) = %q, %q, want %q, %q", c.in, status, summary, c.status, c.summary)
+		if status, summary, rest := statusOf(c.in); status != c.status || summary != c.summary || rest != c.rest {
+			t.Errorf("statusOf(%q) = %q, %q, %q, want %q, %q, %q", c.in, status, summary, rest, c.status, c.summary, c.rest)
 		}
 	}
 }

@@ -19,7 +19,8 @@
   `.tps-continue-after-merge` files. Merge-and-continue sends the agent
   back in once the work is merged, and deployed where the project deploys
   after every merge: what it changes then becomes a task of its own, and a
-  check that changes nothing leaves the task merged.
+  check that changes nothing leaves the task merged. The status line is
+  left out of the chat; the save point the turn ends on names it.
 - A scheduled run's title says, on hover, which scheduled task started it and
   when.
 - `await-task` prints the state a task is in, among them merging, merged and

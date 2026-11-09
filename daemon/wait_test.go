@@ -107,7 +107,14 @@ func TestWaitHoldsMessagesAndRebases(t *testing.T) {
 	dep.lock()
 	dep.setPhaseL(PhaseMerged)
 	dep.unlock()
-	for i := 0; !strings.Contains(readFile(task.chatFile()), `"k":"user"`); i++ {
+	// There is no real agent here: it fails to start, or exits on a save
+	// point. Either way that is the last of the work in the workspace, which
+	// the test removes once it ends.
+	for i := 0; ; i++ {
+		_, after, sent := strings.Cut(readFile(task.chatFile()), `"k":"user"`)
+		if sent && (strings.Contains(after, `start failed: `) || strings.Contains(after, `"k":"mark"`)) {
+			break
+		}
 		if i == 100 {
 			t.Fatal("the agent was never sent in")
 		}
