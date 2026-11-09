@@ -87,7 +87,7 @@ func (t *Task) beginReview() {
 		t.unlock()
 		return
 	}
-	said := t.userSaid()
+	said := t.said()
 	// The user's own edits are the steps mark names "Human".
 	edited, _ := git(t.repoDir(), "log", "--format=%h", "--grep=^Human$", base+".."+stepsBranch)
 	tests := containerfileDeclarations(t.containerfile()).test != ""
@@ -172,23 +172,34 @@ func reviewMissing(end TurnEnd, text string) string {
 	return ""
 }
 
-// userSaid is everything the user themselves said, in order: the description
-// the task was handed over with, and every message they sent after it. What
-// TPS told the agent in between, and what the agent answered, is not in here —
+// Said is one thing the reviewer is told was said: a message of the user's,
+// or the summary an agent's turn ended on.
+type Said struct {
+	Agent bool
+	Text  string
+}
+
+// said is, in order, everything the user themselves said — the description
+// the task was handed over with, and every message they sent after it — and
+// the summaries of the agent's turns between, read off its save points (see
+// mark). What TPS told the agent, and what the agent answered, is not in here:
 // the reviewer is told that much in so many words (see reviewPrompt).
-func (t *Task) userSaid() []string {
-	var said []string
+func (t *Task) said() []Said {
+	var said []Said
 	for _, entry := range t.readChat() {
 		raw, ok := entry.V.(json.RawMessage)
 		if !ok {
 			continue
 		}
 		var e ChatEntry
-		if json.Unmarshal(raw, &e) != nil || e.K != "user" {
+		if json.Unmarshal(raw, &e) != nil {
 			continue
 		}
-		if text := strings.TrimSpace(e.Text); text != "" {
-			said = append(said, text)
+		text := strings.TrimSpace(e.Text)
+		if summary, agent := strings.CutPrefix(text, "Agent: "); agent && e.K == "mark" {
+			said = append(said, Said{Agent: true, Text: summary})
+		} else if e.K == "user" && text != "" {
+			said = append(said, Said{Text: text})
 		}
 	}
 	return said

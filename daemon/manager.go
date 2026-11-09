@@ -751,7 +751,7 @@ func (m *Manager) sweep() {
 				overdue = append(overdue, t)
 			}
 		} else if t.status == StatusUp && !t.workingL() && t.viewers == 0 && time.Since(t.lastActivity) > idleShutdown &&
-			!(t.job() && t.info.Phase == PhaseMerge) && !t.testing { // a job's run or a merge's test waits on what runs in there
+			!(t.job() && t.info.Phase == PhaseMerging) && !t.testing { // a job's run or a merge's test waits on what runs in there
 			idle = append(idle, t)
 		}
 	}
@@ -904,7 +904,7 @@ func (m *Manager) anyAwake() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.allTasksL() {
-		if t.workingL() || t.info.LimitUntil > 0 || t.job() && t.info.Phase == PhaseMerge || t.testing {
+		if t.workingL() || t.info.LimitUntil > 0 || t.job() && t.info.Phase == PhaseMerging || t.testing {
 			return true
 		}
 	}

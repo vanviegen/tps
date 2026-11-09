@@ -12,7 +12,7 @@ import { $state, send } from './conn.ts';
  * out of the sidebar. Closed is Done without the merge: the task is over, but
  * its work is kept rather than landing on the branch.
  */
-export const PHASES = ['plan', 'agent', 'review', 'human', 'muted', 'merge', 'done', 'closed'] as const;
+export const PHASES = ['plan', 'agent', 'review', 'human', 'muted', 'merging', 'merged', 'closed'] as const;
 export type Phase = typeof PHASES[number];
 
 /**
@@ -20,15 +20,15 @@ export type Phase = typeof PHASES[number];
  * in the Plan column, and Merging and Closed share the Done one — merging
  * is a moment on the way there, closing is arriving without it (see board.ts).
  */
-export const COLUMNS: Phase[] = ['plan', 'agent', 'review', 'human', 'done'];
+export const COLUMNS: Phase[] = ['plan', 'agent', 'review', 'human', 'merged'];
 
 export const PHASE_LABELS: Record<Phase, string> = {
-	plan: 'Plan', agent: 'Agent', review: 'Review', human: 'Human', muted: 'Started', merge: 'Merging', done: 'Done', closed: 'Not merged',
+	plan: 'Plan', agent: 'Agent', review: 'Review', human: 'Human', muted: 'Started', merging: 'Merging', merged: 'Done', closed: 'Not merged',
 };
 
 // Started and Not merged share an icon: each sits in a column of tasks with no
 // work of their own, while it still holds work that is on no branch.
-export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, review: scanEye, human: user, muted: folderGit2, merge: gitMerge, done: check, closed: folderGit2 };
+export const PHASE_ICONS: Record<Phase, typeof bot> = { plan: listTodo, agent: bot, review: scanEye, human: user, muted: folderGit2, merging: gitMerge, merged: check, closed: folderGit2 };
 
 /**
  * Whether the task is one of TPS's own: a project's deploy, which runs by
@@ -53,7 +53,7 @@ export function hasWorkspace($t: any): boolean {
 
 /** Whether the task is over: merged, or closed without merging. Nothing waits for it. */
 export function isFinished($t: any): boolean {
-	return $t.phase === 'done' || $t.phase === 'closed';
+	return $t.phase === 'merged' || $t.phase === 'closed';
 }
 
 /** Whether the task is a plan an agent asked for (see daemon/board.go) that the user has yet to open. */
@@ -144,7 +144,7 @@ export function busyAttrs(icon: typeof bot): string {
  * behind it and the merged ones they sit above on the board.
  */
 export function taskBusy($t: any): boolean {
-	return !!$t.working || $t.phase === 'agent' || $t.phase === 'review' || ($t.phase === 'merge' && !$t.queued && !$t.heldBy);
+	return !!$t.working || $t.phase === 'agent' || $t.phase === 'review' || ($t.phase === 'merging' && !$t.queued && !$t.heldBy);
 }
 
 /**
@@ -300,6 +300,14 @@ export function clockTime(ms: number): string {
 	return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** For a run of a scheduled task, what it is a run of and when it started: "Scheduled run of “Chores”, Nov 7, 09:00". */
+export function runText(pid: string, $t: any): string | undefined {
+	if (!$t.scheduled) return;
+	const of = $state.projects[pid]?.tasks?.[$t.scheduled];
+	const at = $t.runAt ? `, ${new Date($t.runAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${clockTime($t.runAt)}` : '';
+	return `Scheduled run of ${of ? `“${taskTitle(of)}”` : 'a scheduled task since deleted'}${at}`;
+}
+
 /** When an agent parked on claude's usage limit goes back in: the clock, with the day if it is not today's. */
 function limitTime(ms: number): string {
 	const at = new Date(ms);
@@ -327,10 +335,10 @@ export function taskActivity(pid: string, $t: any): { text: string; color: strin
 /** Where the task stands, in one line: its phase, whether claude is on it, and what its workspace is doing. */
 export function taskTip(pid: string, $t: any): string {
 	if (requested($t)) return `Asked for by ${$t.requested}: look it over, and start it`;
-	if (isJob($t)) return $t.phase === 'merge' ? 'Running' : $t.phase === 'human' ? 'Failed: see its log' : 'Idle';
+	if (isJob($t)) return $t.phase === 'merging' ? 'Running' : $t.phase === 'human' ? 'Failed: see its log' : 'Idle';
 	const phase = $t.phase === 'muted' ? 'Started: its work and conversation are kept. Pick it back up to carry on where it was left.'
 		: $t.phase === 'closed' ? 'Not merged: this task was finished without merging. Its work is kept, off the branch, and comes back if the task is picked up again.'
-		: $t.phase === 'merge' ? mergeText($t)
+		: $t.phase === 'merging' ? mergeText($t)
 		: PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 	return `${phase}${$t.working ? ', the agent is working' : ''} · ${taskActivity(pid, $t).text}`;
 }

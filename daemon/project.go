@@ -157,6 +157,12 @@ func (p *Project) init() error {
 			_ = rmTree(filepath.Join(p.tasksDir(), tid))
 			continue
 		}
+		switch info.Phase { // the names of releases before 0.6.0
+		case "merge":
+			info.Phase = PhaseMerging
+		case "done":
+			info.Phase = PhaseMerged
+		}
 		t := newTask(p, tid, info)
 		p.m.mu.Lock()
 		p.tasks[tid] = t
@@ -168,12 +174,12 @@ func (p *Project) init() error {
 			}
 		}
 		p.m.mu.Lock()
-		agentPhase := info.Phase == PhaseMerge || info.Phase == PhaseAgent
+		agentPhase := info.Phase == PhaseMerging || info.Phase == PhaseAgent
 		switch {
-		case t.job() && info.Phase == PhaseMerge:
+		case t.job() && info.Phase == PhaseMerging:
 			t.note("TPS restarted during the deploy; deploy again to be sure it went through")
 			info.Phase = PhaseHuman
-		case info.Phase == PhaseMerge && info.LimitUntil == 0:
+		case info.Phase == PhaseMerging && info.LimitUntil == 0:
 			// Queued: a merge under way starts over (see below).
 			if !slices.Contains(p.info.Queue, tid) {
 				p.info.Queue = append(p.info.Queue, tid)
@@ -205,7 +211,7 @@ func (p *Project) init() error {
 	p.m.mu.Lock()
 	p.info.Queue = slices.DeleteFunc(p.info.Queue, func(tid string) bool {
 		t := p.tasks[tid]
-		return t == nil || t.info.Phase != PhaseMerge
+		return t == nil || t.info.Phase != PhaseMerging
 	})
 	p.pubQueueL()
 	p.startHeadL()

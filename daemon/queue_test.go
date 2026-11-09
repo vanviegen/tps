@@ -29,7 +29,7 @@ func TestQueueLandsInTurn(t *testing.T) {
 		t.Errorf("history: %q", got)
 	}
 	for _, task := range []*Task{first, second} {
-		if task.info.Phase != PhaseDone || !strings.Contains(gitRun(t, origin, "log", "--format=%B", "-2"), taskTrailer+": "+task.info.Stamp) {
+		if task.info.Phase != PhaseMerged || !strings.Contains(gitRun(t, origin, "log", "--format=%B", "-2"), taskTrailer+": "+task.info.Stamp) {
 			t.Errorf("task %s: %s, stamped %q", task.tid, task.info.Phase, task.info.Stamp)
 		}
 	}
@@ -44,7 +44,7 @@ func TestMoveInQueue(t *testing.T) {
 	first, _ := testTask(t)
 	p := first.p
 	for _, tid := range []string{"2", "3"} {
-		p.tasks[tid] = newTask(p, tid, &TaskInfo{Phase: PhaseMerge})
+		p.tasks[tid] = newTask(p, tid, &TaskInfo{Phase: PhaseMerging})
 	}
 	for _, task := range p.tasks {
 		task.merging = true // under way already: nothing starts
@@ -142,13 +142,13 @@ func TestMergeWaitsForTheCheckout(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if task.info.Phase != PhaseMerge || !slices.Equal(task.p.info.Queue, []string{"1"}) {
+	if task.info.Phase != PhaseMerging || !slices.Equal(task.p.info.Queue, []string{"1"}) {
 		t.Errorf("phase %s, queue %v", task.info.Phase, task.p.info.Queue)
 	}
 	gitRun(t, origin, "checkout", "--", "a.txt")
 	task.p.retryHeld()
 	waitLanded(t, task)
-	if got := readFile(filepath.Join(origin, "a.txt")); task.info.Phase != PhaseDone || got != "one task\n" {
+	if got := readFile(filepath.Join(origin, "a.txt")); task.info.Phase != PhaseMerged || got != "one task\n" {
 		t.Errorf("phase %s, a.txt %q", task.info.Phase, got)
 	}
 }

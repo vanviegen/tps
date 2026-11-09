@@ -66,7 +66,7 @@ func (p *Project) runDeploy() {
 			return
 		}
 		p.m.mu.Unlock()
-		jt.setJobPhase(PhaseMerge)
+		jt.setJobPhase(PhaseMerging)
 		if !p.deployOnce(jt, commit) {
 			p.m.mu.Lock()
 			p.deploying, p.deployWanted = false, false
@@ -103,13 +103,13 @@ func (p *Project) deployOnce(jt *Task, commit string) bool {
 	}
 	jt.note("Deployed ✔", log)
 	p.deployed(sha)
-	jt.setJobPhase(PhaseDone)
+	jt.setJobPhase(PhaseMerged)
 	p.carryOn(sha, "the work is merged and deployed. The end of the deploy's output:\n\n"+indent(log))
 	return true
 }
 
 // carryOn sends back in the agents waiting for the deploy of their work (see
-// continueFile): with a deploy of sha that holds it, or with a failed one (no
+// landed): with a deploy of sha that holds it, or with a failed one (no
 // sha), after which none follows by itself.
 func (p *Project) carryOn(sha, outcome string) {
 	p.m.mu.Lock()
@@ -122,7 +122,7 @@ func (p *Project) carryOn(sha, outcome string) {
 	p.m.mu.Unlock()
 	for t, commit := range waiting {
 		if sha == "" || gitOK(p.dir(), "merge-base", "--is-ancestor", commit, sha) {
-			t.carryOn(continuePrompt(outcome))
+			t.carryOn(outcome)
 		}
 	}
 }

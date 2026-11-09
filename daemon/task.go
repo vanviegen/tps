@@ -24,17 +24,17 @@ import (
 type Phase string
 
 const (
-	PhasePlan   Phase = "plan"
-	PhaseAgent  Phase = "agent"
-	PhaseHuman  Phase = "human"
-	PhaseMuted  Phase = "muted"  // waiting for a human too, but put away: out of the sidebar, at the top of the Plan column, and parked like a closed task
-	PhaseReview Phase = "review" // a second agent is reading the work over before it is handed on (see review.go)
-	PhaseMerge  Phase = "merge"  // TPS is merging: replaying the work onto the branch, or an agent resolving conflicts in it
-	PhaseDone   Phase = "done"   // merged: its work is on the branch and its workspace is gone
-	PhaseClosed Phase = "closed" // closed without merging: its work is kept as a bundle, off the branch, and its workspace is gone
+	PhasePlan    Phase = "plan"
+	PhaseAgent   Phase = "agent"
+	PhaseHuman   Phase = "human"
+	PhaseMuted   Phase = "muted"   // waiting for a human too, but put away: out of the sidebar, at the top of the Plan column, and parked like a closed task
+	PhaseReview  Phase = "review"  // a second agent is reading the work over before it is handed on (see review.go)
+	PhaseMerging Phase = "merging" // TPS is merging: replaying the work onto the branch, or an agent resolving conflicts in it
+	PhaseMerged  Phase = "merged"  // its work is on the branch and its workspace is gone
+	PhaseClosed  Phase = "closed"  // closed without merging: its work is kept as a bundle, off the branch, and its workspace is gone
 )
 
-var phases = []Phase{PhasePlan, PhaseAgent, PhaseReview, PhaseHuman, PhaseMuted, PhaseMerge, PhaseDone, PhaseClosed}
+var phases = []Phase{PhasePlan, PhaseAgent, PhaseReview, PhaseHuman, PhaseMuted, PhaseMerging, PhaseMerged, PhaseClosed}
 
 type WorkStatus string
 
@@ -130,9 +130,11 @@ type TaskInfo struct {
 	Stamp         string         `json:"stamp,omitempty"`             // what the commits it lands carry as their TPS-Task trailer (see branch.go)
 	Schedule      *Schedule      `json:"schedule,omitempty"`          // a scheduled task: it stays in Plan, and runs as tasks of its own (see schedule.go)
 	Scheduled     string         `json:"scheduled,omitempty"`         // the scheduled task this one is a run of, which nobody watches
+	RunAt         int64          `json:"runAt,omitempty"`             // ms epoch its schedule started it at
 	Overruns      int            `json:"overruns,omitempty"`          // how often such a run had its budget raised to wrap up in (see overrunL)
-	Continue      bool           `json:"continue,omitempty"`          // its agent asked to carry on after the merge (see continueFile)
-	AwaitDeploy   string         `json:"awaitDeploy,omitempty"`       // the commit it merged as, whose deploy sends the agent back in (see continueFile)
+	Continue      bool           `json:"continue,omitempty"`          // its agent's last turn ended on merge-and-continue (see landed)
+	AfterMerge    bool           `json:"afterMerge,omitempty"`        // it is merged, and its agent was sent back in as it asked (see carryOn)
+	AwaitDeploy   string         `json:"awaitDeploy,omitempty"`       // the commit it merged as, whose deploy sends the agent back in (see landed)
 	Requested     string         `json:"requested,omitempty"`         // the task whose agent asked for this one, until the user has opened it (see board.go)
 
 	// Pending is what the agent is told the next time it is sent in: things
@@ -218,8 +220,7 @@ type Task struct {
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
 	stopping      bool
-	summaryNudges int             // turns in a row the agent was sent back in for the summary its turn left out
-	readyNudges   int             // turns in a row a scheduled run's agent was sent back in for leaving its work not ready (see schedule.go)
+	statusNudges  int             // turns in a row the agent was sent back in for a status line its turn left out or got wrong
 	limitTimer    *time.Timer     // running while the task waits out a usage limit (see armLimitL)
 	limitWaits    int             // waits in a row that ran straight into the limit again
 	boardBusy     map[string]bool // the requests about other projects being answered (see board.go)
@@ -306,7 +307,7 @@ func (t *Task) contextL() any {
 // agentPhaseL: an agent may be at work — on the task itself, on reviewing it,
 // or on merging it — so nothing is expected of the user meanwhile.
 func (t *Task) agentPhaseL() bool {
-	return t.info.Phase == PhaseAgent || t.info.Phase == PhaseReview || t.info.Phase == PhaseMerge
+	return t.info.Phase == PhaseAgent || t.info.Phase == PhaseReview || t.info.Phase == PhaseMerging
 }
 
 // toHumanL hands a task an agent may be at work in to the user.
@@ -328,14 +329,16 @@ func (t *Task) systemPromptL() string {
 	if t.p.info.Scratch {
 		return scratchPrompt
 	}
-	intro, rules := taskIntro, agentRules
 	if t.info.Scheduled != "" {
-		intro = scheduledIntro
+		return scheduledIntro + agentRules + turnRule
 	}
-	if t.onReadyL() == AnswerMerge || (t.onReadyL() == AnswerReview && t.onAcceptL() == AnswerMerge) {
-		rules += continueRule
-	}
-	return intro + rules + turnRule
+	return systemPrompt
+}
+
+// mergesByItselfL: work the agent reports ready is merged without the user,
+// after a review where the task is set to have one.
+func (t *Task) mergesByItselfL() bool {
+	return t.onReadyL() == AnswerMerge || (t.onReadyL() == AnswerReview && t.onAcceptL() == AnswerMerge)
 }
 
 func (t *Task) lock()   { t.p.m.mu.Lock() }
@@ -389,6 +392,8 @@ func (t *Task) publishL() {
 	}
 	t.pubL("context", t.contextL())
 	t.pubL("schedule", optional(t.info.Schedule))
+	t.pubL("scheduled", orNil(t.info.Scheduled))
+	t.pubL("runAt", orNil(t.info.RunAt))
 	if len(t.info.WaitFor) > 0 {
 		t.pubL("waitFor", t.info.WaitFor)
 	} else {
@@ -487,19 +492,19 @@ func (t *Task) setStatusL(status WorkStatus, detail string) {
 }
 
 func (t *Task) setPhaseL(phase Phase) {
-	if phase != PhaseAgent && phase != PhaseMerge { // a task leaving the agent (the review included) waits for nothing
+	if phase != PhaseAgent && phase != PhaseMerging { // a task leaving the agent (the review included) waits for nothing
 		t.clearLimitL()
 	}
 	switch {
 	case t.job(): // a job's Merge is its running (see jobs.go)
-	case phase == PhaseMerge:
+	case phase == PhaseMerging:
 		t.p.enqueueL(t)
 	default:
 		t.p.dequeueL(t)
 	}
 	// A task being merged, finished or put away waits for nothing any longer:
 	// what was held back for its agent goes back to the composer.
-	if phase == PhaseMerge || phase == PhaseDone || phase == PhaseClosed || phase == PhaseMuted {
+	if phase == PhaseMerging || phase == PhaseMerged || phase == PhaseClosed || phase == PhaseMuted {
 		t.info.WaitFor = nil
 		if t.info.Deferred != "" {
 			t.info.Draft = joinMessages(t.info.Deferred, t.info.Draft)
@@ -768,7 +773,7 @@ func (t *Task) applyL(partial map[string]any) {
 	// A task on its way out, a scheduled one and a job have nothing to wait for
 	// (see setPhaseL).
 	if raw, ok := partial["waitFor"].([]any); ok && t.info.Schedule == nil && !t.job() && !t.finishedL() &&
-		t.info.Phase != PhaseMerge && t.info.Phase != PhaseMuted {
+		t.info.Phase != PhaseMerging && t.info.Phase != PhaseMuted {
 		var tids []string
 		seen := map[string]bool{}
 		for _, d := range raw {
@@ -790,7 +795,7 @@ func (t *Task) applyL(partial map[string]any) {
 // finishedL: the task is over, merged or closed without merging. Nothing
 // waits for it any longer, and no agent is sent into it.
 func (t *Task) finishedL() bool {
-	return t.info.Phase == PhaseDone || t.info.Phase == PhaseClosed
+	return t.info.Phase == PhaseMerged || t.info.Phase == PhaseClosed
 }
 
 // blockedL: some task this one waits for is not done yet. A deleted one is
@@ -1135,7 +1140,7 @@ func (t *Task) SendChat(text string) error {
 	// here has been answered, ignored, or sent back in — either way it is said.
 	// A /compact says nothing to anyone, and leaves it all standing.
 	if !compact {
-		t.summaryNudges, t.readyNudges = 0, 0
+		t.statusNudges = 0
 		t.info.ReviewLoop = 0
 		t.setReviewL("")
 	}
@@ -1199,7 +1204,7 @@ func (t *Task) kick(text string) {
 	// to resolving conflicts, a review's to the reviewer. Anything else sent in
 	// means the task is the agent's again — which is how a message of the user's
 	// takes it back from a reviewer (see SendChat).
-	if !compact && t.info.Phase != PhaseMerge && t.info.Phase != PhaseReview {
+	if !compact && t.info.Phase != PhaseMerging && t.info.Phase != PhaseReview {
 		t.setPhaseL(PhaseAgent)
 	}
 	// A running session is the reviewer's or the task's own agent's, with its
@@ -1384,7 +1389,7 @@ func (t *Task) MoveTo(phase Phase) error {
 					return err
 				}
 			}
-		case PhaseAgent, PhaseReview, PhaseMerge:
+		case PhaseAgent, PhaseReview, PhaseMerging:
 			if err := t.StopAgent(); err != nil {
 				return err
 			}
@@ -1429,15 +1434,13 @@ const commitMessageFile = ".tps-commit-message"
 
 // setCommitMessageL records what the file says, which is also whether the
 // work is ready to merge: the dashboard offers the merge while it says anything.
-// Work that is no longer ready takes back the agent's wish to carry on after
-// its merge (see continueFile). A task is named after the commit it is to
-// become, whatever it was called before, so the board and the git log agree.
+// A task is named after the commit it is to become, whatever it was called
+// before, so the board and the git log agree. A task its agent carries on in
+// after the merge became its commit already: what is written there is for the
+// task the new work goes to (see endAfterMerge).
 func (t *Task) setCommitMessageL(message string) {
-	if message != t.info.CommitMessage {
+	if message != t.info.CommitMessage && !t.info.AfterMerge {
 		t.info.CommitMessage = message
-		if message == "" {
-			t.info.Continue = false
-		}
 		if summary, _, _ := strings.Cut(message, "\n"); strings.TrimSpace(summary) != "" {
 			t.info.Title = strings.TrimSpace(summary)
 			if t.info.Scheduled != "" {
@@ -1544,7 +1547,7 @@ func (t *Task) Merge(message string, skipTests bool) error {
 	if !t.hasWorkspace() {
 		return errNoWorkspace
 	}
-	if t.phase() == PhaseMerge {
+	if t.phase() == PhaseMerging {
 		return nil
 	}
 	t.stopAgent()
@@ -1556,20 +1559,29 @@ func (t *Task) Merge(message string, skipTests bool) error {
 	t.lock()
 	defer t.unlock()
 	t.info.SkipTests = skipTests
-	t.setPhaseL(PhaseMerge)
+	t.setPhaseL(PhaseMerging)
 	return nil
 }
 
 // landingTree is the tree of the work as it would be committed: everything in
-// the workspace but the files that speak to TPS (see commitMessageFile and
-// continueFile).
+// the workspace but the file that speaks to TPS (see commitMessageFile).
 func landingTree(repo string) (string, error) {
-	return stagedGit(repo, []string{"rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile, continueFile}, []string{"write-tree"})
+	return stagedGit(repo, []string{"rm", "--cached", "--quiet", "--ignore-unmatch", "--", commitMessageFile}, []string{"write-tree"})
+}
+
+// hasWork: the workspace holds work to land.
+func hasWork(repo string) (bool, error) {
+	tree, err := landingTree(repo)
+	if err != nil {
+		return false, err
+	}
+	base, err := git(repo, "rev-parse", "HEAD^{tree}")
+	return base != tree, err
 }
 
 // landed finishes a task whose work is on the branch now, as commit (or that
 // had none to put there): it is Done, and its workspace is gone. An agent that
-// asked to carry on after that is sent back in, now or once the deploy that
+// ended on merge-and-continue is sent back in, now or once the deploy that
 // follows the merge is through (see carryOn).
 func (t *Task) landed(note, commit string) {
 	t.note(note)
@@ -1590,44 +1602,118 @@ func (t *Task) landed(note, commit string) {
 		t.dropPendingL(key)
 	}
 	t.queueL("merged", mergedPrompt(t.p.defaultBranch))
-	t.setPhaseL(PhaseDone)
-	carryOn := t.info.Continue
-	t.info.Continue = false
-	deploys := carryOn && commit != "" && t.p.deploy != "" && t.p.info.AutoDeploy
+	t.setPhaseL(PhaseMerged)
+	carryOn := t.info.Continue && commit != ""
+	t.info.Continue, t.info.AfterMerge = false, false
+	deploys := carryOn && t.p.deploy != "" && t.p.info.AutoDeploy
 	if deploys {
 		t.info.AwaitDeploy = commit
-		t.p.m.saveL()
 	}
+	t.p.m.saveL()
 	t.unlock()
 	t.park()
 	if carryOn && !deploys {
-		t.carryOn(continuePrompt("the work is merged, and not deployed: this project does not deploy after every merge."))
+		t.carryOn("the work is merged, and not deployed: this project does not deploy after every merge.")
 	}
 }
 
-// continueFile is how the agent of a task that merges by itself asks to be
-// sent back in once its work is merged, and deployed where the project deploys
-// after every merge: a file it makes beside commitMessageFile, which TPS takes
-// away as the agent's turn ends (see onTurnEnd), and holds on to as the task's
-// Continue — so it is in no save point, and no part of what is merged — until
-// the merge, or until the work is no longer ready (see setCommitMessageL). Only
-// a turn cut short leaves it in the tree, for the next to take.
-const continueFile = ".tps-continue-after-merge"
-
-// carryOn sends the agent back in after the merge, as it asked (see
-// continueFile): in a follow-up, the merged task staying as it is.
-func (t *Task) carryOn(prompt string) {
+// carryOn sends the agent back into its merged task, as it asked, told how
+// the merge went: in a fresh clone of the branch, and what it changes there
+// becomes a task of its own (see endAfterMerge).
+func (t *Task) carryOn(outcome string) {
 	t.lock()
 	t.info.AwaitDeploy = ""
+	t.info.AfterMerge = true
+	t.dropPendingL("merged") // that it is not in a follow-up is what the prompt says
 	t.p.m.saveL()
 	t.unlock()
-	t.note("The agent asked to carry on after the merge; it does so in a follow-up")
-	f, err := t.followUp()
-	if err != nil {
-		t.noteErr("The follow-up failed", err)
+	t.note("The agent asked to carry on after the merge; sending it back in")
+	t.kick(continuePrompt(t.p.defaultBranch, outcome))
+}
+
+// endAfterMerge ends a run of an agent sent back into its merged task (see
+// carryOn). One that changed nothing — a check of the work where it runs, say —
+// leaves the task merged, or with the user where the agent is blocked. One
+// that changed something carries on in a fork, named after its commit message
+// like any task, with the conversation and that work, which takes the status
+// from there; the merged task stays as it was.
+func (t *Task) endAfterMerge(status, summary string, work bool) {
+	t.mark("Agent", summary)
+	if work {
+		f, err := t.continueIn()
+		if err != nil {
+			t.noteErr("Carrying the work on in a task of its own failed", err)
+			t.lock()
+			t.setPhaseL(PhaseHuman)
+			t.unlock()
+			return
+		}
+		message := f.commitMessage()
+		f.lock()
+		f.info.Scheduled, f.info.RunAt = t.info.Scheduled, t.info.RunAt // a run's work goes on unwatched
+		f.setCommitMessageL(message)
+		f.publishL()
+		f.info.Continue = status == turnMergeAndContinue
+		to := AnswerHuman
+		if status == turnMerge || status == turnMergeAndContinue {
+			to = f.handsOnL()
+		}
+		f.unlock()
+		f.handOn(to)
+	} else if status == turnBlocked {
+		t.lock()
+		t.setPhaseL(PhaseHuman)
+		t.unlock()
 		return
 	}
-	f.kick(prompt)
+	t.cloneMu.Lock()
+	if err := t.dropWorkspace(); err != nil {
+		logf("%s: dropping the workspace: %v", t.key(), err)
+	}
+	t.cloneMu.Unlock()
+	t.lock()
+	t.info.AfterMerge = false
+	t.setPhaseL(PhaseMerged)
+	t.unlock()
+	t.park()
+}
+
+// continueIn forks the task at its last save point: the conversation, and the
+// steps since it was picked up after the merge.
+func (t *Task) continueIn() (*Task, error) {
+	log, points, err := t.chatPoints()
+	if err != nil {
+		return nil, err
+	}
+	last := points[len(points)-1]
+	tid, err := t.fork(last, &last, log, "")
+	t.lock()
+	defer t.unlock()
+	return t.p.tasks[tid], err
+}
+
+// handsOnL is where work the agent reports ready goes, as the task is set: to
+// a review, which costs a turn of its own, so a task with no room left for
+// one goes to the user; to the merge, which costs nothing; or to the user.
+func (t *Task) handsOnL() Answer {
+	switch {
+	case t.onReadyL() == AnswerReview && !t.overBudgetL():
+		return AnswerReview
+	case t.onReadyL() == AnswerMerge:
+		return AnswerMerge
+	}
+	return AnswerHuman
+}
+
+// handOn sends ready work where handsOnL says.
+func (t *Task) handOn(to Answer) {
+	switch to {
+	case AnswerReview:
+		t.beginReview()
+	case AnswerMerge:
+		t.note("The agent reports the task is ready; merging")
+		_ = t.Merge("", false)
+	}
 }
 
 // Rebase brings the workspace onto the latest default branch without merging
@@ -1957,11 +2043,11 @@ func (t *Task) park() {
 	t.cloneMu.Lock()
 	defer t.cloneMu.Unlock()
 	phase := t.phase()
-	if phase != PhaseDone && phase != PhaseClosed && phase != PhaseMuted {
+	if phase != PhaseMerged && phase != PhaseClosed && phase != PhaseMuted {
 		return
 	}
 	if t.hasWorkspace() {
-		if phase != PhaseDone {
+		if phase != PhaseMerged {
 			repo := t.repoDir()
 			_, err := git(repo, "fetch", "--quiet", hostRemote)
 			var tip string
@@ -2926,9 +3012,29 @@ func (t *Task) resumeAfterLimit() {
 const loginNote = noLogin + ", so this turn did not run and nothing about it is yours to fix: sign in, then " +
 	"send the task back in."
 
-// maxSummaryNudges: how often in a row an agent is sent back in for the
-// summary its turn left out before the task is handed to the human anyway.
-const maxSummaryNudges = 2
+// maxStatusNudges: how often in a row an agent is sent back in for a status
+// line its turn left out, or one the work does not agree with, before the task
+// is handed to the human anyway.
+const maxStatusNudges = 2
+
+// statusMismatch says what is wrong with the status a turn ended on, given
+// whether the workspace holds work to land and a commit message: "" for nothing.
+// In a scratch task nothing lands, and any status but a merge goes.
+func statusMismatch(status string, work, message, scratch bool) string {
+	switch {
+	case status == "":
+		return "Your turn did not end on a status line."
+	case scratch:
+		if status == turnMerge || status == turnMergeAndContinue {
+			return "Your turn ended on " + status + ", but nothing is merged from a scratch task."
+		}
+	case status == turnDone && (work || message):
+		return "Your turn ended on done, but the work holds changes or a .tps-commit-message, which done says it does not."
+	case (status == turnMerge || status == turnMergeAndContinue) && !(work && message):
+		return "Your turn ended on " + status + ", which needs both changes in the work and a .tps-commit-message, and one of them is missing."
+	}
+	return ""
+}
 
 // onTurnEnd: a claude turn finished. Account the cost, read what the agent
 // ended on, move the task along.
@@ -2988,14 +3094,14 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	// A turn that could not sign in says nothing about the task, whoever's turn
 	// it was: the host's login is what needs fixing, so the dashboards are told
 	// to ask for one and the chat says as much. Where the task goes is left to
-	// the rest of this, as with any other failed turn. A summary means the
+	// the rest of this, as with any other failed turn. A status line means the
 	// agent was talking about logins rather than failing on one.
-	summary := summaryOf(end.Text)
-	if end.Failed && end.NoLogin && summary == "" {
+	status, summary := statusOf(end.Text)
+	if end.Failed && end.NoLogin && status == "" {
 		t.p.m.loginExpired()
 		t.note(loginNote)
 	}
-	// The reviewer ends its turns with a review rather than a summary, and
+	// The reviewer ends its turns with a review rather than a status line, and
 	// everything below is about the agent's (see review.go). A review the task has
 	// moved on from — the user's message took it back — is nothing to act on.
 	if t.sessionReview {
@@ -3008,13 +3114,12 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	}
 	t.unlock()
 	go t.refreshChanges()
-	// Whether the turn left anything behind, for the save point it is about
-	// to become, whether it left the work ready to merge, and whether the
-	// container still is what Containerfile.dev says it should be.
-	dirty, message, cf, human, carryOn := false, "", "", false, false
+	// What the work holds, for the status the turn ended on to agree with,
+	// whether the turn changed it, and whether the container still is what
+	// Containerfile.dev says it should be.
+	work, dirty, message, cf := false, false, "", ""
 	if t.hasWorkspace() {
-		human = t.humanRequired()
-		carryOn = os.Remove(filepath.Join(t.repoDir(), continueFile)) == nil // see continueFile
+		work, _ = hasWork(t.repoDir())
 		dirty, _ = t.dirtyTree(t.repoDir())
 		message = t.commitMessage()
 		cf = t.containerfile()
@@ -3025,10 +3130,6 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		return
 	}
 	t.setCommitMessageL(message)
-	if carryOn && message != "" {
-		t.info.Continue = true
-		t.p.m.saveL()
-	}
 	// A container rebuilt mid-turn would take the agent down with it, so a
 	// changed Containerfile.dev is acted on here, and the agent sent back in.
 	if t.container != nil && cf != "" && imageTag(cf) != t.lastTag && !t.overBudgetL() {
@@ -3044,9 +3145,9 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 	}
 	// A turn that ran into a usage limit never got to do anything: wait the
 	// limit out and send the agent back in, rather than handing over a task
-	// nobody has to do anything about. A summary means the message was the
-	// agent talking about limits, not claude reporting one.
-	if end.Failed && end.Limited && summary == "" && !t.overBudgetL() {
+	// nobody has to do anything about. A status line means the message was
+	// the agent talking about limits, not claude reporting one.
+	if end.Failed && end.Limited && status == "" && !t.overBudgetL() {
 		if until, ok := t.limitWaitL(end.LimitAt); ok {
 			t.note(limitNote(until))
 			t.armLimitL(until)
@@ -3056,28 +3157,39 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.note("Claude reports a usage limit that is not one to wait out here; the task is yours")
 	}
 	t.limitWaits = 0
-	// No summary: send the agent back in for one, unless the turn failed on its
-	// own (asking again would only fail again) or it keeps forgetting.
-	if summary == "" && !end.Failed && !t.overBudgetL() && t.summaryNudges < maxSummaryNudges {
-		t.summaryNudges++
+	// No status line, or one the work says otherwise to: send the agent back
+	// in to set it right, unless the turn failed on its own (asking again
+	// would only fail again) or it keeps getting it wrong. What is left of a
+	// status then is the user's to sort out.
+	if why := statusMismatch(status, work, message != "", t.p.info.Scratch); why != "" {
+		if !end.Failed && !t.overBudgetL() && t.statusNudges < maxStatusNudges {
+			t.statusNudges++
+			t.unlock()
+			t.note("The agent's turn ended on no status line, or a wrong one; sending it back in")
+			t.kick(statusPrompt(why))
+			return
+		}
+		status = turnBlocked
+	}
+	t.statusNudges = 0
+	ready := (status == turnMerge || status == turnMergeAndContinue) && !end.Failed && !t.p.info.Scratch
+	if t.info.AfterMerge {
 		t.unlock()
-		t.note("The agent's turn ended without a summary; asking for one")
-		t.kick(summaryPrompt)
+		t.endAfterMerge(status, summary, work)
 		return
 	}
-	t.summaryNudges = 0
-	if human {
-		os.Remove(filepath.Join(t.repoDir(), humanRequiredFile))
-		t.note("The agent of this scheduled run asks for a person to take over; its last message says why")
-		t.endRunL(summary)
-		return
+	// The latest status decides, but for the merge it goes on with: told to
+	// end on merge there, an agent has not taken back carrying on after it.
+	if t.info.Phase != PhaseMerging || status == turnMergeAndContinue {
+		t.info.Continue = ready && status == turnMergeAndContinue
+		t.p.m.saveL()
 	}
-	if t.info.Phase == PhaseMerge { // the agent was resolving conflicts, or fixing what failed the merge test
-		if message == "" {
+	if t.info.Phase == PhaseMerging { // the agent was resolving conflicts, or fixing what failed the merge test
+		if !ready {
 			if t.overBudgetL() {
 				t.noteBudgetL()
 			}
-			t.note("Merge paused: the agent took back its commit message")
+			t.note("Merge paused: the agent does not report the work ready")
 			t.endRunL(summary)
 			return
 		}
@@ -3090,28 +3202,27 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 		t.unlock()
 		return
 	}
+	// Nothing to merge, and nothing asked of anyone: a task that merges by
+	// itself is finished, as it would be by a merge of nothing.
+	if status == turnDone && !t.p.info.Scratch && t.mergesByItselfL() {
+		t.unlock()
+		t.mark("Agent", summary)
+		t.stopAgent()
+		t.landed("The agent reports there is nothing to merge; task done", "")
+		return
+	}
 	// What becomes of work the agent calls ready is the task's own answer (see
 	// review.go) — once, for the turn that made it so: a turn that changed
-	// nothing, say an answer to a question, leaves the work where it was, and
-	// so does one that failed. A review costs a turn of its own, so a task with
-	// no room left for one goes to the user; a merge costs nothing. A scheduled
-	// run has no user to leave the work with, so its work is passed on as
-	// ready whenever its agent says so.
-	if message != "" && (dirty || t.info.Scheduled != "") && !end.Failed {
-		t.readyNudges = 0
-		switch {
-		case t.onReadyL() == AnswerReview && !t.overBudgetL():
-			// The run's save point is made here as for any other run; the
-			// review makes one of its own when it is done.
+	// nothing, say an answer to a question, leaves the work where it was. A
+	// scheduled run has no user to leave the work with, so its work is passed
+	// on whenever its agent says so. The run's save point is made first, as
+	// its step rather than the user's (see replant); a review makes one of its
+	// own when it is done.
+	if ready && (dirty || t.info.Scheduled != "") {
+		if to := t.handsOnL(); to != AnswerHuman {
 			t.unlock()
 			t.mark("Agent", summary)
-			t.beginReview()
-			return
-		case t.onReadyL() == AnswerMerge:
-			t.unlock()
-			t.mark("Agent", summary) // its step, not the user's (see replant)
-			t.note("The agent reports the task is ready; merging")
-			_ = t.Merge("", false)
+			t.handOn(to)
 			return
 		}
 	}
@@ -3123,11 +3234,6 @@ func (t *Task) onTurnEnd(end TurnEnd) {
 			return
 		}
 		t.noteBudgetL()
-	} else if message == "" && !end.Failed && t.readyNudgeL() {
-		t.unlock()
-		t.mark("Agent", summary)
-		t.kick(unattendedPrompt)
-		return
 	}
 	t.endRunL(summary)
 }

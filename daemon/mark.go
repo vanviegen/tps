@@ -221,7 +221,7 @@ const markSummary = 200
 // step next to the length of every transcript the agent has.
 //
 // `by` names the point and heads the commit message: "Agent", with the summary
-// it ended its run on (see summaryOf), "Human" for what was in the tree
+// it ended its run on (see statusOf), "Human" for what was in the tree
 // before an agent was sent in, "Rebase" for a merge of the latest branch (see
 // Rebase), or "Start" for the point every task opens on. A run that changed
 // nothing still gets a point, the conversation having moved even where the
@@ -539,7 +539,7 @@ func (t *Task) openFork(f *Task, note, ours string) error {
 // merged. A merged task stays as it is, on the board as in the git log, so
 // picking it up makes a follow-up instead (see followUp).
 func (t *Task) workable() (*Task, error) {
-	if t.phase() == PhaseDone {
+	if t.phase() == PhaseMerged {
 		return t.followUp()
 	}
 	return t, nil
@@ -548,7 +548,7 @@ func (t *Task) workable() (*Task, error) {
 // followUp carries a merged task on in a task of its own, whose work becomes a
 // commit of its own: the conversation, the agent's memory and the uploads, with
 // a fresh clone of the branch to work in, and the notes waiting for the agent
-// (that its work was merged, how the deploy went).
+// (that its work was merged).
 func (t *Task) followUp() (*Task, error) {
 	defer t.p.m.work()()
 	// Read from the files, and compressed again after (see park).

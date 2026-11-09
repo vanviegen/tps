@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -15,9 +14,8 @@ import (
 // date, its settings, its prompt sent to the agent. Nobody is at the controls
 // of such a run: its agent is told so (see scheduledIntro), and a budget it
 // runs out of is stretched a few times for it to wrap up in, before the run is
-// parked like any other task (see overrunL). A turn ending with the work not ready sends
-// the agent back in rather than handing the run to the user, unless the agent
-// asks for a person in so many words (see humanRequiredFile).
+// parked like any other task (see overrunL). Its agent asks for a person by
+// ending a turn on blocked (see turnRule).
 
 // Schedule is when a scheduled task runs.
 type Schedule struct {
@@ -130,7 +128,7 @@ func (t *Task) RunNow() error {
 // startRunL makes a run of scheduled task t and sends its agent off.
 func (p *Project) startRunL(t *Task, now time.Time) *Task {
 	run := p.addTaskL(&TaskInfo{
-		Title: runMark + t.info.Title + " " + now.Format(time.DateOnly), TitleAsked: true, Description: t.info.Description, Scheduled: t.tid,
+		Title: runMark + t.info.Title + " " + now.Format(time.DateOnly), TitleAsked: true, Description: t.info.Description, Scheduled: t.tid, RunAt: now.UnixMilli(),
 		Model: t.info.Model, ReviewModel: t.info.ReviewModel, OnReady: t.info.OnReady, OnAccept: t.info.OnAccept,
 		ReviewLoops: copyPtr(t.info.ReviewLoops), Budget: copyPtr(t.info.Budget), ORBudget: copyPtr(t.info.ORBudget),
 		Phase: PhasePlan, PhaseAt: now.UnixMilli(),
@@ -151,33 +149,6 @@ func (p *Project) runningL(tid string) bool {
 		}
 	}
 	return false
-}
-
-// humanRequiredFile is how a scheduled run's agent asks for a person: a file
-// it makes in the workspace, which is taken away once the run is handed over.
-// Anything less deliberate — a question, a turn that simply stops — is sent
-// back to it.
-const humanRequiredFile = ".tps-human-required"
-
-// humanRequired: the agent of a scheduled run asks for a person.
-func (t *Task) humanRequired() bool {
-	return t.info.Scheduled != "" && exists(filepath.Join(t.repoDir(), humanRequiredFile))
-}
-
-// maxReadyNudges: how often in a row a scheduled run's agent is sent back in
-// for ending its turn with the work not ready, before the run goes to the user
-// anyway, as one stuck in a loop.
-const maxReadyNudges = 3
-
-// readyNudgeL says whether to send a scheduled run's agent back in for ending
-// its turn with the work not ready, and counts it.
-func (t *Task) readyNudgeL() bool {
-	if t.info.Scheduled == "" || t.readyNudges >= maxReadyNudges {
-		return false
-	}
-	t.readyNudges++
-	t.note(fmt.Sprintf("The agent's turn ended with the work not ready, and nobody watches this run; sending it back in (%d of %d)", t.readyNudges, maxReadyNudges))
-	return true
 }
 
 // A scheduled run that reaches its budget has nobody to raise it: it gets

@@ -256,7 +256,7 @@ function isOpen(pid: string, tid: string, $t: any): boolean {
 	if (shown === pid && shownTid === tid) return true;
 	if (requested($t) || unseenText(pid, tid, $t)) return true;
 	if ($t.phase === 'muted') return false;
-	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merge';
+	return $t.phase === 'human' || $t.phase === 'agent' || $t.phase === 'review' || $t.phase === 'merging';
 }
 
 function drawTask(pid: string, tid: string, $t: any): void {

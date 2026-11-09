@@ -17,14 +17,14 @@ func testProject(infos map[string]*TaskInfo) *Project {
 
 func TestBlocked(t *testing.T) {
 	p := testProject(map[string]*TaskInfo{
-		"1": {Phase: PhaseDone},
+		"1": {Phase: PhaseMerged},
 		"2": {Phase: PhaseAgent},
 		"3": {Phase: PhasePlan, WaitFor: []string{"1", "2", "9"}}, // 9 was deleted
 	})
 	if !p.tasks["3"].blockedL() {
 		t.Error("2 is not done yet")
 	}
-	p.tasks["2"].info.Phase = PhaseDone
+	p.tasks["2"].info.Phase = PhaseMerged
 	if p.tasks["3"].blockedL() {
 		t.Error("a deleted task is nothing to wait for")
 	}
@@ -105,7 +105,7 @@ func TestWaitHoldsMessagesAndRebases(t *testing.T) {
 	}
 	commitUpstream(t, origin, "the other task's work", map[string]string{"b.txt": "two\n"})
 	dep.lock()
-	dep.setPhaseL(PhaseDone)
+	dep.setPhaseL(PhaseMerged)
 	dep.unlock()
 	for i := 0; !strings.Contains(readFile(task.chatFile()), `"k":"user"`); i++ {
 		if i == 100 {

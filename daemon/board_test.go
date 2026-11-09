@@ -62,12 +62,15 @@ func TestBoardRequests(t *testing.T) {
 	if code := st.awaitTask([]string{"./2", "5"}); code != 0 {
 		t.Errorf("await a change: %d", code)
 	}
-	setPhase(PhaseDone, 100*time.Millisecond)
+	setPhase(PhaseMerged, 100*time.Millisecond)
 	if code := st.awaitTask([]string{"app/2", "merged", "5"}); code != 0 {
 		t.Errorf("await the merge: %d", code)
 	}
 	if code := st.awaitTask([]string{"./2", "deployed", "5"}); code != 1 {
 		t.Errorf("await a deploy of a project that does not deploy: %d", code)
+	}
+	if code := st.awaitTask([]string{"./2", "agent", "5"}); code != 1 {
+		t.Errorf("await a merged task going back to the agent: %d", code)
 	}
 	setPhase(PhaseClosed, 0)
 	if code := st.awaitTask([]string{"./2", "merged", "5"}); code != 1 {
@@ -76,7 +79,7 @@ func TestBoardRequests(t *testing.T) {
 	if code := st.awaitTask([]string{"./9", "merged", "5"}); code != 1 {
 		t.Errorf("await a task that is not there: %d", code)
 	}
-	if code := st.awaitTask([]string{"./2", "soon"}); code != 2 {
+	if code := st.awaitTask([]string{"./2", "done"}); code != 2 {
 		t.Errorf("a state that is none: %d", code)
 	}
 }

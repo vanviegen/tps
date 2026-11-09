@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -118,34 +117,5 @@ func TestOverrun(t *testing.T) {
 	}
 	if task.overrunL() || *task.info.Budget != 1+maxOverruns*overrunStep {
 		t.Errorf("overran to a budget of $%g", *task.info.Budget)
-	}
-}
-
-// A scheduled run's agent gets a person only by asking for one with the file;
-// ending its turns with the work not ready otherwise
-// sends it back in, a few times in a row at most.
-func TestUnattendedTurns(t *testing.T) {
-	task, _ := testTask(t)
-	if err := task.ensureWorkspace(); err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(task.repoDir(), humanRequiredFile)
-	writeWork(t, task, humanRequiredFile, "")
-	if task.humanRequired() {
-		t.Error("a task nobody scheduled asked for a person")
-	}
-	task.info.Scheduled = "2"
-	if !task.humanRequired() || !exists(file) {
-		t.Error("the request for a person was not seen, or not left for the turn that acts on it")
-	}
-	task.lock()
-	defer task.unlock()
-	for range maxReadyNudges {
-		if !task.readyNudgeL() {
-			t.Fatal("the agent was not sent back in")
-		}
-	}
-	if task.readyNudgeL() {
-		t.Error("the agent was sent back in without end")
 	}
 }

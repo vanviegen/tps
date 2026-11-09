@@ -8,7 +8,7 @@
 # deck among the scratch tasks.
 #
 # Nothing seeded here runs an agent on its own: every task is in a phase that
-# waits (plan, human, muted, done, closed), and the one task set to follow
+# waits (plan, human, muted, merged, closed), and the one task set to follow
 # another waits on a plan that is not going anywhere until someone starts it.
 # The scheduled task counts today as run, so its next run is tomorrow's.
 # Opening the demo therefore costs nothing until a button is pressed — and
@@ -350,7 +350,7 @@ cat >"$CONFIG.new" <<JSON
 					"title": "Shorten a URL, follow it back",
 					"description": "A first cut: POST a URL, get a short key, GET the key to be redirected. One file, standard library only, links in memory.",
 					"model": "haiku",
-					"phase": "done",
+					"phase": "merged",
 					"started": true,
 					"stamp": "5a1b0c000001",
 					"spent": 1.87,
@@ -362,7 +362,7 @@ cat >"$CONFIG.new" <<JSON
 					"title": "A dev container so tasks can run the tests",
 					"description": "Tasks can't run the tests: the default image has no python. Add a Containerfile.dev with the test suite as a service, and a first test for the key generator.",
 					"model": "haiku",
-					"phase": "done",
+					"phase": "merged",
 					"started": true,
 					"stamp": "5a1b0c000002",
 					"spent": 0.34,
@@ -386,7 +386,7 @@ cat >"$CONFIG.new" <<JSON
 					"title": "Keep the links in a file",
 					"description": "The links live in memory, so a restart forgets every short link handed out. Write them to JSON instead, atomically.",
 					"model": "haiku",
-					"phase": "done",
+					"phase": "merged",
 					"started": true,
 					"stamp": "5a1b0c000004",
 					"spent": 1.12,
@@ -434,7 +434,7 @@ cat >"$CONFIG.new" <<JSON
 					"title": "A dev container and the first tests",
 					"description": "Give this a Containerfile.dev like snip has, and tests for add and copy.",
 					"model": "haiku",
-					"phase": "done",
+					"phase": "merged",
 					"started": true,
 					"stamp": "57a0d0000001",
 					"spent": 0.27,
@@ -495,7 +495,7 @@ cat >"$CONFIG.new" <<JSON
 					"onAccept": "merge",
 					"reviewLoops": 10,
 					"scheduled": "5",
-					"phase": "done",
+					"phase": "merged",
 					"started": true,
 					"spent": 0.05,
 					"budget": 1,

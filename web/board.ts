@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { deployProject, moveTask, taskMenuItems } from './task.ts';
-import { branchOf, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
+import { branchOf, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, runText, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -92,7 +92,7 @@ export function drawBoard(pid: string | undefined, create: () => void): void {
 					A('text=', PHASE_LABELS[phase]);
 					A('div display:flex align-items:center gap:$1 ml:auto', () => {
 						if (phase === 'plan') S.iconButton({ icon: plus, ariaLabel: 'Create task', attrs: '.small', click: create });
-						if (phase === 'done' && pid) drawDeployButton(pid);
+						if (phase === 'merged' && pid) drawDeployButton(pid);
 						drawFilterButton(pid, phase);
 					});
 				},
@@ -123,7 +123,7 @@ function drawDeployButton(pid: string): void {
 
 /** Whether the project's Deploy task (see isJob) is running a deploy. */
 function deploying($p: any): boolean {
-	return $p.tasks?.deploy?.phase === 'merge';
+	return $p.tasks?.deploy?.phase === 'merging';
 }
 
 /**
@@ -201,23 +201,23 @@ function drawColumn(pid: string | undefined, $cards: Record<string, Card>, phase
 		() => {
 			// The ones on their way to Done go above the ones that got there, and
 			// the started ones above the ones never begun.
-			if (phase === 'done') drawCards($cards, ['merge'], key, undefined, queueOrder);
+			if (phase === 'merged') drawCards($cards, ['merging'], key, undefined, queueOrder);
 			if (phase === 'plan') {
 				drawCards($cards, ['muted'], key);
 				drawCards($cards, ['plan'], key, $t => !isSchedule($t));
 				return drawSchedules($cards, key);
 			}
-			if (phase !== 'done') return drawCards($cards, [phase], key);
+			if (phase !== 'merged') return drawCards($cards, [phase], key);
 			A(() => {
 				const $p = pid ? $state.projects[pid] : undefined;
-				if (!$p?.deploy) return drawCards($cards, ['done', 'closed'], key);
+				if (!$p?.deploy) return drawCards($cards, ['merged', 'closed'], key);
 				// The branch, and after a faint line the tasks with no place on it
 				// (closed, merged before TPS stamped its commits, or merged long ago).
 				const onBranch = drawBranch(pid!, $p, key);
 				const placeless = Object.entries($p.tasks ?? {}).some(([tid, $t]: [string, any]) =>
-					!isJob($t) && ($t.phase === 'done' || $t.phase === 'closed') && !onBranch.has(tid));
+					!isJob($t) && ($t.phase === 'merged' || $t.phase === 'closed') && !onBranch.has(tid));
 				if (placeless) A('div border-top: 1px solid currentColor; fg:$s-faint');
-				drawCards($cards, ['done', 'closed'], key, (_$t, tid) => !onBranch.has(tid));
+				drawCards($cards, ['merged', 'closed'], key, (_$t, tid) => !onBranch.has(tid));
 			});
 		});
 }
@@ -262,7 +262,7 @@ function drawBranch(pid: string, $p: any, key: string): Set<string> {
 			drawDeployLine($p.deploy.rewritten);
 		}
 		const $t = c.tid && !drawn.has(c.tid) ? $p.tasks?.[c.tid] : undefined;
-		if ($t?.phase !== 'done') return void run.push(c);
+		if ($t?.phase !== 'merged') return void run.push(c);
 		flush(n);
 		drawn.add(c.tid!);
 		if (passesFilter($t, key)) drawCard(pid, c.tid!, $t, to(c, n));
@@ -378,7 +378,7 @@ const deployHere = A.insertCss({
  * that is the column's to say.
  */
 function saysMore(pid: string, $t: any): boolean {
-	return requested($t) || waits($t) || !!$t.limitUntil || $t.phase === 'merge' || keepsWork($t) || taskActivity(pid, $t).color === 'danger';
+	return requested($t) || waits($t) || !!$t.limitUntil || $t.phase === 'merging' || keepsWork($t) || taskActivity(pid, $t).color === 'danger';
 }
 
 // Browsers can fire a click on the card a drag started from once that drag
@@ -391,7 +391,7 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 		'pointerdown=', () => { dragged = false; },
 		'dragstart=', (e: DragEvent) => { dragged = true; e.dataTransfer?.setData('text/tps', `${pid}/${tid}`); },
 		'drop=', (e: DragEvent) => {
-			if (A.peek($t, 'phase') !== 'merge' || !dropInQueue(e, pid, tid)) return;
+			if (A.peek($t, 'phase') !== 'merging' || !dropInQueue(e, pid, tid)) return;
 			e.preventDefault();
 			e.stopPropagation(); // not a move to the column's phase as well
 		},
@@ -405,7 +405,11 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 					A(() => { if (saysMore(pid, $t)) A('span vertical-align:-0.15em mr:$1', () => drawTaskIcon(pid, $t, { color: keepsWork($t) ? '$s-warning' : undefined })); });
 					// The space after it, rather than a margin on what follows, is where
 					// the line may break, and is gone where it does.
-					A('span text=', taskTitle($t) + ' ');
+					A('span', () => {
+						A('text=', taskTitle($t) + ' ');
+						const run = runText(pid, $t);
+						if (run) S.addTooltip({ tip: run });
+					});
 					A(() => {
 						const cost = costText($t);
 						if (cost) A('small display:inline-block fg:$s-muted mr:$2 text=', cost);
@@ -426,7 +430,7 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 					else if ($t.suggestion) A('small fg:$s-warning #⚠ Suggests project settings');
 					else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
 					else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');
-					else if ($t.phase === 'merge') A('small fg:$s-muted text=', mergeText($t));
+					else if ($t.phase === 'merging') A('small fg:$s-muted text=', mergeText($t));
 					else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${branchOf(pid)}`);
 				});
 			}});

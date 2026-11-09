@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -23,18 +24,15 @@ func TestReviewAccepted(t *testing.T) {
 }
 
 // The reviewer is given the commit to review against and the user's own words,
-// with the agent's turns between them named as gaps.
+// with the summaries of the agent's turns between them.
 func TestReviewPrompt(t *testing.T) {
-	prompt := reviewPrompt("abc123", []string{"make it tidy", "and quick, too"}, false, false)
-	for _, want := range []string{"git diff abc123", commitMessageFile, "make it tidy", "and quick, too", "then the agent worked"} {
+	prompt := reviewPrompt("abc123", []Said{{Text: "make it tidy"}, {Agent: true, Text: "Tidied the parser."}, {Text: "and quick, too"}}, false, false)
+	for _, want := range []string{"git diff abc123", commitMessageFile, "make it tidy", "and quick, too", "the agent ended a turn: Tidied the parser."} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the prompt should mention %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Count(prompt, "then the agent worked") != 1 { // one gap between two messages
-		t.Errorf("one gap per message after the first:\n%s", prompt)
-	}
-	if lone := reviewPrompt("abc123", nil, false, false); !strings.Contains(lone, "nothing was written down") {
+	if lone := reviewPrompt("abc123", []Said{{Agent: true, Text: "Did it."}}, false, false); !strings.Contains(lone, "nothing was written down") {
 		t.Errorf("a task nobody wrote for should say so:\n%s", lone)
 	}
 	if strings.Contains(prompt, "^Human$") {
@@ -51,9 +49,9 @@ func TestReviewPrompt(t *testing.T) {
 	}
 }
 
-// What the user asked for is read back out of the chat log, in order, and
-// nothing the agent or TPS said comes with it.
-func TestUserSaid(t *testing.T) {
+// What the user asked for is read back out of the chat log, in order, with the
+// summaries of the agent's turns between, and nothing else the agent or TPS said.
+func TestSaid(t *testing.T) {
 	task, _ := testTask(t)
 	if err := os.MkdirAll(task.dir(), 0o755); err != nil {
 		t.Fatal(err)
@@ -65,12 +63,16 @@ func TestUserSaid(t *testing.T) {
 	said := newEntry("text")
 	said.Text = "done, I think"
 	task.appendChat(said)
+	mark := newEntry("mark")
+	mark.Text = "Agent: Tidied it."
+	task.appendChat(mark)
 	second := newEntry("user")
 	second.Text = "and quick, too"
 	task.appendChat(second)
 
-	if got := task.userSaid(); len(got) != 2 || got[0] != "make it tidy" || got[1] != "and quick, too" {
-		t.Errorf("the user's own messages, in order: %q", got)
+	want := []Said{{Text: "make it tidy"}, {Agent: true, Text: "Tidied it."}, {Text: "and quick, too"}}
+	if got := task.said(); !slices.Equal(got, want) {
+		t.Errorf("what was said, in order: %+v", got)
 	}
 }
 
@@ -204,11 +206,11 @@ func (t *Task) lastMark(tb *testing.T) string {
 // paying a reviewer to find an empty diff.
 func TestReviewNeedsWork(t *testing.T) {
 	task, _ := testTask(t)
-	task.info.Phase = PhaseDone
+	task.info.Phase = PhaseMerged
 	if err := task.MoveTo(PhaseReview); err == nil {
 		t.Error("a finished task has no workspace to review")
 	}
-	if task.info.Phase != PhaseDone {
+	if task.info.Phase != PhaseMerged {
 		t.Errorf("a refused review should leave the task where it is: %s", task.info.Phase)
 	}
 

@@ -140,17 +140,17 @@ function show(title: string, body: string, url: string): void {
  */
 function announcement(pid: string, $t: any, from: Phase): string | undefined {
 	const phase = $t.phase as Phase;
-	if (isJob($t)) return phase === 'human' ? 'failed' : $t.job === 'deploy' && phase === 'done' ? 'deployed ✔' : undefined;
+	if (isJob($t)) return phase === 'human' ? 'failed' : $t.job === 'deploy' && phase === 'merged' ? 'deployed ✔' : undefined;
 	switch (phase) {
-		case 'merge': case 'review': return;
-		case 'done': return 'merged ✔';
+		case 'merging': case 'review': return;
+		case 'merged': return 'merged ✔';
 		case 'closed': return 'closed without merging';
 		case 'plan': return 'put back in Plan';
-		case 'agent': return from === 'merge' ? 'the agent is resolving the merge conflicts' : undefined;
+		case 'agent': return from === 'merging' ? 'the agent is resolving the merge conflicts' : undefined;
 		default: // human, muted: the ones worth having asked for
 			if ($t.review) return 'the automated review asks for changes';
 			if (canMerge(pid, $t)) return 'the agent reports it ready to merge';
-			return from === 'merge' ? 'back with you' : 'the agent is done; it is yours';
+			return from === 'merging' ? 'back with you' : 'the agent is done; it is yours';
 	}
 }
 
@@ -206,7 +206,7 @@ export function watchPhases(): void {
 				const phase = $t.phase as Phase;
 				const was = seen.get(k);
 				seen.set(k, phase);
-				if (was === undefined || was === phase || (was !== 'agent' && was !== 'merge' && was !== 'review')) continue;
+				if (was === undefined || was === phase || (was !== 'agent' && was !== 'merging' && was !== 'review')) continue;
 				if (!on) continue;
 				// Everything about the task but its phase is read past the
 				// subscription: this scope is about phases, and a commit message

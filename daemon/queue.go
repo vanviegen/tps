@@ -124,7 +124,7 @@ func (t *Task) runMerge() {
 	go t.refreshChanges()
 	t.lock()
 	defer t.unlock()
-	if err != nil && t.info.Phase == PhaseMerge {
+	if err != nil && t.info.Phase == PhaseMerging {
 		t.noteErr("Merge failed", err)
 		t.setPhaseL(PhaseHuman)
 	}
@@ -242,7 +242,7 @@ func (t *Task) mergeHead() (handed bool, err error) {
 func (t *Task) stillHead() bool {
 	t.lock()
 	defer t.unlock()
-	return t.info.Phase == PhaseMerge && t.headL()
+	return t.info.Phase == PhaseMerging && t.headL()
 }
 
 // land puts the commit the task is to become on the branch, and reports

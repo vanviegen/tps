@@ -123,14 +123,15 @@ Other commands:
                            start. Prints the task, as <project>/<number>, for
                            await-task.
   await-task <task> [<state>] [seconds]
-                           Wait for a task to be in a state: merged, deployed,
-                           or a phase (plan, agent, review, human, muted,
-                           merge, done, closed); with none named, for it to
-                           leave the phase it is in. Waits up to 60 seconds by
-                           default, and exits 0 once it is, 1 once it never
-                           will be (closed without merging, deleted, or merged
-                           in a project that does not deploy), and 124 if it
-                           is not yet: feel free to await again.
+                           Wait for a task to be in a state: plan, agent,
+                           review, human, muted, merging, merged (which
+                           deployed counts as), deployed or closed; with none
+                           named, for it to leave the state it is in. Prints
+                           the state it is in, after waiting up to 60 seconds
+                           by default, and exits 0 once it is in the state
+                           waited for, 1 once it never will be (closed,
+                           deleted, or merged and not to be deployed), and
+                           124 if it is not yet: feel free to await again.
 `
 
 // GuestToolInvoked tells whether this process is the guest tool: the binary

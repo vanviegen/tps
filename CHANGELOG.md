@@ -14,6 +14,17 @@
   `/tps/guest-tool`, and the merge gate is `LABEL tps.test`.
 - A merged task carries on in a "Follow-up" task, so every task is one commit,
   and tasks are named after their commit message.
+- Agents end every turn on a status: done, merge, merge-and-continue or
+  blocked, in place of the `.tps-human-required` and
+  `.tps-continue-after-merge` files. Merge-and-continue sends the agent
+  back in once the work is merged, and deployed where the project deploys
+  after every merge: what it changes then becomes a task of its own, and a
+  check that changes nothing leaves the task merged.
+- A scheduled run's title says, on hover, which scheduled task started it and
+  when.
+- `await-task` prints the state a task is in, among them merging, merged and
+  deployed. Automated reviews see the agent's turn summaries between the
+  user's messages.
 - "Wait for" replaces "Start after": it also holds back a running task until
   the tasks it waits for are done.
 - Tasks run on Claude Code alone; pi support is removed.

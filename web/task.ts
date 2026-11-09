@@ -12,7 +12,7 @@ import { applyNotifyDefault, notifies, toggleNotifies } from './notify.ts';
 import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { branchOf, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectHost, projectName, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
+import { branchOf, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectHost, projectName, runText, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -41,8 +41,8 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	}));
 	items.push({
 		label: 'Done…', icon: check,
-		disabled: isFinished($t) || $t.phase === 'merge',
-		click: () => void moveTask(pid, tid, $t, 'done'),
+		disabled: isFinished($t) || $t.phase === 'merging',
+		click: () => void moveTask(pid, tid, $t, 'merged'),
 	});
 	return items;
 }
@@ -87,7 +87,7 @@ export function taskMenuItems(pid: string, tid: string, $t: any): S.MenuEntry[] 
  * stops it, and the merge lands.
  */
 function skipItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
-	if ($t.phase !== 'merge' || !$state.projects[pid]?.test) return [];
+	if ($t.phase !== 'merging' || !$state.projects[pid]?.test) return [];
 	const skip = !$t.skipTests;
 	return [{ label: skip ? 'Skip the test' : 'Run the test', icon: skip ? flaskConicalOff : flaskConical, click: () => void cmd('updateTask', { pid, tid, skipTests: skip }) }];
 }
@@ -106,8 +106,8 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 		phase = meant;
 	}
 	if (phase === $t.phase) return false;
-	if (phase === 'done' || phase === 'closed' || phase === 'merge') {
-		if ($t.phase === 'merge' || isFinished($t)) return false; // in Merging it is already on its way there
+	if (phase === 'merged' || phase === 'closed' || phase === 'merging') {
+		if ($t.phase === 'merging' || isFinished($t)) return false; // in Merging it is already on its way there
 		// Nothing changed since the task branched off: nothing to merge or to
 		// keep, so it simply ends, without asking. Only a count the daemon made
 		// says so. It is merged, which commits nothing, unless asked to end
@@ -119,7 +119,7 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 			doneDialog(pid, tid, $t);
 			return false;
 		}
-		finish(pid, tid, !mergeable || phase === 'closed' || $t.phase === 'plan' ? 'closed' : 'done');
+		finish(pid, tid, !mergeable || phase === 'closed' || $t.phase === 'plan' ? 'closed' : 'merged');
 		return true;
 	}
 	if (phase === 'agent' && !(await confirmOvertake(pid, $t))) return false;
@@ -191,7 +191,7 @@ async function planDialog($t: any): Promise<Phase | undefined> {
  * End the task, merged or not. Whoever was looking at it lands on the
  * project's board.
  */
-function finish(pid: string, tid: string, phase: 'done' | 'closed'): void {
+function finish(pid: string, tid: string, phase: 'merged' | 'closed'): void {
 	void cmd('moveTask', { pid, tid, phase });
 	leaveTask(pid, tid);
 }
@@ -359,7 +359,7 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	// Not for a task on its way out or put away, nor for a scheduled one: none
 	// of them has an agent to hold back (see applyL in daemon/task.go).
 	A(() => {
-		if (!tid || isFinished($t) || isSchedule($t) || $t.phase === 'merge' || $t.phase === 'muted') return;
+		if (!tid || isFinished($t) || isSchedule($t) || $t.phase === 'merging' || $t.phase === 'muted') return;
 		S.autocomplete({
 			label: 'Wait for', multi: true, allowCustom: false,
 			placeholder: 'Tasks to wait for…',
@@ -566,7 +566,7 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 		A(`span flex:1 min-width:0 ${ELLIPSIS} fg:$s-muted`, () => {
 			A(() => A('text=', taskTitle($t)));
 			S.addTooltip({ tip: () => A('div white-space:pre-wrap max-width:32rem max-height:60vh overflow:hidden text=',
-				[taskTitle($t), ($t.description ?? '').trim()].filter(Boolean).join('\n\n')) });
+				[taskTitle($t), runText(pid, $t), ($t.description ?? '').trim()].filter(Boolean).join('\n\n')) });
 		});
 		drawServiceButtons(pid, tid, $t);
 		A(() => {
@@ -616,7 +616,7 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		if (isJob($t)) return drawJobBar(pid, $t);
 		A(() => {
 			const branch = branchOf(pid);
-			if ($t.phase === 'done') {
+			if ($t.phase === 'merged') {
 				return drawStrip('success', `✔ Merged into ${branch}. Messaging the agent carries on in a follow-up task: the agent keeps `
 					+ `everything it knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);
 			}
@@ -704,10 +704,10 @@ function drawSuggestion(pid: string, tid: string, suggestion: any): void {
  */
 function drawJobBar(pid: string, $t: any): void {
 	A('div display:flex align-items:center gap:$2', () => {
-		A(`span flex:1 fg:$s-muted ${ELLIPSIS}`, () => A('text=', $t.phase === 'merge' ? 'Running…'
+		A(`span flex:1 fg:$s-muted ${ELLIPSIS}`, () => A('text=', $t.phase === 'merging' ? 'Running…'
 			: 'Deploys the default branch, with the files the project settings name.'));
 		A(() => {
-			S.button({ content: 'Deploy', icon: rocket, attrs: '.small', disabled: $t.phase === 'merge', click: () => void deployProject(pid) });
+			S.button({ content: 'Deploy', icon: rocket, attrs: '.small', disabled: $t.phase === 'merging', click: () => void deployProject(pid) });
 		});
 	});
 }

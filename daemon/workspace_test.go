@@ -73,7 +73,7 @@ func waitLanded(t *testing.T, task *Task) {
 		task.lock()
 		phase := task.info.Phase
 		task.unlock()
-		if phase != PhaseMerge {
+		if phase != PhaseMerging {
 			return
 		}
 		if i == 100 {
@@ -203,7 +203,7 @@ func TestLeftoverDirectoryIsNoWorkspace(t *testing.T) {
 	}
 	// Nothing was changed: the merge has nothing to commit and drops the clone.
 	mergeAndLand(t, task, "no changes at all")
-	if task.info.Phase != PhaseDone || exists(task.repoDir()) {
+	if task.info.Phase != PhaseMerged || exists(task.repoDir()) {
 		t.Fatalf("phase %q, workspace left: %v", task.info.Phase, exists(task.repoDir()))
 	}
 
@@ -393,7 +393,7 @@ func TestReplantLeavesConflictsInTheFiles(t *testing.T) {
 	}
 	writeWork(t, task, "a.txt", "one both\n")
 	mergeAndLand(t, task, "the task")
-	if task.info.Phase != PhaseDone {
+	if task.info.Phase != PhaseMerged {
 		t.Errorf("phase %s", task.info.Phase)
 	}
 	if got := gitRun(t, origin, "log", "--format=%s", "-3"); got != "the task\nupstream\nadd a.txt" {
@@ -664,10 +664,10 @@ func TestAddNewProject(t *testing.T) {
 	}
 }
 
-// The agent says the work is ready by leaving its commit message in the tree:
-// a turn that changed the work without one hands the task to the user, and
-// one that leaves it merges a task set to merge by itself.
-func TestCommitMessageMeansReady(t *testing.T) {
+// The agent says what becomes of the task by the status its turn ends on:
+// blocked hands it to the user, merge with a commit message in the tree merges
+// a task set to merge by itself.
+func TestStatusMerges(t *testing.T) {
 	task, origin := testTask(t)
 	task.p.info.Tasks = map[string]*TaskInfo{task.tid: task.info}
 	task.info.OnReady = AnswerMerge
@@ -676,18 +676,18 @@ func TestCommitMessageMeansReady(t *testing.T) {
 	}
 	head := gitRun(t, origin, "rev-parse", "HEAD")
 	writeWork(t, task, "a.txt", "not yet\n")
-	task.onTurnEnd(TurnEnd{Text: "Halfway.\n\nSummary: Started on it."})
+	task.onTurnEnd(TurnEnd{Text: "Which way?\n\n[blocked]: Started on it."})
 	if task.info.Phase != PhaseHuman || gitRun(t, origin, "rev-parse", "HEAD") != head {
-		t.Fatalf("work without a commit message went %s", task.info.Phase)
+		t.Fatalf("blocked work went %s", task.info.Phase)
 	}
 	if got := gitRun(t, task.repoDir(), "log", "--format=%s", "-1", stepsBranch); got != "Agent: Started on it." {
 		t.Errorf("the save point is named %q", got)
 	}
 	task.info.Phase = PhaseAgent
 	writeWork(t, task, commitMessageFile, "Say it twice\n")
-	task.onTurnEnd(TurnEnd{Text: "Summary: Finished it."})
+	task.onTurnEnd(TurnEnd{Text: "[merge]: Finished it."})
 	waitLanded(t, task)
-	if task.info.Phase != PhaseDone {
+	if task.info.Phase != PhaseMerged {
 		t.Fatalf("work with a commit message went %s", task.info.Phase)
 	}
 	if got := gitRun(t, origin, "log", "--format=%s", "-1"); got != "Say it twice" {
@@ -702,7 +702,7 @@ func TestCommitMessageMeansReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f == task || task.info.Phase != PhaseDone {
+	if f == task || task.info.Phase != PhaseMerged {
 		t.Fatalf("the merged task was picked up itself, and is %s", task.info.Phase)
 	}
 	if f.info.Title != "Follow-up: Say it twice" || f.info.Phase != PhaseHuman {
@@ -803,11 +803,16 @@ func TestExportImport(t *testing.T) {
 	}
 }
 
-// An agent asking to carry on after the merge waits for the deploy of its
-// work, not for one of what came before it, and then does so in a follow-up.
-func TestContinueAfterDeploy(t *testing.T) {
+// An agent ending its last turn on merge-and-continue waits for the deploy of
+// its work, not for one of what came before it, and is then sent back into the
+// merged task (see carryOn). A run there that changes nothing leaves it merged; one that
+// changes something carries on in a task of its own.
+func TestMergeAndContinue(t *testing.T) {
 	task, origin := testTask(t)
 	p := task.p
+	p.info.Tasks = map[string]*TaskInfo{task.tid: task.info}
+	p.info.NextTask = 2 // past the task's own tid
+	task.info.OnReady = AnswerHuman
 	commitUpstream(t, origin, "deploy", map[string]string{containerfile: "FROM scratch\nLABEL tps.deploy=\"./ship\"\n"})
 	p.info.AutoDeploy = true
 	p.deploying = true // the deploy after the merge waits for one that is not running
@@ -816,19 +821,85 @@ func TestContinueAfterDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeWork(t, task, "b.txt", "two\n")
-	task.info.Continue = true // as the agent's turn left it (see onTurnEnd)
-	mergeAndLand(t, task, "add b.txt")
+	writeWork(t, task, commitMessageFile, "Add b\n")
+	task.onTurnEnd(TurnEnd{Text: "[merge-and-continue]: Added b."})
+	if !task.info.Continue {
+		t.Fatal("merge-and-continue was not kept")
+	}
+	task.info.Phase = PhaseAgent
+	task.onTurnEnd(TurnEnd{Text: "[merge]: Added b, and that is all."})
+	if task.info.Continue {
+		t.Fatal("a later merge did not take merge-and-continue back")
+	}
+	task.info.Continue = true
+	mergeAndLand(t, task, "")
 	merged := gitRun(t, origin, "rev-parse", "main")
 	if task.info.AwaitDeploy != merged || task.info.Continue {
 		t.Fatalf("waiting for %q, want %q", task.info.AwaitDeploy, merged)
 	}
-	tasks := len(p.tasks)
 	p.carryOn(before, "deployed what came before")
-	if task.info.AwaitDeploy == "" || len(p.tasks) != tasks {
+	if task.info.AwaitDeploy == "" || task.info.AfterMerge {
 		t.Error("a deploy that does not hold the work sent the agent back in")
 	}
-	p.carryOn(merged, "deployed it")
-	if task.info.AwaitDeploy != "" || len(p.tasks) != tasks+1 || task.info.Phase != PhaseDone {
-		t.Errorf("after its deploy: waiting for %q, %d tasks, the merged one %s", task.info.AwaitDeploy, len(p.tasks), task.info.Phase)
+	// Sent back into the merged task itself, as carryOn does, in a fresh clone.
+	task.info.Phase, task.info.AfterMerge, task.info.AwaitDeploy = PhaseAgent, true, ""
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	task.info.Phase = PhaseAgent
+	task.onTurnEnd(TurnEnd{Text: "[done]: It works where it runs."})
+	if task.info.Phase != PhaseMerged || task.info.AfterMerge || task.hasWorkspace() || len(p.tasks) != 1 {
+		t.Fatalf("a check that changed nothing left the task %s, %d tasks", task.info.Phase, len(p.tasks))
+	}
+
+	task.info.Phase, task.info.AfterMerge = PhaseAgent, true
+	task.info.Scheduled, task.info.RunAt = "9", 1 // a scheduled run's, its fork stays one
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	writeWork(t, task, "c.txt", "three\n")
+	writeWork(t, task, commitMessageFile, "Add c\n")
+	task.onTurnEnd(TurnEnd{Text: "[merge]: Added c."})
+	f := p.tasks["2"]
+	if f == nil || f.info.Title != runMark+"Add c" || f.info.Scheduled != "9" || f.info.RunAt != 1 || f.info.Phase != PhaseHuman || task.info.Title != "Add b" {
+		t.Fatalf("the task carrying the new work on: %+v", f)
+	}
+	if got := readFile(filepath.Join(f.repoDir(), "c.txt")); got != "three\n" {
+		t.Errorf("it has %q of the new work", got)
+	}
+	if task.info.Phase != PhaseMerged || task.hasWorkspace() {
+		t.Errorf("the merged task is %s, workspace %v", task.info.Phase, task.hasWorkspace())
+	}
+}
+
+// A done with nothing to merge finishes a task that merges by itself; a status
+// the work does not agree with is no status at all.
+func TestStatusDone(t *testing.T) {
+	task, _ := testTask(t)
+	task.p.info.Tasks = map[string]*TaskInfo{task.tid: task.info}
+	task.info.OnReady = AnswerMerge
+	if err := task.ensureWorkspace(); err != nil {
+		t.Fatal(err)
+	}
+	task.onTurnEnd(TurnEnd{Text: "[done]: Nothing needed doing."})
+	if task.info.Phase != PhaseMerged || task.hasWorkspace() {
+		t.Errorf("done with nothing to merge went %s", task.info.Phase)
+	}
+	for _, c := range []struct {
+		status        string
+		work, message bool
+		ok            bool
+	}{
+		{turnDone, false, false, true},
+		{turnDone, true, false, false},
+		{turnMerge, true, true, true},
+		{turnMerge, true, false, false},
+		{turnMergeAndContinue, false, true, false},
+		{turnBlocked, true, false, true},
+		{"", false, false, false},
+	} {
+		if ok := statusMismatch(c.status, c.work, c.message, false) == ""; ok != c.ok {
+			t.Errorf("%q with work %v, message %v: ok %v", c.status, c.work, c.message, ok)
+		}
 	}
 }

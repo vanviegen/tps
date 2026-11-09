@@ -371,23 +371,32 @@ type TurnEnd struct {
 	Summary int64     // tokens the turn summarised the conversation down to, when it compacted it
 	Idle    bool      // the model was never called: a /compact's turn, in which nothing was asked of the agent
 	Failed  bool      // the agent reported the turn itself as failed
-	Text    string    // the last message of the turn: the reviewer's answer (see review.go), or the agent's summary (see summaryOf)
+	Text    string    // the last message of the turn: the reviewer's answer (see review.go), or the agent's status line (see statusOf)
 	Limited bool      // the last message was the agent reporting a usage limit
 	LimitAt time.Time // when that limit resets; zero when it named no time we could read
 	NoLogin bool      // the turn ran into the agent not being able to authenticate (see authGone)
 }
 
-// summaryMarker opens the last paragraph of the message an agent ends every
-// turn with: one sentence on what the turn did. See systemPrompt.
-const summaryMarker = "Summary:"
+// The statuses an agent ends every turn on (see turnRule): what is to become
+// of the task now.
+const (
+	turnDone             = "done"               // nothing to merge, and nothing asked of anyone
+	turnMerge            = "merge"              // the work is ready, .tps-commit-message says as what
+	turnMergeAndContinue = "merge-and-continue" // the same, and the agent carries on after the merge (see landed)
+	turnBlocked          = "blocked"            // a question or a blocker for the user, which the message explains
+)
 
-// summaryOf reads that sentence out of the turn's last message, "" when its
-// last paragraph is not one.
-func summaryOf(text string) string {
+// statusRe is the last paragraph of the message an agent ends every turn
+// with: its status, and one sentence on what the turn did.
+var statusRe = regexp.MustCompile(`^\[(done|merge|merge-and-continue|blocked)\]:[*_]*\s+(.+)$`)
+
+// statusOf reads the status and that sentence out of the turn's last message,
+// "" for both when its last paragraph is not one.
+func statusOf(text string) (status, summary string) {
 	paras := strings.Split(strings.TrimSpace(text), "\n\n")
-	last := strings.Trim(strings.TrimSpace(paras[len(paras)-1]), "*_")
-	if !strings.HasPrefix(last, summaryMarker) {
-		return ""
+	m := statusRe.FindStringSubmatch(strings.Trim(strings.TrimSpace(paras[len(paras)-1]), "*_"))
+	if m == nil {
+		return "", ""
 	}
-	return strings.TrimSpace(strings.Trim(strings.TrimPrefix(last, summaryMarker), " *_"))
+	return m[1], strings.TrimSpace(strings.Trim(m[2], " *_"))
 }

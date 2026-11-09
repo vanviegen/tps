@@ -28,13 +28,13 @@ type BoardRequest struct {
 }
 
 // BoardAnswer is the answer: what to print, or what went wrong; for a status,
-// where the task stands.
+// where the task stands: its phase, or deployed for a merged one whose work
+// a deploy holds.
 type BoardAnswer struct {
-	Text     string `json:"text,omitempty"`
-	Error    string `json:"error,omitempty"`
-	Phase    Phase  `json:"phase,omitempty"`
-	Deploys  bool   `json:"deploys,omitempty"`  // its project deploys,
-	Deployed bool   `json:"deployed,omitempty"` // and a deploy holds the task's work
+	Text    string `json:"text,omitempty"`
+	Error   string `json:"error,omitempty"`
+	State   string `json:"state,omitempty"`
+	Deploys bool   `json:"deploys,omitempty"` // its project deploys
 }
 
 // TaskLink is a task made on another's behalf, for the log entry that opens it.
@@ -90,9 +90,10 @@ func (st *guestTool) createTask(args []string) int {
 var boardPoll = 3 * time.Second
 
 // awaitTask polls for where the task stands until it is in the state waited
-// for: a phase, merged (done), deployed, or, with none named, any other than
-// it was in at first. One that will never get there, closed without merging,
-// deleted or not deployed by its project, ends the wait with 1.
+// for (merged including deployed), or, with none named, in any other than it
+// was in at first, and prints the state it is in. One that will never get
+// there, closed, deleted, merged or not deployed by its project, ends the
+// wait with 1.
 func (st *guestTool) awaitTask(args []string) int {
 	if len(args) == 0 || len(args) > 3 {
 		return st.fail(errors.New("await-task: which task, and what to wait for?"))
@@ -101,42 +102,34 @@ func (st *guestTool) awaitTask(args []string) int {
 	for _, a := range args[1:] {
 		if n, err := strconv.Atoi(a); err == nil && n >= 0 {
 			seconds = n
-		} else if a == "merged" || a == "deployed" || slices.Contains(phases, Phase(a)) {
+		} else if a == "deployed" || slices.Contains(phases, Phase(a)) {
 			until = a
 		} else {
 			return st.fail(fmt.Errorf("await-task: '%s' is neither a state to wait for nor a number of seconds", a))
 		}
 	}
-	if until == "merged" {
-		until = string(PhaseDone)
-	}
 	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
-	var first Phase
+	first := ""
 	for {
 		ans, err := st.askBoard(BoardRequest{Cmd: "status", Task: task})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", guestToolPath, err)
 			return 1
 		}
+		state := ans.State
 		if first == "" {
-			first = ans.Phase
-		}
-		state := string(ans.Phase)
-		if ans.Deployed {
-			state += ", deployed"
+			first = state
 		}
 		switch {
-		case until == "deployed" && ans.Phase == PhaseDone && !ans.Deploys:
-			fmt.Printf("%s: %s; its project does not deploy\n", ans.Text, state)
-			return 1
-		case until == "" && ans.Phase != first, until == "deployed" && ans.Deployed, until == string(ans.Phase):
-			fmt.Printf("%s: %s\n", ans.Text, state)
+		case until == "" && state != first, until == state, until == "merged" && state == "deployed":
+			fmt.Println(state)
 			return 0
-		case until != "" && ans.Phase == PhaseClosed:
-			fmt.Printf("%s: closed without merging\n", ans.Text)
+		case until != "" && (state == "closed" || state == "merged" && (until != "deployed" || !ans.Deploys)):
+			fmt.Println(state)
 			return 1
 		case !time.Now().Before(deadline):
-			fmt.Printf("%s: %s, still. '%s await-task %s %s <seconds>' waits some more.\n", ans.Text, state, guestToolPath, task, until)
+			fmt.Println(state)
+			fmt.Fprintf(os.Stderr, "%s, still. '%s await-task %s %s <seconds>' waits some more.\n", ans.Text, guestToolPath, task, until)
 			return 124
 		}
 		time.Sleep(min(boardPoll, time.Until(deadline)))
@@ -239,9 +232,9 @@ func (t *Task) createTask(req BoardRequest) (string, error) {
 	return fmt.Sprintf("Created %s/%s, in Plan for the user to start: %s", ref, tid, req.Title), nil
 }
 
-// taskStatus is where the task "<project>/<number>" stands: its phase, and
-// whether a deploy holds its work — which, the branch being listed newest
-// first, is so for a task at or below where the last deploy is.
+// taskStatus is where the task "<project>/<number>" stands: a merged one is
+// deployed where a deploy holds its work — which, the branch being listed
+// newest first, is so for a task at or below where the last deploy is.
 func (t *Task) taskStatus(ref string) (BoardAnswer, error) {
 	i := strings.LastIndexByte(ref, '/')
 	if i < 0 {
@@ -255,15 +248,17 @@ func (t *Task) taskStatus(ref string) (BoardAnswer, error) {
 		if task := p.tasks[tid]; task == nil {
 			err = fmt.Errorf("%s is no task (any more)", ref)
 		} else {
-			ans = BoardAnswer{Text: ref + " (" + task.info.Title + ")", Phase: task.info.Phase, Deploys: p.deploy != ""}
+			ans = BoardAnswer{Text: ref + " (" + task.info.Title + ")", State: string(task.info.Phase), Deploys: p.deploy != ""}
 		}
 	}
 	t.unlock()
-	if ans.Deploys && ans.Phase == PhaseDone {
+	if ans.Deploys && ans.State == string(PhaseMerged) {
 		log, at, _ := p.branchState()
 		deployed := slices.IndexFunc(log, func(c branchCommit) bool { return c.Sha == at })
 		landed := slices.IndexFunc(log, func(c branchCommit) bool { return c.Tid == tid })
-		ans.Deployed = deployed >= 0 && landed >= deployed
+		if deployed >= 0 && landed >= deployed {
+			ans.State = "deployed"
+		}
 	}
 	return ans, err
 }
