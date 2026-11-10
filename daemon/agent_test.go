@@ -50,13 +50,13 @@ func TestSessionEvents(t *testing.T) {
 	if updates[1].Res != "(no output)" || !updates[1].Error || updates[1].Arg != "ls" {
 		t.Errorf("bash result: %+v", updates[1])
 	}
-	if entries[4].Text != "turn finished · 3s · $0.02" || len(ends) != 2 || ends[0].Cost != 0.0234 || ends[1].Cost < 0.0065 || ends[1].Cost > 0.0067 {
+	if entries[4].Text != "Turn finished · 3s · $0.02" || len(ends) != 2 || ends[0].Cost != 0.0234 || ends[1].Cost < 0.0065 || ends[1].Cost > 0.0067 {
 		t.Errorf("result entry: %q ends %+v", entries[4].Text, ends)
 	}
 	if ends[0].Failed || !ends[1].Failed {
 		t.Errorf("turn ends: %+v", ends)
 	}
-	if entries[5].Text != "turn failed (max turns) · 1s · $0.01" || !entries[5].Error {
+	if entries[5].Text != "Turn failed (max turns) · 1s · $0.01" || !entries[5].Error {
 		t.Errorf("failed result: %q", entries[5].Text)
 	}
 	if s.TurnActive() {
@@ -314,13 +314,13 @@ func TestCompaction(t *testing.T) {
 	if s.context != 23020 || len(ends) != 1 || ends[0].Context != 23020 {
 		t.Fatalf("context not measured: %d, ends %+v", s.context, ends)
 	}
-	if entries[1].Text != "turn finished · 1s · $0.01 · 23k in context" {
+	if entries[1].Text != "Turn finished · 1s · $0.01 · 23k in context" {
 		t.Errorf("result entry: %q", entries[1].Text)
 	}
 
 	feed(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":23117,"post_tokens":2734}}`)
 	note := entries[2]
-	if note.K != "note" || note.Text != "claude's context filled up, so it was compacted: 23k → 2.7k" || note.Detail == "" {
+	if note.K != "note" || note.Text != "Claude's context filled up, so it was compacted: 23k → 2.7k" || note.Detail == "" {
 		t.Errorf("compaction note: %+v", note)
 	}
 	// What the last request sent is no longer what claude holds; the summary
@@ -329,7 +329,7 @@ func TestCompaction(t *testing.T) {
 		t.Errorf("after a compaction: context %d, summary %d", s.context, s.summary)
 	}
 	feed(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":9000,"post_tokens":900}}`)
-	if entries[3].Text != "claude compacted its context on request: 9k → 900" {
+	if entries[3].Text != "Claude compacted its context on request: 9k → 900" {
 		t.Errorf("manual compaction note: %q", entries[3].Text)
 	}
 	// A compaction that failed is the one thing worse than one that happened:
@@ -345,7 +345,7 @@ func TestCompaction(t *testing.T) {
 	// down to, and that the model was never called in it; one that is measured
 	// again afterwards is measured, whatever it summarised.
 	feed(`{"type":"result","total_cost_usd":0.02,"duration_ms":12000,"is_error":false,"num_turns":0}`)
-	if end := ends[1]; end.Context != 0 || end.Summary != 900 || !end.Idle || entries[5].Text != "turn finished · 12s · $0.01" {
+	if end := ends[1]; end.Context != 0 || end.Summary != 900 || !end.Idle || entries[5].Text != "Turn finished · 12s · $0.01" {
 		t.Errorf("a compaction's turn: %+v, %q", end, entries[5].Text)
 	}
 	if s.summary != 0 {

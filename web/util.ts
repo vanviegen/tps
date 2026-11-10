@@ -382,6 +382,21 @@ export function costText($t: any): string | undefined {
 	return `$${($t.spent ?? 0).toFixed(2)}${$t.budget ? ` / $${$t.budget.toFixed(2)}` : ''}`;
 }
 
+/** Lines added and removed by the task's work, as "+12 −3", where it changed any. */
+export function drawLineCounts($t: any): void {
+	A(() => {
+		const changes: { a: number; d: number }[] | undefined = $t.changes;
+		if (!changes?.length) return;
+		let add = 0, del = 0;
+		for (const c of changes) { add += c.a; del += c.d; }
+		A('small display:inline-block white-space:nowrap mr:$2', () => {
+			A('span fg:$s-success text=', `+${add} `);
+			A('span fg:$s-danger text=', `−${del}`);
+			S.addTooltip({ tip: `${changes.length} file${changes.length === 1 ? '' : 's'} changed` });
+		});
+	});
+}
+
 /** A token count the way the log words it: 950, 9k, 34k, 1.2M. */
 function tokenText(n: number): string {
 	const round = (v: number) => v.toFixed(1).replace(/\.0$/, '');

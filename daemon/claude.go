@@ -262,7 +262,7 @@ func (s *Session) onEvent(ev *event) {
 				s.opts.OnUpdate(e)
 			} else { // result without a tracked call (shouldn't normally happen)
 				e := s.entry("tool")
-				e.Name, e.Res, e.ResDetail, e.Error = "result", oneLine(text, 140), clip(resultText(b.Content)), b.IsError
+				e.Name, e.Res, e.ResDetail, e.Error = "Result", oneLine(text, 140), clip(resultText(b.Content)), b.IsError
 				s.opts.OnEntry(e)
 			}
 		}
@@ -278,9 +278,9 @@ func (s *Session) onEvent(ev *event) {
 		// conversation and reverting to one undoes the compaction (see mark).
 		case ev.Subtype == "compact_boundary" && ev.CompactMeta != nil:
 			m := ev.CompactMeta
-			how := "claude's context filled up, so it was compacted"
+			how := "Claude's context filled up, so it was compacted"
 			if m.Trigger == "manual" {
-				how = "claude compacted its context on request"
+				how = "Claude compacted its context on request"
 			}
 			// What the last request sent is no longer what claude holds: the
 			// next request measures that, and until one is made the summary
@@ -296,7 +296,7 @@ func (s *Session) onEvent(ev *event) {
 			s.opts.OnEntry(e)
 		case ev.CompactRes == "failed":
 			e := s.entry("note")
-			e.Text, e.Error = "compacting claude's context failed", true
+			e.Text, e.Error = "Compacting Claude's context failed", true
 			if why := strings.TrimSpace(ev.CompactError); why != "" {
 				e.Text += ": " + oneLine(why, 200)
 			}
@@ -320,9 +320,9 @@ func (s *Session) onEvent(ev *event) {
 		e := s.entry("result")
 		e.Error = ev.IsError
 		if ev.IsError {
-			e.Text = "turn failed" + why
+			e.Text = "Turn failed" + why
 		} else {
-			e.Text = "turn finished"
+			e.Text = "Turn finished"
 		}
 		e.Text += " · " + turnLine(ev.DurationMS/1000, delta, s.context)
 		s.opts.OnEntry(e)

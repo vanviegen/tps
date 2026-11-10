@@ -244,7 +244,7 @@ function drawEntry($e: any, pid: string, tid: string, $t: any, turn?: number): v
 
 /** What an entry that opens a dialog goes by: its tool, or what kind of entry it is. */
 function entryName($e: any): string {
-	return $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'tps' : 'Thinking';
+	return $e.k === 'tool' ? $e.name : $e.k === 'note' ? 'TPS' : 'Thinking';
 }
 
 /**

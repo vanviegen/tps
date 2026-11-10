@@ -149,6 +149,7 @@ func (p *Project) init() error {
 	p.pubDefaults()
 	p.pub("color", p.info.Color)
 	p.pubScratch()
+	var worked []*Task // whose changes the board shows, read once all are loaded
 	for _, tid := range slices.Sorted(maps.Keys(p.info.Tasks)) {
 		info := p.info.Tasks[tid]
 		if tid == "train" { // the job of an older TPS, which merged through a train
@@ -169,6 +170,7 @@ func (p *Project) init() error {
 		p.m.mu.Unlock()
 		t.loadChat()
 		if t.hasWorkspace() {
+			worked = append(worked, t)
 			if err := matchRemotes(t.repoDir(), p.dir()); err != nil {
 				t.noteErr("Giving the workspace the project's remotes failed", err)
 			}
@@ -206,6 +208,11 @@ func (p *Project) init() error {
 		t.publishL()
 		p.m.mu.Unlock()
 	}
+	go func() {
+		for _, t := range worked {
+			t.refreshChanges()
+		}
+	}()
 	p.refreshMeta()
 	p.pubSetup()
 	p.m.mu.Lock()

@@ -12,7 +12,7 @@ import { applyNotifyDefault, notifies, toggleNotifies } from './notify.ts';
 import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
 import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
-import { branchOf, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectHost, projectName, runText, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
+import { branchOf, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawLineCounts, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectHost, projectName, runText, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
  * Watch the task for as long as the calling scope lives: its chat streams, and
@@ -568,6 +568,21 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 			S.addTooltip({ tip: () => A('div white-space:pre-wrap max-width:32rem max-height:60vh overflow:hidden text=',
 				[taskTitle($t), runText(pid, $t), ($t.description ?? '').trim()].filter(Boolean).join('\n\n')) });
 		});
+		drawLineCounts($t);
+		// How full the agent's window is, and the button that empties it. Nothing
+		// is measured before the agent has run. A finished task shows the window it
+		// was left with, and compacting it picks the task back up (a merged one, in
+		// a follow-up).
+		A(() => {
+			if (!contextSlices($t)) return;
+			S.iconButton({
+				icon: () => drawContextRing($t, '1.1rem'),
+				ariaLabel: 'Compact the agent’s memory',
+				attrs: 'fg:$s-muted',
+				tooltip: () => drawContextTip($t, 'Click to have it do that now.'),
+				click: () => void cmd('chat', { pid, tid, text: '/compact' }).then(to => follow(pid, tid, to)),
+			});
+		});
 		drawServiceButtons(pid, tid, $t);
 		A(() => {
 			if (!canMerge(pid, $t)) return;
@@ -827,31 +842,18 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh',
 			value: stored,
 			// The field's own bottom-right corner, beside the caret: the paperclip
-			// that attaches a file, and then — send while there is something to
-			// send, else stop while claude works. An inset sizes what it holds
+			// that attaches a file, and then send — stop instead while claude works
+			// and there is nothing to send. An inset sizes what it holds
 			// `.small`; sending is the one thing in the composer to aim at, so that
 			// button takes its size back.
 			suffix: () => {
 				attachButton(area, files => uploadFiles(pid, tid, files));
 				A(() => {
 					const size = 'w:2.2rem h:2.2rem font-size:1.1rem ';
-					if ($text.value.trim()) S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary', click: sendMsg });
-					else if ($t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
+					if (!$text.value.trim() && $t.working) S.iconButton({ icon: circleStop, ariaLabel: 'Stop the agent', attrs: size + 'fg:$s-danger',
 						click: () => void cmd('stopAgent', { pid, tid }) });
-					// Nothing to send and nothing to stop: how full the agent's window is,
-					// and the button that empties it. What is about the conversation rather
-					// than about this message belongs where the eye already is when nothing
-					// is being typed. Nothing is measured before the agent has run, and an
-					// empty ring would be a button over nothing. A finished task shows the
-					// window it was left with, and compacting it picks the task back up (a
-					// merged one, in a follow-up).
-					else if (contextSlices($t)) S.iconButton({
-						icon: () => drawContextRing($t, '1.4rem'),
-						ariaLabel: 'Compact the agent’s memory',
-						attrs: size + 'fg:$s-muted',
-						tooltip: () => drawContextTip($t, 'Click to have it do that now.'),
-						click: () => void cmd('chat', { pid, tid, text: '/compact' }).then(to => follow(pid, tid, to)),
-					});
+					else S.iconButton({ icon: sendHorizontal, ariaLabel: 'Send', key: 'mod+enter', attrs: size + 'fg:$s-primary',
+						disabled: !$text.value.trim(), click: sendMsg });
 				});
 			},
 			input: (e: Event) => {

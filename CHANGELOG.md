@@ -16,6 +16,9 @@
   and tasks are named after their commit message.
 - Agents can now request to continue running after their work so far has been
   merged (and deployed).
+- Cards and the task's top bar show the lines its work adds and removes; the
+  context gauge moved from the composer to the top bar, and a card ready to
+  merge has a ✔ after its title.
 - A line above the chat input says what goes on in the task, and for how
   long ("Thinking · 96s"): Initializing, Thinking, Tooling, Reviewing,
   Testing or Merging.

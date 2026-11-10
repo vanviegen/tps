@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { deployProject, moveTask, taskMenuItems } from './task.ts';
-import { branchOf, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, runText, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
+import { branchOf, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLineCounts, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, runText, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -411,9 +411,13 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 						if (run) S.addTooltip({ tip: run });
 					});
 					A(() => {
+						if (canMerge(pid, $t)) A('span fg:$s-success mr:$2 #✔', () => S.addTooltip({ tip: 'Ready to merge' }));
+					});
+					A(() => {
 						const cost = costText($t);
 						if (cost) A('small display:inline-block fg:$s-muted mr:$2 text=', cost);
 					});
+					drawLineCounts($t);
 					A(() => {
 						if (!contextSlices($t)) return;
 						A('small display:inline-flex vertical-align:-0.15em mr:$2 fg:$s-muted', () => {
@@ -429,7 +433,6 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 					else if ($t.openrouterAsk) A('small fg:$s-warning #⚠ Asks for OpenRouter budget');
 					else if ($t.suggestion) A('small fg:$s-warning #⚠ Suggests project settings');
 					else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
-					else if (canMerge(pid, $t)) A('small fg:$s-success #✔ Ready to merge');
 					else if ($t.phase === 'merging') A('small fg:$s-muted text=', mergeText($t));
 					else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${branchOf(pid)}`);
 				});
