@@ -24,7 +24,7 @@ import (
 // two things of ours: the default Containerfile.dev, and this binary as
 // guest-tool (see guesttool.go; also the containers' init), refreshed whenever
 // the daemon is a new build.
-const codeServerVersion = "4.135.0"
+const codeServerVersion = "4.145.2"
 
 // toolboxKey names the exact set of tools a toolbox holds, so that a container
 // says which one it runs on and a bumped version is a new directory.

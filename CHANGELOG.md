@@ -14,13 +14,8 @@
   `/tps/guest-tool`, and the merge gate is `LABEL tps.test`.
 - A merged task carries on in a "Follow-up" task, so every task is one commit,
   and tasks are named after their commit message.
-- Agents end every turn on a status: done, merge, merge-and-continue or
-  blocked, in place of the `.tps-human-required` and
-  `.tps-continue-after-merge` files. Merge-and-continue sends the agent
-  back in once the work is merged, and deployed where the project deploys
-  after every merge: what it changes then becomes a task of its own, and a
-  check that changes nothing leaves the task merged. The status line is
-  left out of the chat; the save point the turn ends on names it.
+- Agents can now request to continue running after their work so far has been
+  merged (and deployed).
 - A scheduled run's title says, on hover, which scheduled task started it and
   when.
 - `await-task` prints the state a task is in, among them merging, merged and
@@ -28,7 +23,8 @@
   user's messages.
 - "Wait for" replaces "Start after": it also holds back a running task until
   the tasks it waits for are done.
-- Tasks run on Claude Code alone; pi support is removed.
+- Tasks run on Claude Code alone, now 2.1.322; pi support is removed. VS Code
+  is code-server 4.145.2.
 - Workspaces carry the project checkout's remotes, so a deploy's
   `git push origin` works.
 - A task's right-click menu, on the board and in the sidebar, is the same as
