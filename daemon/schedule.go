@@ -129,7 +129,7 @@ func (t *Task) RunNow() error {
 func (p *Project) startRunL(t *Task, now time.Time) *Task {
 	run := p.addTaskL(&TaskInfo{
 		Title: runMark + t.info.Title + " " + now.Format(time.DateOnly), TitleAsked: true, Description: t.info.Description, Scheduled: t.tid, RunAt: now.UnixMilli(),
-		Model: t.info.Model, ReviewModel: t.info.ReviewModel, OnReady: t.info.OnReady, OnAccept: t.info.OnAccept,
+		Model: t.info.Model, ReviewModel: t.info.ReviewModel, Effort: t.info.Effort, ReviewEffort: t.info.ReviewEffort, OnReady: t.info.OnReady, OnAccept: t.info.OnAccept,
 		ReviewLoops: copyPtr(t.info.ReviewLoops), Budget: copyPtr(t.info.Budget), ORBudget: copyPtr(t.info.ORBudget),
 		Phase: PhasePlan, PhaseAt: now.UnixMilli(),
 	})

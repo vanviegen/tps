@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -119,6 +120,9 @@ func checkDefault(key string, v any) error {
 		ok = model != ""
 	case "reviewModel":
 		_, ok = v.(string)
+	case "effort", "reviewEffort":
+		effort, _ := v.(string)
+		ok = effort == "" || effort == DefaultModel || slices.Contains(Efforts, effort)
 	case "onReady":
 		_, ok = parseAnswer(v, AnswerHuman, AnswerReview, AnswerMerge)
 	case "onAccept":

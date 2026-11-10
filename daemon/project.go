@@ -18,13 +18,15 @@ import (
 // copied at creation, not consulted afterwards: changing them says what the
 // next tasks start out with, and leaves the ones that exist alone.
 type TaskDefaults struct {
-	Model       string   `json:"model,omitempty"`
-	ReviewModel string   `json:"reviewModel,omitempty"`
-	OnReady     Answer   `json:"onReady,omitempty"`
-	OnAccept    Answer   `json:"onAccept,omitempty"`
-	ReviewLoops *int     `json:"reviewLoops,omitempty"`
-	Budget      *float64 `json:"budget,omitempty"`
-	ORBudget    *float64 `json:"openrouterBudget,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	ReviewModel  string   `json:"reviewModel,omitempty"`
+	Effort       string   `json:"effort,omitempty"`
+	ReviewEffort string   `json:"reviewEffort,omitempty"`
+	OnReady      Answer   `json:"onReady,omitempty"`
+	OnAccept     Answer   `json:"onAccept,omitempty"`
+	ReviewLoops  *int     `json:"reviewLoops,omitempty"`
+	Budget       *float64 `json:"budget,omitempty"`
+	ORBudget     *float64 `json:"openrouterBudget,omitempty"`
 }
 
 // ProjectInfo is the persisted part of a project (in projects.json). The list
@@ -398,6 +400,12 @@ func (p *Project) SetConfig(partial map[string]any) error {
 		if model, ok := defaults["reviewModel"].(string); ok {
 			d.ReviewModel = model
 		}
+		if effort, ok := defaults["effort"].(string); ok {
+			d.Effort = effort
+		}
+		if effort, ok := defaults["reviewEffort"].(string); ok {
+			d.ReviewEffort = effort
+		}
 		if answer, ok := parseAnswer(defaults["onReady"], AnswerHuman, AnswerReview, AnswerMerge); ok {
 			d.OnReady = answer
 		}
@@ -436,6 +444,8 @@ func (p *Project) defaultsL() map[string]any {
 	return map[string]any{
 		"model":            d.Model,
 		"reviewModel":      d.ReviewModel,
+		"effort":           d.Effort,
+		"reviewEffort":     d.ReviewEffort,
 		"onReady":          string(cmp.Or(d.OnReady, defaultOnReady)),
 		"onAccept":         string(cmp.Or(d.OnAccept, defaultOnAccept)),
 		"reviewLoops":      reviewLoops(d.ReviewLoops),
@@ -456,7 +466,7 @@ func (p *Project) CreateTask(partial map[string]any) (string, error) {
 	// The project's defaults are what a task starts out with; whatever the
 	// partial names wins.
 	d := p.info.Defaults // a copy, so the task's settings are its own
-	info := &TaskInfo{Model: d.Model, ReviewModel: d.ReviewModel, OnReady: d.OnReady, OnAccept: d.OnAccept,
+	info := &TaskInfo{Model: d.Model, ReviewModel: d.ReviewModel, Effort: d.Effort, ReviewEffort: d.ReviewEffort, OnReady: d.OnReady, OnAccept: d.OnAccept,
 		ReviewLoops: copyPtr(d.ReviewLoops), Budget: copyPtr(d.Budget), ORBudget: copyPtr(d.ORBudget), Phase: PhasePlan, PhaseAt: time.Now().UnixMilli()}
 	if _, ok := partial["schedule"]; ok {
 		loops := maxReviewLoops

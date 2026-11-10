@@ -103,12 +103,14 @@ type TaskInfo struct {
 	Description   string         `json:"description"`     // what a plan says: the message the agent is sent in with (see Assign)
 	Draft         string         `json:"draft,omitempty"` // the message being written once the task has left Plan (see setDraftL)
 	Model         string         `json:"model"`
-	OnReady       Answer         `json:"onReady,omitempty"`     // what becomes of work the agent reports ready (see review.go)
-	OnAccept      Answer         `json:"onAccept,omitempty"`    // and of work a review accepts
-	ReviewLoops   *int           `json:"reviewLoops,omitempty"` // how often a review asking for changes may send the work back to the agent; nil is defaultReviewLoops
-	ReviewLoop    int            `json:"reviewLoop,omitempty"`  // how often it has, since the user last said something
-	ReviewModel   string         `json:"reviewModel,omitempty"` // the model the reviewer runs on; empty is the task's own model
-	Review        string         `json:"review,omitempty"`      // the last review's feedback, waiting for the user (see review.go)
+	Effort        string         `json:"effort,omitempty"`       // claude's --effort; empty or "default" is claude's own
+	OnReady       Answer         `json:"onReady,omitempty"`      // what becomes of work the agent reports ready (see review.go)
+	OnAccept      Answer         `json:"onAccept,omitempty"`     // and of work a review accepts
+	ReviewLoops   *int           `json:"reviewLoops,omitempty"`  // how often a review asking for changes may send the work back to the agent; nil is defaultReviewLoops
+	ReviewLoop    int            `json:"reviewLoop,omitempty"`   // how often it has, since the user last said something
+	ReviewModel   string         `json:"reviewModel,omitempty"`  // the model the reviewer runs on; empty is the task's own model
+	ReviewEffort  string         `json:"reviewEffort,omitempty"` // and its effort; empty is the task's own
+	Review        string         `json:"review,omitempty"`       // the last review's feedback, waiting for the user (see review.go)
 	Phase         Phase          `json:"phase"`
 	Started       bool           `json:"started,omitempty"`           // the agent has a session in the task's state dir to pick back up
 	CommitMessage string         `json:"commitMessage,omitempty"`     // what .tps-commit-message says, for the dashboard to show (see commitMessageFile)
@@ -216,6 +218,7 @@ type Task struct {
 	sessionFlight *flight[*Session]
 	sessionBudget *float64 // the budget setting the running agent was started under
 	sessionSystem string   // and the system prompt
+	sessionMind   mind     // and the model and effort
 	sessionReview bool     // and whether it is the reviewer rather than the task's own agent (see review.go)
 	upFlight      *flight[*Container]
 	lastTag       string // image tag of the Containerfile the container was brought up for
@@ -366,6 +369,7 @@ func (t *Task) publishL() {
 	t.pubL("requested", orNil(t.info.Requested))
 	t.pubL("draft", orNil(t.info.Draft))
 	t.pubL("model", t.info.Model)
+	t.pubL("effort", orNil(t.info.Effort))
 	t.pubL("onReady", string(t.onReadyL()))
 	t.pubL("onAccept", string(t.onAcceptL()))
 	if prompt := t.systemPromptL(); prompt != systemPrompt { // the host's (see server.go)
@@ -375,6 +379,8 @@ func (t *Task) publishL() {
 	}
 	t.pubL("reviewLoops", reviewLoops(t.info.ReviewLoops))
 	t.pubL("reviewModel", orNil(t.info.ReviewModel))
+	t.pubL("reviewEffort", orNil(t.info.ReviewEffort))
+	t.pubL("settingsPending", orNil(t.session != nil && t.sessionStaleL())) // see kick
 	t.pubL("review", orNil(t.info.Review))
 	t.pubL("phase", t.info.Phase)
 	t.pubL("phaseAt", t.info.PhaseAt)
@@ -746,6 +752,12 @@ func (t *Task) applyL(partial map[string]any) {
 	}
 	if model, ok := partial["reviewModel"].(string); ok {
 		t.info.ReviewModel = model
+	}
+	if effort, ok := partial["effort"].(string); ok {
+		t.info.Effort = effort
+	}
+	if effort, ok := partial["reviewEffort"].(string); ok {
+		t.info.ReviewEffort = effort
 	}
 	if answer, ok := parseAnswer(partial["onReady"], AnswerHuman, AnswerReview, AnswerMerge); ok {
 		t.info.OnReady = answer
@@ -1165,6 +1177,21 @@ func (t *Task) say(text string) {
 	t.kick(text)
 }
 
+// mindL is the model and effort the task's agent runs on, or its reviewer,
+// whose settings left empty are the agent's.
+func (t *Task) mindL(review bool) mind {
+	if review {
+		return mind{cmp.Or(t.info.ReviewModel, t.info.Model), cmp.Or(t.info.ReviewEffort, t.info.Effort)}
+	}
+	return mind{t.info.Model, t.info.Effort}
+}
+
+// sessionStaleL: the running session's spending cap, system prompt, model or
+// effort, all fixed at its start, are no longer what the task says.
+func (t *Task) sessionStaleL() bool {
+	return !sameBudget(t.sessionBudget, t.info.Budget) || t.sessionSystem != t.systemPromptL() || t.sessionMind != t.mindL(t.sessionReview)
+}
+
 func sameBudget(a, b *float64) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
@@ -1208,12 +1235,13 @@ func (t *Task) kick(text string) {
 	if !compact && t.info.Phase != PhaseMerging && t.info.Phase != PhaseReview {
 		t.setPhaseL(PhaseAgent)
 	}
-	// A running session is the reviewer's or the task's own agent's, with its
-	// spending cap and system prompt fixed at start: any of them changing needs
-	// a new process.
+	// A running session is the reviewer's or the task's own agent's: the other
+	// one taking over needs a new process. So does a session gone stale, but
+	// one mid-turn is steered rather than cut short, and made anew for the
+	// turn after.
 	review := t.info.Phase == PhaseReview
 	old := t.session
-	restart := old != nil && (t.sessionReview != review || !sameBudget(t.sessionBudget, t.info.Budget) || t.sessionSystem != t.systemPromptL())
+	restart := old != nil && (t.sessionReview != review || (!old.TurnActive() && t.sessionStaleL()))
 	t.unlock()
 	go func() {
 		if restart {
@@ -2884,10 +2912,10 @@ func (t *Task) startSession() (*Session, error) {
 		return nil, err
 	}
 	t.lock()
-	t.sessionBudget, t.sessionSystem = t.info.Budget, t.systemPromptL()
 	t.sessionReview = t.info.Phase == PhaseReview
+	t.sessionBudget, t.sessionSystem, t.sessionMind = t.info.Budget, t.systemPromptL(), t.mindL(t.sessionReview)
 	opts := SessionOpts{
-		Container: c, Model: t.info.Model, System: t.systemPromptL(), Resume: t.info.Started,
+		Container: c, Mind: t.sessionMind, System: t.systemPromptL(), Resume: t.info.Started,
 		OnEntry:  t.addEntry,
 		OnUpdate: t.updateEntry,
 		OnTurnStart: func() {
@@ -2900,7 +2928,7 @@ func (t *Task) startSession() (*Session, error) {
 	// The reviewer is the same machinery with another mind in it: its own
 	// system prompt and model, and a session that is nobody's (see review.go).
 	if t.sessionReview {
-		opts.Model, opts.System, opts.Review, opts.Resume = cmp.Or(t.info.ReviewModel, t.info.Model), reviewSystem, true, false
+		opts.System, opts.Review, opts.Resume = reviewSystem, true, false
 	}
 	if t.info.Budget != nil {
 		left := max(0.01, *t.info.Budget-t.info.Spent)

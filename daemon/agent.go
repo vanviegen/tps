@@ -72,7 +72,7 @@ func (s *Session) entry(k string) *ChatEntry {
 
 type SessionOpts struct {
 	Container *Container
-	Model     string
+	Mind      mind
 	System    string
 	Resume    bool    // pick the task's most recent session back up
 	Resumed   float64 // USD claude's running total starts from when it does (see resumedCost)

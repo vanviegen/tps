@@ -33,6 +33,10 @@
   is code-server 4.145.2.
 - Workspaces carry the project checkout's remotes, so a deploy's
   `git push origin` works.
+- Tasks and project defaults set an effort beside each model, for the agent
+  and the reviewer. Changed models, efforts and budgets apply from the
+  agent's next turn, which a note above the chat input says until then; a
+  message sent mid-turn steers the agent rather than restarting it.
 - A task's right-click menu, on the board and in the sidebar, is the same as
   its header menu.
 - Fixes: podman sockets that stop answering are picked anew, toolbox

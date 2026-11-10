@@ -43,7 +43,7 @@ mkdir -p "$CLAUDE_CONFIG_DIR"
 export PATH=/tps/bin:$PATH
 echo $$ >/tmp/tps-agent.pid
 exec /tps/bin/claude -p --input-format stream-json --output-format stream-json --verbose \
-	--dangerously-skip-permissions ${TPS_MODEL:+--model "$TPS_MODEL"} --append-system-prompt "$TPS_SYSTEM" \
+	--dangerously-skip-permissions ${TPS_MODEL:+--model "$TPS_MODEL"} ${TPS_EFFORT:+--effort "$TPS_EFFORT"} --append-system-prompt "$TPS_SYSTEM" \
 	--disallowed-tools "Monitor CronCreate CronDelete CronList ScheduleWakeup Workflow" \
 	${TPS_BUDGET:+--max-budget-usd "$TPS_BUDGET"} $TPS_EXTRA
 `
@@ -119,16 +119,20 @@ func startClaude(opts SessionOpts) (*Session, error) {
 	if opts.Budget != nil {
 		budget = fmt.Sprintf("%.2f", *opts.Budget)
 	}
-	// The default model is claude's own: pass no --model at all.
-	model := opts.Model
+	// The default model and effort are claude's own: pass no flag at all.
+	model, effort := opts.Mind.model, opts.Mind.effort
 	if model == DefaultModel {
 		model = ""
+	}
+	if effort == DefaultModel {
+		effort = ""
 	}
 	env := []string{
 		"TZ=UTC", // the zone claude words its usage-limit resets in; see parseReset
 		"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1",
 		"BASH_MAX_TIMEOUT_MS=3600000", // room for the half hour an OpenRouter request may wait (see orWait)
 		"TPS_MODEL=" + model,
+		"TPS_EFFORT=" + effort,
 		"TPS_SYSTEM=" + opts.System,
 		"TPS_EXTRA=" + extra,
 		"TPS_BUDGET=" + budget,

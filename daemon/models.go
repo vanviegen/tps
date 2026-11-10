@@ -11,6 +11,12 @@ import (
 // DefaultModel is the model a new task starts with: claude's own default.
 const DefaultModel = "default"
 
+// mind is what an agent thinks with: the model, and the effort claude puts in.
+type mind struct{ model, effort string }
+
+// Efforts are the levels claude's --effort takes.
+var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
+
 // FallbackModels is what a task's settings offer until claude has answered,
 // and when asking it fails.
 var FallbackModels = []string{DefaultModel}

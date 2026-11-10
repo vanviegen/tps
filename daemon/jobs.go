@@ -31,7 +31,7 @@ func (p *Project) jobTask(tid string) *Task {
 	if t := p.tasks[tid]; t != nil {
 		return t
 	}
-	info := &TaskInfo{Title: jobTitles[tid], Model: p.info.Defaults.Model, Phase: PhaseMerged, PhaseAt: time.Now().UnixMilli()}
+	info := &TaskInfo{Title: jobTitles[tid], Model: p.info.Defaults.Model, Effort: p.info.Defaults.Effort, Phase: PhaseMerged, PhaseAt: time.Now().UnixMilli()}
 	p.info.Tasks[tid] = info
 	t := newTask(p, tid, info)
 	p.tasks[tid] = t

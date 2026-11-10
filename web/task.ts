@@ -304,8 +304,11 @@ async function changeProject(pid: string, tid: string, $t: any, to: string): Pro
 	route.go(pathTo(to, created.tid as string));
 }
 
-/** What the review model reads as when the task has none of its own. */
-const SAME_MODEL = 'Same as agent model';
+/** What the review model and effort read as when the task has none of its own. */
+const SAME = 'Same as agent';
+
+/** The efforts claude takes, after its own default. */
+const EFFORTS = ['default', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 /**
  * The models to choose from for one of the task's two model settings: what the
@@ -327,32 +330,58 @@ function modelsError(pid: string): string {
 }
 
 /**
+ * A model and its effort, side by side under one label, and under them why
+ * the model list is the built-in one rather than claude's own, if it is.
+ */
+function drawMind(label: string, error: string, model: S.SelectOptions, effort: S.SelectOptions): void {
+	A('div.s-field', () => {
+		A('label text=', label);
+		A('div display:flex gap:$2', () => {
+			S.select({ ...model, attrs: 'flex:1 min-width:0' });
+			S.select({ ...effort, attrs: 'w:11rem', inputAttrs: `title=Effort ${effort.inputAttrs ?? ''}` });
+		});
+		if (error) A('div.s-help text=', error);
+	});
+}
+
+/**
  * Model, what the task waits for, budget, merge behaviour: everything about a
  * task except its phase and title. Changes go through `save`, which either
  * tells the server or (drawn on a project's defaults, which have no task to
  * wait for) sets what the next task there starts with.
  */
 export function drawTaskFields(pid: string, tid: string | undefined, $t: any, save: (patch: object) => void): void {
-	// The two models stand together: a task is often worth a different mind from
-	// the one that reads its work over. Under either, the reason its list is the
-	// built-in one, if it is not claude's own.
-	A(() => S.select({
-		label: 'Agent model', options: () => modelOptions(pid, $t), help: modelsError(pid) || undefined,
+	// The two models stand together, each with its effort beside it: a task is
+	// often worth a different mind from the one that reads its work over.
+	A(() => drawMind('Agent model', modelsError(pid), {
+		options: () => modelOptions(pid, $t),
 		bind: {
 			get value() { return $t.model || 'default'; },
 			set value(model: string) { if (model) save({ model }); },
 		},
+	}, {
+		options: EFFORTS,
+		bind: {
+			get value() { return $t.effort || 'default'; },
+			set value(effort: string) { if (effort) save({ effort }); },
+		},
 	}));
-	// The review model's first option is no model at all: the reviewer then runs
-	// on whatever the agent does, which is what a task starts out with. It is
-	// stored as no model, and set in italics apart from the ones that name one.
-	A(() => S.select({
-		label: 'Review model', options: () => [SAME_MODEL, ...modelOptions(pid, $t, 'reviewModel')],
-		help: modelsError(pid) || undefined,
+	// The reviewer's first options are no model or effort at all: it then runs
+	// on whatever the agent does, which is what a task starts out with. That is
+	// stored as nothing, and set in italics apart from the ones that name one.
+	A(() => drawMind('Review model', modelsError(pid), {
+		options: () => [SAME, ...modelOptions(pid, $t, 'reviewModel')],
 		inputAttrs: $t.reviewModel ? undefined : 'font-style:italic',
 		bind: {
-			get value() { return $t.reviewModel || SAME_MODEL; },
-			set value(model: string) { if (model) save({ reviewModel: model === SAME_MODEL ? '' : model }); },
+			get value() { return $t.reviewModel || SAME; },
+			set value(model: string) { if (model) save({ reviewModel: model === SAME ? '' : model }); },
+		},
+	}, {
+		options: [SAME, ...EFFORTS],
+		inputAttrs: $t.reviewEffort ? undefined : 'font-style:italic',
+		bind: {
+			get value() { return $t.reviewEffort || SAME; },
+			set value(effort: string) { if (effort) save({ reviewEffort: effort === SAME ? '' : effort }); },
 		},
 	}));
 	// Not for a task on its way out or put away, nor for a scheduled one: none
@@ -360,10 +389,10 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	A(() => {
 		if (!tid || isFinished($t) || isSchedule($t) || $t.phase === 'merging' || $t.phase === 'muted') return;
 		S.autocomplete({
-			label: 'Wait for', multi: true, allowCustom: false,
+			label: () => tipped('Wait for', 'Until these are all done or deleted, no agent works on this task — one at work is stopped — and what you send is held back. '
+				+ 'Then the task is brought onto the latest branch, with their work in it, and the agent goes on with what you sent.'),
+			multi: true, allowCustom: false,
 			placeholder: 'Tasks to wait for…',
-			help: 'Until these are all done or deleted, no agent works on this task — one at work is stopped — and what you send is held back. '
-				+ 'Then the task is brought onto the latest branch, with their work in it, and the agent goes on with what you sent.',
 			// The tasks it already waits for stay listed even when done, so their
 			// chips read as names rather than as numbers. By phase, as the board
 			// has them, then by name.
@@ -382,8 +411,8 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 			},
 		});
 	});
-	const budget = (field: string, label: string, placeholder: string, help: string) => S.textline({
-		label, type: 'number', inputAttrs: 'step=0.01', placeholder, help,
+	const budget = (field: string, label: string, placeholder: string, tip: string) => S.textline({
+		label: () => tipped(label, tip), type: 'number', inputAttrs: 'step=0.01', placeholder,
 		value: A.peek($t, field) != null ? String(A.peek($t, field)) : '',
 		input: debounce(600, (e: Event) => save({ [field]: (e.target as HTMLInputElement).value })),
 	});
@@ -404,10 +433,9 @@ export function drawTaskFields(pid: string, tid: string | undefined, $t: any, sa
 	// the browser may not allow notifications — and the box then says so by
 	// going back to where it was.
 	S.checkbox({
-		label: 'Ready notifications',
-		help: tid
+		label: () => tipped('Ready notifications', tid
 			? 'A desktop notification when the task comes back to you. This browser only.'
-			: 'On for the tasks made here from now on. This browser only.',
+			: 'On for the tasks made here from now on. This browser only.'),
 		checked: A.peek(() => notifies(pid, tid)),
 		change: async (e: Event) => {
 			await toggleNotifies(pid, tid);
@@ -452,6 +480,16 @@ function drawReadyFields($t: any, save: (patch: object) => void, scratch: boolea
 		set value(onAccept: string) { if (onAccept) save({ onAccept }); },
 	});
 }
+
+/**
+ * A field's label, saying what the field is about in its tooltip rather than
+ * under it, and underlined in dots to show it has one.
+ */
+function tipped(label: string, tip: string): void {
+	A(`span ${tipMark} text=`, label, () => S.addTooltip({ tip }));
+}
+
+const tipMark = A.insertCss('text-decoration: underline dotted $s-muted; text-underline-offset:0.25em; cursor:help;');
 
 /**
  * One of the settings above: its choices side by side, answered in a single
@@ -837,6 +875,10 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 	};
 	const bar = A('div display:flex flex-direction:column gap:$2', () => {
 		drawBusyLine(pid, tid, $t);
+		// The agent runs on the settings it started with (see kick in daemon/task.go).
+		A(() => {
+			if ($t.settingsPending) A('small color:$s-muted text=', 'Changed settings apply from the agent\'s next turn.');
+		});
 		drawRefs(pid, tid, () => $text.value, ref => removeRef(area(), ref));
 		S.textarea({
 			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh',
