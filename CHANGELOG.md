@@ -7,45 +7,29 @@
 - Merges go through a queue per project, one at a time: rebased onto the
   latest branch, tested, and sent back to the agent with the test's output
   when it fails. Queued cards can be reordered, and the test skipped.
-- A forwarded port opens in a tab of the task's VS Code once something
-  listens on it, besides its button above the chat.
-- Agents show the user a note at the bottom of the chat with
-  `show-user-text`; `ask-human` is gone. The guest tool lives at
-  `/tps/guest-tool`, and the merge gate is `LABEL tps.test`.
 - A merged task carries on in a "Follow-up" task, so every task is one commit,
-  and tasks are named after their commit message.
-- Agents can now request to continue running after their work so far has been
-  merged (and deployed).
-- Cards and the task's top bar show the lines its work adds and removes; the
-  context gauge moved from the composer to the top bar, and a card ready to
-  merge has a ✔ after its title.
-- A line above the chat input says what goes on in the task, and for how
-  long ("Thinking · 96s"): Initializing, Thinking, Tooling, Reviewing,
-  Testing or Merging.
-- A scheduled run's title says, on hover, which scheduled task started it and
-  when.
-- `await-task` prints the state a task is in, among them merging, merged and
-  deployed. Automated reviews see the agent's turn summaries between the
-  user's messages.
+  named after its commit message. Agents can ask to carry on once their work
+  is merged (and deployed).
+- Tasks run on Claude Code alone; pi support is removed.
+- Tasks and project defaults set an effort beside each model, for the agent
+  and the reviewer. Changed settings apply from the agent's next turn, and a
+  message sent mid-turn steers the agent rather than restarting it.
 - "Wait for" replaces "Start after": it also holds back a running task until
   the tasks it waits for are done.
-- Tasks run on Claude Code alone, now 2.1.322; pi support is removed. VS Code
-  is code-server 4.145.2.
-- Workspaces carry the project checkout's remotes, so a deploy's
-  `git push origin` works.
-- Tasks and project defaults set an effort beside each model, for the agent
-  and the reviewer. Changed models, efforts and budgets apply from the
-  agent's next turn, which a note above the chat input says until then; a
-  message sent mid-turn steers the agent rather than restarting it.
-- A task's right-click menu, on the board and in the sidebar, is the same as
-  its header menu.
-- Fixes: podman sockets that stop answering are picked anew, toolbox
-  downloads retry, terminal output in log details plays out as in service
-  consoles, SSH hosts whose home directory has a space in it work, an
-  agent asking for its OpenRouter key again takes from the task's OpenRouter
-  budget only what the key lacks, and the cost of the first turn after an
-  agent restarts is that turn's alone, not counted again in what the task
-  spent.
+- A line above the chat input says what the task is busy with, and for how
+  long. Cards and the task's top bar show the lines its work changes, and the
+  top bar the context gauge.
+- A forwarded port opens in a tab of the task's VS Code once something
+  listens on it.
+- The merge gate in `Containerfile.dev` is renamed from `LABEL tps.check` to
+  `LABEL tps.test`.
+- Automated reviews see the agent's turn summaries between the user's
+  messages.
+- A task's right-click menu, on the board and in the sidebar, is its header
+  menu.
+- Fixes: flaky podman sockets, toolbox downloads, SSH hosts with a space in
+  their home directory, OpenRouter budgets and turn costs, and deploys'
+  `git push origin`.
 
 ## 0.5.0
 

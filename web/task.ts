@@ -593,19 +593,23 @@ function drawScheduleFields($t: any, save: (patch: object) => void): void {
 
 /**
  * What sits above the log, on one line: the project, the task's title — in
- * full, with what it was asked, in its tooltip — a button per service running
- * or recently ended and per port something listens on, the merge button while
- * the work is ready to merge, and the menu of everything else.
+ * full, with what it was asked, in its tooltip — and the lines its work
+ * changed, both names giving way where room runs short (the title first); a
+ * button per service running or recently ended and per port something listens
+ * on; then the agent's context ring, the merge button while the work is ready
+ * to merge, and the menu of everything else.
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
 	A('div display:flex align-items:center gap:0.4rem min-width:0', () => {
-		A(`b flex-shrink:0 max-width:40% ${ELLIPSIS} text=`, projectName($state.projects[pid] ?? {}));
+		A(`b min-width:0 max-width:40% ${ELLIPSIS} text=`, projectName($state.projects[pid] ?? {}));
 		A(`span flex:1 min-width:0 ${ELLIPSIS} fg:$s-muted`, () => {
 			A(() => A('text=', taskTitle($t)));
 			S.addTooltip({ tip: () => A('div white-space:pre-wrap max-width:32rem max-height:60vh overflow:hidden text=',
 				[taskTitle($t), runText(pid, $t), ($t.description ?? '').trim()].filter(Boolean).join('\n\n')) });
 		});
 		drawLineCounts($t);
+		drawServiceButtons(pid, tid, $t);
+		drawPortButtons($t);
 		// How full the agent's window is, and the button that empties it. Nothing
 		// is measured before the agent has run. A finished task shows the window it
 		// was left with, and compacting it picks the task back up (a merged one, in
@@ -620,8 +624,6 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 				click: () => void cmd('chat', { pid, tid, text: '/compact' }).then(to => follow(pid, tid, to)),
 			});
 		});
-		drawServiceButtons(pid, tid, $t);
-		drawPortButtons($t);
 		A(() => {
 			if (!canMerge(pid, $t)) return;
 			S.iconButton({ icon: gitMerge, ariaLabel: 'Merge…', attrs: 'fg:$s-success', key: 'mod+shift+g',
