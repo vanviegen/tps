@@ -74,7 +74,8 @@ type SessionOpts struct {
 	Container *Container
 	Model     string
 	System    string
-	Resume    bool // pick the task's most recent session back up
+	Resume    bool    // pick the task's most recent session back up
+	Resumed   float64 // USD claude's running total starts from when it does (see resumedCost)
 	// Review: this session is the reviewer's rather than the task's own (see
 	// review.go). It starts blank and is never written down, so the task's own
 	// conversation stays the one a later Resume picks back up, and what it
@@ -106,7 +107,7 @@ type Session struct {
 	opts       SessionOpts
 	exited     chan struct{}
 
-	costReported float64               // cumulative session cost of the last result event
+	costReported float64               // claude's running total as of the last result event
 	pending      map[string]*ChatEntry // tool calls awaiting their result
 	context      int64                 // tokens the last request sent, which is what claude currently remembers
 	summary      int64                 // tokens the turn under way summarised the conversation down to (see TurnEnd)
@@ -140,7 +141,7 @@ func newSession(opts SessionOpts, env []string) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	s := &Session{cmd: cmd, stdin: stdin, stdout: stdout, opts: opts, exited: make(chan struct{}), pending: map[string]*ChatEntry{}}
+	s := &Session{cmd: cmd, stdin: stdin, stdout: stdout, opts: opts, exited: make(chan struct{}), pending: map[string]*ChatEntry{}, costReported: opts.Resumed}
 	go func() {
 		buf := make([]byte, 64<<10)
 		for {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -82,6 +83,25 @@ func claudeMounts(dir string) []string {
 // They are append-only, so a save point is a length in each of them (see
 // mark.go).
 var claudeTranscripts = filepath.Join("projects", "*", "*.jsonl")
+
+// costStateRe finds claude's running total in a transcript: a claude that
+// exits cleanly writes it there, and one picking the session back up with
+// --continue starts from the last one written, so total_cost_usd includes it.
+// A claude that was killed wrote none.
+var costStateRe = regexp.MustCompile(`"type":"cost-state"[^\n]*?"totalCostUSD":([0-9.eE+-]+)`)
+
+// resumedCost is what a resumed claude counts as spent already. A task has
+// one conversation, so one transcript.
+func resumedCost(dir string) (cost float64) {
+	paths, _ := filepath.Glob(filepath.Join(dir, claudeTranscripts))
+	for _, p := range paths {
+		raw, _ := os.ReadFile(p)
+		if m := costStateRe.FindAllSubmatch(raw, -1); m != nil {
+			cost, _ = strconv.ParseFloat(string(m[len(m)-1][1]), 64)
+		}
+	}
+	return cost
+}
 
 // startClaude starts claude in a task's container, its events turned into
 // what opts asks for.

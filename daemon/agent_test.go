@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +66,39 @@ func TestSessionEvents(t *testing.T) {
 	}
 	if got := oneLine(strings.Repeat("ab ", 100), 20); len([]rune(got)) != 20 || !strings.HasSuffix(got, "…") {
 		t.Errorf("oneLine: %q", got)
+	}
+}
+
+// A resumed claude reports what its transcript last saved on top of what it
+// spends itself: only the latter is the turn's.
+func TestResumedCost(t *testing.T) {
+	dir := t.TempDir()
+	if got := resumedCost(dir); got != 0 {
+		t.Errorf("no transcript: %v", got)
+	}
+	project := filepath.Join(dir, "projects", "-work")
+	_ = os.MkdirAll(project, 0o755)
+	_ = os.WriteFile(filepath.Join(project, "s.jsonl"), []byte(`{"type":"cost-state","totalCostUSD":1.25}
+{"type":"user","message":"totalCostUSD"}
+{"type":"cost-state","sessionId":"s","totalCostUSD":2.5,"modelUsage":{}}
+{"type":"user"}
+`), 0o644)
+	resumed := resumedCost(dir)
+	if resumed != 2.5 {
+		t.Errorf("resumed cost: %v", resumed)
+	}
+
+	var ends []TurnEnd
+	s := &Session{pending: map[string]*ChatEntry{}, costReported: resumed, opts: SessionOpts{
+		OnEntry: func(*ChatEntry) {}, OnTurnEnd: func(e TurnEnd) { ends = append(ends, e) },
+	}}
+	for _, line := range []string{`{"type":"result","total_cost_usd":2.75}`, `{"type":"result","total_cost_usd":3}`} {
+		var ev event
+		_ = json.Unmarshal([]byte(line), &ev)
+		s.onEvent(&ev)
+	}
+	if len(ends) != 2 || ends[0].Cost != 0.25 || ends[1].Cost != 0.25 {
+		t.Errorf("turn costs: %+v", ends)
 	}
 }
 

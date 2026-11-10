@@ -2911,6 +2911,9 @@ func (t *Task) startSession() (*Session, error) {
 		t.p.m.saveL()
 	}
 	t.unlock()
+	if opts.Resume {
+		opts.Resumed = resumedCost(t.claudeDir())
+	}
 	var s *Session
 	ready := make(chan struct{})
 	opts.OnExit = func(code int, errTail string) {
