@@ -9,9 +9,8 @@ import { drawCode } from './code.ts';
 import { $state, chatLog, watch } from './conn.ts';
 import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, toggleNotifies } from './notify.ts';
-import { drawTaskPages } from './pages.ts';
 import { sortedProjects } from './projects.ts';
-import { drawLog, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
+import { drawLog, drawPortButtons, drawServiceButtons, hasServices, portItems, serviceItems } from './services.ts';
 import { branchOf, canMerge, cmd, contextSlices, debounce, drawContextRing, drawContextTip, drawLineCounts, drawStrip, ELLIPSIS, hasWorkspace, hostName, isFinished, isJob, isSchedule, pathTo, projectHost, projectName, runText, seeText, selection, PHASE_ICONS, PHASE_LABELS, PHASES, taskActivity, taskBusy, taskName, taskTitle, waitingFor, waits, waitsForHuman, WEEKDAYS, type Phase } from './util.ts';
 
 /**
@@ -557,7 +556,7 @@ function drawScheduleFields($t: any, save: (patch: object) => void): void {
 /**
  * What sits above the log, on one line: the project, the task's title — in
  * full, with what it was asked, in its tooltip — a button per service running
- * or recently ended, the merge button while
+ * or recently ended and per port something listens on, the merge button while
  * the work is ready to merge, and the menu of everything else.
  */
 function drawTaskHeader(pid: string, tid: string, $t: any): void {
@@ -584,6 +583,7 @@ function drawTaskHeader(pid: string, tid: string, $t: any): void {
 			});
 		});
 		drawServiceButtons(pid, tid, $t);
+		drawPortButtons($t);
 		A(() => {
 			if (!canMerge(pid, $t)) return;
 			S.iconButton({ icon: gitMerge, ariaLabel: 'Merge…', attrs: 'fg:$s-success', key: 'mod+shift+g',
@@ -878,12 +878,12 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
  * arrival (see useTask) asks the daemon for.
  */
 export function drawTaskCode(pid: string, tid: string, $t: any, left: string): void {
-	drawTaskPages(`${pid}/${tid}`, $t, left, top => {
+	A(() => {
 		if ($t.codePort) {
 			// code-server's remote authority is the Host header, which the proxy
 			// passes on unchanged. A restarted code-server has a new start time,
 			// and the frame is reloaded for it.
-			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left, top);
+			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left);
 		} else if ($t.status === 'error' || $t.codeError) {
 			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
 				A('p fg:$s-danger text=', $t.status === 'error' ? `Workspace error: ${$t.statusDetail || 'unknown'}` : `VS Code failed to start: ${$t.codeError}`);

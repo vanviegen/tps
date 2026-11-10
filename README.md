@@ -79,8 +79,9 @@ that need `docker` or `docker compose` (mostly) just work.
 <tr><td width="320"><img src="doc/features/services.png" width="320" alt=""></td><td>
 
 **Services and ports.** Dev servers and test runs are named services you can
-start, stop and read the output of. The app the agent is working on is a tab
-beside VS Code, as is any page the agent wants you to look at.
+start, stop and read the output of. The app the agent is working on is a
+button above the chat that opens it in your browser, and opens in a tab of VS
+Code by itself once it is up.
 
 </td></tr>
 <tr><td width="320"><img src="doc/features/revert.png" width="320" alt=""></td><td>

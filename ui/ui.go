@@ -13,6 +13,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -223,15 +224,33 @@ func (u *UI) serveWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var codeRoute = regexp.MustCompile(`^/code/([^/]+)/([^/]+)(/.*)?$`)
+var (
+	codeRoute = regexp.MustCompile(`^/code/([^/]+)/([^/]+)(/.*)?$`)
+	portRoute = regexp.MustCompile(`^/port/(\d+)(/.*)$`)
+)
 
 // serveCode proxies /code/<pid>/<tid>/... to the task's code-server, and
 // /code/<pid>/-/... to the one on the project's own checkout. Task ids are
-// numbers, so "-" can never be one.
+// numbers, so "-" can never be one. A port of the task's container that VS
+// Code opens, at /code/<pid>/<tid>/port/<port>/... (see daemon.codeScript), is
+// sent on to where this browser reaches it, as the dashboard's port buttons do,
+// without the query: that is VS Code's own, and no business of the app's.
 func (u *UI) serveCode(w http.ResponseWriter, r *http.Request) {
 	m := codeRoute.FindStringSubmatch(r.URL.Path)
 	if m == nil {
 		http.NotFound(w, r)
+		return
+	}
+	if pm := portRoute.FindStringSubmatch(m[3]); pm != nil {
+		ports, _ := u.hub.Get("projects", m[1], "tasks", m[2], "ports").([]any)
+		for _, p := range ports {
+			if p, _ := p.(map[string]any); fmt.Sprint(p["port"]) == pm[1] {
+				to := url.URL{Scheme: "http", Host: net.JoinHostPort((&url.URL{Host: r.Host}).Hostname(), fmt.Sprint(p["host"])), Path: pm[2]}
+				http.Redirect(w, r, to.String(), http.StatusFound)
+				return
+			}
+		}
+		http.Error(w, "Port "+pm[1]+" is not forwarded: Containerfile.dev needs an EXPOSE line for it.", http.StatusNotFound)
 		return
 	}
 	l, _, err := u.resolve(m[1])

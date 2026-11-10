@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,6 +99,24 @@ func TestSSHLoginWaitsOnTheHost(t *testing.T) {
 	prompt.Run = "r3"
 	if reply := u.askpass.answer(u, prompt); !reply.Cancel {
 		t.Errorf("the refused answer survived into the next ssh process: %+v", reply)
+	}
+}
+
+// A port VS Code opens is sent on to where this browser reaches it, on the
+// host it reached the dashboard by, leaving VS Code's query behind; one the
+// container does not expose is not.
+func TestCodePortRedirect(t *testing.T) {
+	ports := []any{map[string]any{"port": float64(3000), "host": float64(41234), "live": true}}
+	u := &UI{hub: hub.New(map[string]any{"projects": map[string]any{"h1:p": map[string]any{"tasks": map[string]any{"7": map[string]any{"ports": ports}}}}})}
+	w := httptest.NewRecorder()
+	u.serveCode(w, httptest.NewRequest("GET", "http://box.lan:8080/code/h1:p/7/port/3000/app?id=1&vscodeBrowserReqId=2", nil))
+	if to := w.Header().Get("location"); to != "http://box.lan:41234/app" {
+		t.Errorf("port 3000 was sent to %q", to)
+	}
+	w = httptest.NewRecorder()
+	u.serveCode(w, httptest.NewRequest("GET", "http://box.lan:8080/code/h1:p/7/port/4000/", nil))
+	if w.Code != 404 {
+		t.Errorf("a port the container does not expose answered %d", w.Code)
 	}
 }
 

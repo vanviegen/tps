@@ -7,8 +7,8 @@
 - Merges go through a queue per project, one at a time: rebased onto the
   latest branch, tested, and sent back to the agent with the test's output
   when it fails. Queued cards can be reordered, and the test skipped.
-- A task's right column has a tab beside VS Code for each forwarded port that
-  answers HTTP, which can be reloaded or pointed at another URL.
+- A forwarded port opens in a tab of the task's VS Code once something
+  listens on it, besides its button above the chat.
 - Agents show the user a note at the bottom of the chat with
   `show-user-text`; `ask-human` is gone. The guest tool lives at
   `/tps/guest-tool`, and the merge gate is `LABEL tps.test`.

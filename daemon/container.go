@@ -86,9 +86,9 @@ func seedVscodeDir(dir string) error {
 
 // vscodeDefaults go into settings that don't set them: a dark theme in the
 // dashboard's colours, a terminal instead of the welcome screen when nothing is
-// left open, no secondary side bar, no port-forward popups (the ports the
-// Containerfile exposes are what TPS forwards), and none of the editor's own AI
-// features, as the task's agent is what edits this checkout.
+// left open, no secondary side bar, no port-forward popups (a task's container
+// has VS Code open the ports it exposes, see codeSettings), and none of the
+// editor's own AI features, as the task's agent is what edits this checkout.
 var vscodeDefaults = map[string]any{
 	"workbench.colorTheme":                         "Dark Modern",
 	"workbench.colorCustomizations":                map[string]any{"[Dark Modern]": tpsColors},
@@ -404,6 +404,10 @@ func ensureContainer(o containerOpts) (*Container, error) {
 		// Read-only: what the user attached is theirs, and the agent only reads it.
 		"-v", o.uploadsDir + ":" + uploadsMount + ":ro",
 		"-v", vscode + ":/vscode",
+		// VS Code's machine settings, which StartCode writes, are the container's
+		// own. The mode is spelled out, as a tmpfs otherwise takes that of the
+		// directory under it, which an earlier container left owned by root.
+		"--tmpfs", "/vscode/Machine:mode=1777",
 		"-w", "/work",
 	}
 	if err := os.MkdirAll(o.claudeDir, 0o755); err != nil {
@@ -608,7 +612,7 @@ func volumes(mounts []Mount, checkout, image string) ([]string, error) {
 // existing containers are recycled instead of reused. The host's files it
 // mounts are part of it where there are any.
 func containerConfig(image, toolbox string, caches []string, mounts []Mount) string {
-	fields := []any{16, image, filepath.Base(toolbox), caches}
+	fields := []any{18, image, filepath.Base(toolbox), caches}
 	if len(mounts) > 0 {
 		fields = append(fields, mounts)
 	}
@@ -708,10 +712,29 @@ func (c *Container) waitReady() error {
 // terminals in VS Code can run claude too. The explicit --port keeps it from
 // picking up a $PORT the image may set for whatever the task itself serves.
 // Its pid is written down first (exec keeps it), for termBusyScript, and its
-// output kept, for StartCode to tell why it did not come up.
-var codeScript = fmt.Sprintf("export PATH=/tps/bin:$PATH; echo $$ >%[2]s; exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d"+
+// output kept, for StartCode to tell why it did not come up. Its first
+// argument is VS Code's machine settings (see codeSettings), and a port VS
+// Code forwards it opens at ./port/<port>/ under its own address, which the
+// dashboard sends on to wherever that port is forwarded (see ui.serveCode).
+var codeScript = fmt.Sprintf("printf %%s \"$1\" >/vscode/Machine/settings.json; export PATH=/tps/bin:$PATH VSCODE_PROXY_URI='./port/{{port}}/'; echo $$ >%[2]s;"+
+	" exec code-server --bind-addr 0.0.0.0:%[1]d --port %[1]d"+
 	" --auth none --disable-workspace-trust --user-data-dir /vscode --extensions-dir /vscode/extensions --session-socket %[3]s /work >%[4]s 2>&1",
 	codePort, codePidFile, codeSocket, codeLog)
+
+// codeSettings has VS Code open each port the container exposes in a tab of
+// its own once something listens there, and leave every other port alone.
+func codeSettings(ports []PortMap) string {
+	attrs := map[string]any{}
+	for _, p := range ports {
+		attrs[strconv.Itoa(p.Port)] = map[string]string{"onAutoForward": "openPreview"}
+	}
+	out, _ := json.Marshal(map[string]any{
+		"remote.autoForwardPorts":     true,
+		"remote.portsAttributes":      attrs,
+		"remote.otherPortsAttributes": map[string]string{"onAutoForward": "ignore"},
+	})
+	return string(out)
+}
 
 const (
 	codePidFile = "/tmp/.tps-code.pid"
@@ -751,7 +774,7 @@ func (c *Container) StartCode() error {
 	if codeAlive(c.CodePort) {
 		return nil
 	}
-	if _, err := runCmd([]string{"podman", "exec", "-d", c.Name, "sh", "-c", codeScript}, RunOpts{}); err != nil {
+	if _, err := runCmd([]string{"podman", "exec", "-d", c.Name, "sh", "-c", codeScript, "sh", codeSettings(c.Ports)}, RunOpts{}); err != nil {
 		return err
 	}
 	// It answers within a second or so: asked often, so VS Code shows as soon as it can.

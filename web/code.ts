@@ -1,15 +1,14 @@
 import A from 'aberdeen';
 
 /**
- * VS Code, running in a container, over the right part of the window — and
- * likewise the pages a task's container puts up beside it (see pages.ts).
+ * VS Code, running in a container, over the right part of the window.
  *
  * The iframes are fixed-positioned children of the body rather than part of
  * the column they stand in: moving an iframe in the DOM reloads it, and a
  * code-server reload costs seconds. Switching away only hides one, and it is
  * kept around (at most `MAX`, for at most `TTL`), so switching back is
  * instant. Where its left edge is — after the sidebar and the chat column,
- * or after the sidebar alone — and its top is the caller's to say.
+ * or after the sidebar alone — is the caller's to say.
  */
 
 A.insertGlobalCss({
@@ -17,10 +16,10 @@ A.insertGlobalCss({
 	// intrinsic 300x150, so its size is spelled out against the viewport. The
 	// easing is what makes it slide over as the columns around it change; a
 	// drag of the split (see split.ts) turns it off, so the frame keeps up.
-	'.tps-code': 'position:fixed border:0; transition: left 0.15s, width 0.15s;',
+	'.tps-code': 'position:fixed top:0 h:100% border:0; transition: left 0.15s, width 0.15s;',
 });
 
-const MAX = 4;
+const MAX = 3;
 const TTL = 10 * 60_000;
 
 interface View {
@@ -36,8 +35,8 @@ interface View {
 const views: View[] = [];
 
 /**
- * Show VS Code (or a page) at `src`, for as long as the calling reactive scope
- * lives, with its left edge at `left` and its top at `top` (CSS lengths).
+ * Show VS Code at `src`, for as long as the calling reactive scope lives,
+ * with its left edge at `left` (a CSS length).
  *
  * `gen` identifies the code-server behind `src`: its port and start time, as
  * a restart changes the latter. VS Code cannot reconnect across one (it puts
@@ -45,7 +44,7 @@ const views: View[] = [];
  * one is reloaded: while the workspace is still down that lands on the proxy's
  * "not running" page, which retries by itself.
  */
-export function drawCode(key: string, src: string, gen: unknown, left: string, top = '0px'): void {
+export function drawCode(key: string, src: string, gen: unknown, left: string): void {
 	let view = views.find(v => v.key === key);
 	if (!view) {
 		// Room first: the view unused for the longest goes.
@@ -69,8 +68,6 @@ export function drawCode(key: string, src: string, gen: unknown, left: string, t
 	const shown = view;
 	shown.el.style.left = left;
 	shown.el.style.width = `calc(100% - ${left})`;
-	shown.el.style.top = top;
-	shown.el.style.height = `calc(100% - ${top})`;
 	shown.uses++;
 	sync();
 	// Ctrl-P and ctrl-shift-P are VS Code's palettes wherever the focus is: the
@@ -79,11 +76,10 @@ export function drawCode(key: string, src: string, gen: unknown, left: string, t
 	// as this frame is up, the listener going with the scope that showed it.
 	A.mount(document.body, () => A('keydown=', (e: KeyboardEvent) => {
 		if (e.key.toLowerCase() !== 'p' || !(e.ctrlKey || e.metaKey)) return;
-		const win = shown.el.contentWindow as any;
-		try { win.document; } catch { return; } // a page of another origin: not VS Code
 		e.preventDefault();
 		reached = true;
 		shown.el.focus();
+		const win = shown.el.contentWindow as any;
 		win.document.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', e));
 	}));
 	A.clean(() => {
