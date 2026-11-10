@@ -178,6 +178,7 @@ func (t *Task) mergeHead() (handed bool, err error) {
 			t.lock()
 			skip := t.info.SkipTests
 			t.testing = !skip
+			t.pubL("testing", orNil(t.testing))
 			t.unlock()
 			why, log := "", ""
 			if skip {
@@ -188,6 +189,7 @@ func (t *Task) mergeHead() (handed bool, err error) {
 			}
 			t.lock()
 			t.testing = false
+			t.pubL("testing", nil)
 			skip = t.info.SkipTests
 			t.unlock()
 			switch {

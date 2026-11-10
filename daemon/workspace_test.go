@@ -45,13 +45,26 @@ func testTask(t *testing.T) (*Task, string) {
 	task := newTask(p, "1", &TaskInfo{Phase: PhaseAgent})
 	p.tasks[task.tid] = task
 	// A test's directories go the way a task's do (see dropWorkspace): with
-	// the workspaces held, so that no refresh still running reads one away.
+	// the workspaces and chat logs held, so that no refresh still running
+	// reads one away and no note is written into one, once the work going on
+	// in the background (a container failing to come up, say) is over.
 	t.Cleanup(func() {
 		m.mu.Lock()
 		tasks := p.taskListL()
 		m.mu.Unlock()
-		for _, task := range tasks {
-			task.cloneMu.Lock()
+		for {
+			for _, task := range tasks {
+				task.cloneMu.Lock()
+				task.chatMu.Lock()
+			}
+			if m.busy.Load() == 0 {
+				return
+			}
+			for _, task := range tasks {
+				task.chatMu.Unlock()
+				task.cloneMu.Unlock()
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	})
 	return task, origin

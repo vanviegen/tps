@@ -14,7 +14,30 @@ func TestMain(m *testing.M) {
 	if handled, code := GuestToolInvoked(os.Args); handled {
 		os.Exit(code)
 	}
-	os.Exit(m.Run())
+	// No test is to reach what the machine has: a real podman would bring a
+	// task's container up, and the toolbox would be downloaded for its agent
+	// to run for real. So podman is a stub that fails, and HOME is a fresh one
+	// whose toolbox is there, but empty.
+	dir, err := os.MkdirTemp("", "tps-test-")
+	if err != nil {
+		panic(err)
+	}
+	bin := filepath.Join(dir, "bin")
+	os.Setenv("HOME", filepath.Join(dir, "home"))
+	os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	err = os.MkdirAll(filepath.Join(toolboxDir(), "bin"), 0o755)
+	if err == nil {
+		err = os.MkdirAll(bin, 0o755)
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\necho 'no podman in tests' >&2\nexit 125\n"), 0o755)
+	}
+	if err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func TestGuestTool(t *testing.T) {

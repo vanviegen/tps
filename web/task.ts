@@ -6,7 +6,7 @@ import { acceptFiles, attachButton, drawRefs, removeRef, uploadFiles } from './a
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
 import { drawCode } from './code.ts';
-import { $state, watch } from './conn.ts';
+import { $state, chatLog, watch } from './conn.ts';
 import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, toggleNotifies } from './notify.ts';
 import { drawTaskPages } from './pages.ts';
@@ -744,15 +744,50 @@ function openRouterDialog(pid: string, tid: string, $t: any): void {
 	}}).then(() => asking.delete(key));
 }
 
-// While something goes on in the task (see taskBusy), colour flows around the
-// composer's border: this is where the eye waits for the agent.
-const working = A.insertCss({
-	'& .s-input, & .s-input:focus-visible': 'border-color: transparent; animation: tps-flow 3s linear infinite; '
-		+ 'background: linear-gradient(color-mix(in oklab, $s-bg, $s-text 4%), color-mix(in oklab, $s-bg, $s-text 4%)) padding-box, '
-		+ 'linear-gradient(90deg, $s-primary, $s-link, $s-warning, $s-primary) 0 0 / 200% 100% border-box;',
-	'& .s-input:not(:focus-visible)': 'box-shadow: 0 0 8px -2px color-mix(in oklab, $s-link, transparent 40%);',
+/**
+ * What goes on in the task while it moves by itself (see taskBusy), in a
+ * word, or nothing: the container coming up, the review, the merge's test or
+ * the rest of the merge, or the agent — at a tool until its result is in, and
+ * thinking otherwise. Waiting, for other tasks or for claude's usage limit, is
+ * none of these.
+ */
+function busyText(pid: string, tid: string, $t: any): string | undefined {
+	if (!taskBusy($t) || $t.limitUntil || waitingFor(pid, $t).length) return;
+	if ($t.status === 'building' || $t.status === 'starting') return 'Initializing';
+	if ($t.phase === 'review') return 'Reviewing';
+	if ($t.testing) return 'Testing';
+	if ($t.phase === 'merging' && !$t.working) return 'Merging';
+	const last = chatLog(pid, tid).at(-1)?.at(-1);
+	return last?.k === 'tool' && last.res === undefined ? 'Tooling' : 'Thinking';
+}
+
+// A light sweeping through the text, as through a line being written.
+const shimmer = A.insertCss({
+	'&': 'color: transparent; background: linear-gradient(90deg, $s-muted 40%, $s-text 50%, $s-muted 60%) 0 0 / 300% 100%; '
+		+ 'background-clip: text; animation: tps-shimmer 2s linear infinite;',
 });
-A.insertGlobalCss({ '@keyframes tps-flow': { to: 'background-position: 0 0, 200% 0;' } });
+A.insertGlobalCss({ '@keyframes tps-shimmer': { from: 'background-position: 100% 0', to: 'background-position: 0 0' } });
+
+/**
+ * Above the composer, where the eye waits for the agent: what goes on in the
+ * task (see busyText), and for how long it has, counted from when this
+ * dashboard first saw it.
+ */
+function drawBusyLine(pid: string, tid: string, $t: any): void {
+	const $text = A.derive(() => busyText(pid, tid, $t));
+	A(() => {
+		const text = $text.value;
+		if (!text) return;
+		const start = Date.now();
+		const $secs = A.proxy({ n: 0 });
+		const timer = setInterval(() => { $secs.n = Math.floor((Date.now() - start) / 1000); }, 1000);
+		A.clean(() => clearInterval(timer));
+		A('small', () => {
+			A(`span ${shimmer} text=`, text);
+			A(() => A('text=', ` · ${$secs.n}s`));
+		});
+	});
+}
 
 function drawInputBar(pid: string, tid: string, $t: any): void {
 	// What the field holds unsent is kept with the task (see setDraftL in
@@ -786,7 +821,7 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
 		void cmd('chat', { pid, tid, text }).then(to => follow(pid, tid, to));
 	};
 	const bar = A('div display:flex flex-direction:column gap:$2', () => {
-		A(() => A(working + '=', taskBusy($t)));
+		drawBusyLine(pid, tid, $t);
 		drawRefs(pid, tid, () => $text.value, ref => removeRef(area(), ref));
 		S.textarea({
 			placeholder: 'Message the agent…', inputAttrs: 'max-height:40dvh',

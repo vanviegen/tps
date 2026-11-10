@@ -16,6 +16,9 @@
   and tasks are named after their commit message.
 - Agents can now request to continue running after their work so far has been
   merged (and deployed).
+- A line above the chat input says what goes on in the task, and for how
+  long ("Thinking · 96s"): Initializing, Thinking, Tooling, Reviewing,
+  Testing or Merging.
 - A scheduled run's title says, on hover, which scheduled task started it and
   when.
 - `await-task` prints the state a task is in, among them merging, merged and

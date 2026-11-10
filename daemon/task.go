@@ -408,6 +408,7 @@ func (t *Task) publishL() {
 	t.pubL("status", t.status)
 	t.pubL("statusDetail", t.statusDetail)
 	t.pubL("working", t.workingL())
+	t.pubL("testing", orNil(t.testing))
 	t.pubL("ports", t.portsL())
 	t.pubL("services", t.servicesL())
 	// The port is there while VS Code is: its start time comes along, so a
