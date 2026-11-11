@@ -28,8 +28,8 @@
 - A task's right-click menu, on the board and in the sidebar, is its header
   menu.
 - Fixes: flaky podman sockets, toolbox downloads, SSH hosts with a space in
-  their home directory, OpenRouter budgets and turn costs, and deploys'
-  `git push origin`.
+  their home directory, OpenRouter budgets and turn costs, deploys'
+  `git push origin`, and the chat input jumping while editing a long message.
 
 ## 0.5.0
 

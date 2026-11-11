@@ -547,17 +547,22 @@ export function compareKeys(a: (number | string)[], b: (number | string)[]): num
 }
 
 /**
- * Keep `el` scrolled to its bottom whenever what `track` reads changes, unless
- * the user scrolled up to read something.
+ * Keep `el` scrolled to its bottom whenever what `track` reads changes, or `el`
+ * itself is resized (by what sits beside it, such as the busy line under the
+ * chat), unless the user scrolled up to read something.
  */
 export function followBottom(el: HTMLElement, track: () => void): void {
 	let stick = true;
 	el.addEventListener('scroll', () => {
 		stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
 	});
+	const toBottom = () => { if (stick) el.scrollTop = el.scrollHeight; };
+	const resizes = new ResizeObserver(toBottom);
+	resizes.observe(el);
+	A.clean(() => resizes.disconnect());
 	A(() => {
 		track();
-		if (stick) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+		requestAnimationFrame(toBottom);
 	});
 }
 
