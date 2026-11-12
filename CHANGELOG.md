@@ -9,7 +9,7 @@
   when it fails. Queued cards can be reordered, and the test skipped.
 - A merged task carries on in a "Follow-up" task, so every task is one commit,
   named after its commit message. Agents can ask to carry on once their work
-  is merged (and deployed).
+  is merged (and deployed); the card stays in Done meanwhile.
 - Tasks run on Claude Code alone; pi support is removed.
 - Tasks and project defaults set an effort beside each model, for the agent
   and the reviewer. Changed settings apply from the agent's next turn, and a

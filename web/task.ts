@@ -40,7 +40,7 @@ function phaseItems(pid: string, tid: string, $t: any): S.MenuEntry[] {
 	}));
 	items.push({
 		label: 'Done…', icon: check,
-		disabled: isFinished($t) || $t.phase === 'merging',
+		disabled: isFinished($t) || $t.phase === 'merging' || $t.afterMerge,
 		click: () => void moveTask(pid, tid, $t, 'merged'),
 	});
 	return items;
@@ -106,7 +106,7 @@ export async function moveTask(pid: string, tid: string, $t: any, phase: string)
 	}
 	if (phase === $t.phase) return false;
 	if (phase === 'merged' || phase === 'closed' || phase === 'merging') {
-		if ($t.phase === 'merging' || isFinished($t)) return false; // in Merging it is already on its way there
+		if ($t.phase === 'merging' || isFinished($t) || $t.afterMerge) return false; // it is on its way there (Merging) or already there
 		// Nothing changed since the task branched off: nothing to merge or to
 		// keep, so it simply ends, without asking. Only a count the daemon made
 		// says so. It is merged, which commits nothing, unless asked to end
@@ -671,6 +671,10 @@ export function drawAgent(pid: string, tid: string, $t: any): void {
 		if (isJob($t)) return drawJobBar(pid, $t);
 		A(() => {
 			const branch = branchOf(pid);
+			if ($t.afterMerge) {
+				return drawStrip('success', `✔ Merged into ${branch}. The agent carries on, as it asked: what it changes `
+					+ `becomes a task of its own, and without changes this one stays merged.`);
+			}
 			if ($t.phase === 'merged') {
 				return drawStrip('success', `✔ Merged into ${branch}. Messaging the agent carries on in a follow-up task: the agent keeps `
 					+ `everything it knows, gets a fresh clone of ${branch} to work in, and what it changes becomes a commit of its own.`);

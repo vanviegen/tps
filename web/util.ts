@@ -56,6 +56,17 @@ export function isFinished($t: any): boolean {
 	return $t.phase === 'merged' || $t.phase === 'closed';
 }
 
+/**
+ * The column the task's card sits in: its phase's, but for a merged task whose
+ * agent was sent back in after the merge, as it asked (see carryOn in
+ * daemon/task.go). That one stays in Done, on the branch where its work is,
+ * wearing the phase it is in meanwhile; what the agent changes there goes on
+ * in a task of its own.
+ */
+export function columnOf($t: any): Phase {
+	return $t.afterMerge ? 'merged' : $t.phase;
+}
+
 /** Whether the task is a plan an agent asked for (see daemon/board.go) that the user has yet to open. */
 export function requested($t: any): boolean {
 	return !!$t.requested && $t.phase === 'plan';
@@ -339,6 +350,7 @@ export function taskTip(pid: string, $t: any): string {
 	const phase = $t.phase === 'muted' ? 'Started: its work and conversation are kept. Pick it back up to carry on where it was left.'
 		: $t.phase === 'closed' ? 'Not merged: this task was finished without merging. Its work is kept, off the branch, and comes back if the task is picked up again.'
 		: $t.phase === 'merging' ? mergeText($t)
+		: $t.afterMerge ? `Merged, and the agent carries on after the merge (${PHASE_LABELS[$t.phase as Phase]})`
 		: PHASE_LABELS[$t.phase as Phase] ?? $t.phase;
 	return `${phase}${$t.working ? ', the agent is working' : ''} · ${taskActivity(pid, $t).text}`;
 }

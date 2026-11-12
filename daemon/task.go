@@ -384,6 +384,7 @@ func (t *Task) publishL() {
 	t.pubL("review", orNil(t.info.Review))
 	t.pubL("phase", t.info.Phase)
 	t.pubL("phaseAt", t.info.PhaseAt)
+	t.pubL("afterMerge", orNil(t.info.AfterMerge))
 	t.pubL("commitMessage", orNil(t.info.CommitMessage))
 	t.pubL("skipTests", t.info.SkipTests)
 	t.pubL("spent", orNil(t.info.Spent))

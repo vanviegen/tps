@@ -4,7 +4,7 @@ import * as S from 'staffa';
 import { chevronsDown, funnel, gitCommitHorizontal, gitCommitVertical, plus, rocket, x } from 'staffa/icons.js';
 import { $state } from './conn.ts';
 import { deployProject, moveTask, taskMenuItems } from './task.ts';
-import { branchOf, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLineCounts, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, runText, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
+import { branchOf, busyAttrs, canMerge, cmd, columnOf, COLUMNS, contextSlices, costText, drawContextRing, drawContextTip, drawLineCounts, drawLiveLink, drawTaskIcon, ELLIPSIS, isJob, isSchedule, keepsWork, mergeText, pathTo, phaseOrder, PHASE_ICONS, PHASE_LABELS, projectColor, requested, runText, scheduleText, taskActivity, taskTitle, waits, waitsForHuman, type Phase } from './util.ts';
 
 /**
  * A board: a box per column, a card dropped anywhere in a box's body. It holds
@@ -27,6 +27,8 @@ import { branchOf, busyAttrs, canMerge, cmd, COLUMNS, contextSlices, costText, d
  * queued after it above, the last one queued on top. Dragging one of those
  * onto another puts it above or below that one in the queue, by the half it
  * is dropped on; below the one merging, it merges in its place right away.
+ * A merged task whose agent carries on after the merge stays where it landed,
+ * wearing the phase it is in meanwhile (see columnOf).
  *
  * A column is one drop area: where in it a card lands says nothing, as muting
  * and closing are not things to do by accident.
@@ -215,7 +217,7 @@ function drawColumn(pid: string | undefined, $cards: Record<string, Card>, phase
 				// (closed, merged before TPS stamped its commits, or merged long ago).
 				const onBranch = drawBranch(pid!, $p, key);
 				const placeless = Object.entries($p.tasks ?? {}).some(([tid, $t]: [string, any]) =>
-					!isJob($t) && ($t.phase === 'merged' || $t.phase === 'closed') && !onBranch.has(tid));
+					!isJob($t) && (columnOf($t) === 'merged' || $t.phase === 'closed') && !onBranch.has(tid));
 				if (placeless) A('div border-top: 1px solid currentColor; fg:$s-faint');
 				drawCards($cards, ['merged', 'closed'], key, (_$t, tid) => !onBranch.has(tid));
 			});
@@ -262,7 +264,7 @@ function drawBranch(pid: string, $p: any, key: string): Set<string> {
 			drawDeployLine($p.deploy.rewritten);
 		}
 		const $t = c.tid && !drawn.has(c.tid) ? $p.tasks?.[c.tid] : undefined;
-		if ($t?.phase !== 'merged') return void run.push(c);
+		if (!$t || columnOf($t) !== 'merged') return void run.push(c);
 		flush(n);
 		drawn.add(c.tid!);
 		if (passesFilter($t, key)) drawCard(pid, c.tid!, $t, to(c, n));
@@ -326,7 +328,7 @@ function drawDeployHere(pid: string, to: DeployTo): void {
 function drawCards($cards: Record<string, Card>, phases: Phase[], key: string, only?: ($t: any, tid: string) => boolean, order = changeOrder): void {
 	A.onEach($cards, ({ pid, tid }) => {
 		const $t = $state.projects[pid]?.tasks?.[tid];
-		if (!$t || !phases.includes($t.phase)) return; // each card lives in its phase's column
+		if (!$t || !phases.includes(columnOf($t))) return; // each card lives in its phase's column (see columnOf)
 		if ((only && !only($t, tid)) || !passesFilter($t, key)) return;
 		drawCard(pid, tid, $t);
 	}, order);
@@ -371,14 +373,14 @@ const deployHere = A.insertCss({
 /**
  * Whether a card's icon would say more than the column it sits in: an agent
  * asked for the task and the user has yet to look at it, the task is waiting
- * (for other tasks, or for claude's usage limit), it is being merged
- * among the ones already merged, it keeps work the others in its column
+ * (for other tasks, or for claude's usage limit), it is being merged or its
+ * agent carries on after the merge, among the ones already merged, it keeps work the others in its column
  * do not (see keepsWork), or its workspace is in trouble — which the icon
  * carries as its colour. Everything else the icon could show is the phase, and
  * that is the column's to say.
  */
 function saysMore(pid: string, $t: any): boolean {
-	return requested($t) || waits($t) || !!$t.limitUntil || $t.phase === 'merging' || keepsWork($t) || taskActivity(pid, $t).color === 'danger';
+	return requested($t) || waits($t) || !!$t.limitUntil || $t.phase === 'merging' || $t.afterMerge || keepsWork($t) || taskActivity(pid, $t).color === 'danger';
 }
 
 // Browsers can fire a click on the card a drag started from once that drag
@@ -434,6 +436,7 @@ function drawCard(pid: string, tid: string, $t: any, deploy?: DeployTo): void {
 					else if ($t.suggestion) A('small fg:$s-warning #⚠ Suggests project settings');
 					else if (waitsForHuman($t) && $t.review) A('small fg:$s-warning #⚠ Review feedback to weigh');
 					else if ($t.phase === 'merging') A('small fg:$s-muted text=', mergeText($t));
+					else if ($t.afterMerge) A('small fg:$s-muted text=', waitsForHuman($t) ? 'After the merge, the agent waits for you' : 'The agent carries on after the merge');
 					else if (waitsForHuman($t) && $t.behind) A('small fg:$s-muted text=', `↓ ${$t.behind} behind ${branchOf(pid)}`);
 				});
 			}});
