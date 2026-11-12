@@ -1,0 +1,583 @@
+{
+	"about": "Tests for snip.py with pytest, run as the project's test in Containerfile.dev. And a deploy.sh as it…",
+	"status": 200,
+	"type": "text/event-stream; charset=utf-8",
+	"chunks": [
+		{
+			"ms": 0,
+			"data": "event: message_start\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5-5\",\"id\":\"msg_011CgyBg4A4tBGfRgwpVxCpL\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"container\":null,\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":586,\"cache_read_input_tokens\":39177,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":586},\"output_tokens\":194,\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"diagnostics\":null,\"context_management\":null}            }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_start\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}   }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: ping\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\": \"ping\"}\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The failure came\"}           }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" from a\"}            }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" change on `main`: UR\"}            }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"L validation mo\"}           }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ved out of `shorten()\"}    }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"` and\"}            }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" into the request\"}   }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" handler, and `shorten\"} }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"()` now also takes an\"}              }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" optional name. My\"}     }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" test called\"}}\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" `sh\"}             }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"orten()` directly with\"}   }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" a bad URL and\"}         }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" expected `\"}       }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"None`. I changed it\"}        }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" to check that\"}     }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" b\"}   }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ad URLs are rejected\"}            }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" with a 400 over\"}      }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" HTTP. I also added\"}      }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" a\"}             }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" test for named links:\"}       }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" cre\"}  }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ating\"}            }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" one,\"}  }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" redirecting through\"} }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" it, a\"}         }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" 409 for a taken name\"}}\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\", and a 400 for an\"}              }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" invalid name. All\"}            }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" 7 tests p\"}            }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ass.\"}       }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" The commit message still\"}   }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" f\"}     }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"its.\\n\\n[merge]:\"}      }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" Updated the tests for\"}  }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" the hand\"}          }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ler-\"}    }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"side validation and\"}  }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" named links on main\"}             }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"; all 7 pass.\"}           }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: content_block_stop\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"content_block_stop\",\"index\":0          }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: message_delta\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"container\":null},\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":586,\"cache_read_input_tokens\":39177,\"output_tokens\":194,\"output_tokens_details\":{\"thinking_tokens\":0},\"iterations\":[{\"input_tokens\":2,\"output_tokens\":194,\"cache_read_input_tokens\":39177,\"cache_creation_input_tokens\":586,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":586},\"type\":\"message\"}]},\"context_management\":{\"applied_edits\":[]}      }\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		},
+		{
+			"ms": 1,
+			"data": "event: message_stop\n"
+		},
+		{
+			"ms": 1,
+			"data": "data: {\"type\":\"message_stop\"}\n"
+		},
+		{
+			"ms": 1,
+			"data": "\n"
+		}
+	]
+}

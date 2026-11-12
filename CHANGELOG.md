@@ -29,7 +29,9 @@
   menu.
 - Fixes: flaky podman sockets, toolbox downloads, SSH hosts with a space in
   their home directory, OpenRouter budgets and turn costs, deploys'
-  `git push origin`, and the chat input jumping while editing a long message.
+  `git push origin`, the chat input jumping while editing a long message, the
+  white flash of VS Code loading, and the "agent exited unexpectedly" a merge
+  reported.
 
 ## 0.5.0
 

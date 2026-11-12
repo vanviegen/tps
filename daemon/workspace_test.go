@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -68,6 +69,30 @@ func testTask(t *testing.T) (*Task, string) {
 		}
 	})
 	return task, origin
+}
+
+// An agent taken down between turns with its container, as a merge does
+// once it lands, has left nothing half done: the task is not handed to the
+// user over it. One taken down mid-turn has.
+func TestDownBetweenTurns(t *testing.T) {
+	task, _ := testTask(t)
+	down := func(midTurn bool) *Session {
+		s := &Session{cmd: exec.Command("true"), exited: make(chan struct{})}
+		s.turnActive.Store(midTurn)
+		task.lock()
+		task.info.Phase, task.session, task.status = PhaseMerging, s, StatusUp
+		task.unlock()
+		task.down()
+		return s
+	}
+	if s := down(true); s.stopping.Load() {
+		t.Error("an agent taken down mid-turn counts as stopped on purpose")
+	}
+	s := down(false)
+	task.onSessionExit(s, -1, "")
+	if task.info.Phase != PhaseMerging {
+		t.Errorf("phase after an agent taken down between turns: %s", task.info.Phase)
+	}
 }
 
 // mergeAndLand merges the task, and waits for the merge queue to land it.

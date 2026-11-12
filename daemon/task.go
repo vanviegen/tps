@@ -2856,6 +2856,9 @@ func (t *Task) down() {
 	s, c := t.session, t.container
 	t.unlock()
 	if s != nil {
+		// Between turns, taking the agent down with its container leaves
+		// nothing half done: no failure for onSessionExit to report.
+		s.stopping.Store(!s.TurnActive())
 		s.Kill()
 	}
 	if c != nil {
@@ -3294,7 +3297,7 @@ func (t *Task) onSessionExit(s *Session, code int, errTail string) {
 		// the reset), and the resume starts one of its own.
 		return
 	}
-	if t.agentPhaseL() && !t.stopping {
+	if t.agentPhaseL() && !t.stopping && !s.stopping.Load() {
 		// An agent that could not sign in dies before a turn of it ever runs,
 		// and says so on its way out: that is the host's login rather than
 		// this task, and there is nothing half-done to keep.

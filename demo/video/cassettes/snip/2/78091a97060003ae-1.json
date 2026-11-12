@@ -1,0 +1,307 @@
+{
+	"about": "Review the work in /work: it is uncommitted, on top of commit 058b0be33119fdfaff6f8f32bd7df7fc06777c…",
+	"status": 200,
+	"type": "text/event-stream; charset=utf-8",
+	"chunks": [
+		{
+			"ms": 0,
+			"data": "event: message_start\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5-5\",\"id\":\"msg_011CgwGYxQfXF4fzr5SLqgUy\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"container\":null,\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":6897,\"cache_read_input_tokens\":18140,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":6897},\"output_tokens\":8,\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"diagnostics\":null,\"context_management\":null}}\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 311,
+			"data": "event: content_block_start\n"
+		},
+		{
+			"ms": 311,
+			"data": "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n"
+		},
+		{
+			"ms": 311,
+			"data": "\n"
+		},
+		{
+			"ms": 603,
+			"data": "event: ping\n"
+		},
+		{
+			"ms": 603,
+			"data": "data: {\"type\": \"ping\"}\n"
+		},
+		{
+			"ms": 603,
+			"data": "\n"
+		},
+		{
+			"ms": 603,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 603,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\",\"estimated_tokens\":50}   }\n"
+		},
+		{
+			"ms": 603,
+			"data": "\n"
+		},
+		{
+			"ms": 920,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 921,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\",\"estimated_tokens\":null} }\n"
+		},
+		{
+			"ms": 921,
+			"data": "\n"
+		},
+		{
+			"ms": 921,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 921,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"CAQSngcKEAgTGAI4AUIIdGhpbmtpbmcSDM9dkDj8phXTIOK7mRoMGMqWxYj0NVz9vxf1IjBQk7JpEBwmHzOnCBS07+WrRe/1LspH4kfvTqn1P9TkypBhORQYzilSjo5wrjUerUwquwZrbHzmDLWl6cRFPRHVod0Ws2mmRwm6eKhQJs7itRvDP+4qoCWLZvzDvyrh57HvL1H0LfrSyWP6YDE4w7r8LmZbMm/pmPeo1Ezmy+rKhVskzy3ifn7pDQlZy9Is6tP8Ssx36OAnEGgPOYlvAJth0vjztl91elErlQIVKNPknKP1nYh/OEhPKDfdYKtdl2bOsZf3h3sW8ca+q+L4A4b8n1asg51TjuHDVGFqMKzj42Cza2J+r8+sfZQM3HTgu7yisyzGfVdUDgiDW5LKwVE+WTwvPq+ttLzVvGqYAJ2xV/+gTijbvrtaeG+CAA/C71wG3EixOgWuvIYMko4bDdpc0w5WsY3Z4x+Yxa67cb4aEvKhT8FkmaMnKRLiGmWF7+21mABVfasscZ8vWd14Bp5BqakT1dBmqmtNg5iewERK4jx5OiqJm0/6fYSuyoK/V3ETS8o/8a+SbXlZtt52zGUQ/YZJwAgKz2aRm+FKdlwFYLbIKSVmTET33FMC/+pZdV+p/pEjAReyDSwtyk4nIhORYPIPa7hErTToRn/chIC9KJ8NISLvfsznTPn0sJ93IUZmF5y6lfTqTs4vTacOfd4cFiC4pCOYa+c63Hk5PneN4iLjnuNv/FYZSvPU8ToZq55mJbF3Tp+IXc4Y6tayyFnlmagkPpFo2Py+4aiPy7H+QkMiW5PIwkbFPazlnauP6U0J7fA+ShAB+FY4OPFi6+Hfhei8inMiO+w2VGS8CXS/tv/6C9URgOSvstw5PPWnX2tcMVC1iKOkd88BW2EZFeHQfpVljWf4slIN79GbgcqarqCUQ3KBXMqTTgeFqAkmZrpaPUMKg2icIoTq2vWhgG6Yjoc44P5kPmjUQv87Xc1uoiU5dqabXogklM1YJfoz2dppOooWTZkytwjFJZ6VIEzw/08MaQP2W0e4Gmaw/Y7tfKJSzHRoSVYdLYmkHof80a/GTIoGM2sg7Pp9SkEcFq1cr9msAE8Zd0GTwA9hyU5EdKIBMpXRv4hL3lXRx6zSSD2xull6gIaakkBgnieP3ZUdIg5QeZRL5/Ruknc7/sqFuCSzRgt59hptLN2jykwWSI1TAxl323TECMY585HsfRgB\"}          }\n"
+		},
+		{
+			"ms": 921,
+			"data": "\n"
+		},
+		{
+			"ms": 921,
+			"data": "event: content_block_stop\n"
+		},
+		{
+			"ms": 921,
+			"data": "data: {\"type\":\"content_block_stop\",\"index\":0     }\n"
+		},
+		{
+			"ms": 921,
+			"data": "\n"
+		},
+		{
+			"ms": 921,
+			"data": "event: content_block_start\n"
+		},
+		{
+			"ms": 921,
+			"data": "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01JVBhH6QvBsw6WsNkSuB9Wj\",\"name\":\"Bash\",\"input\":{},\"caller\":{\"type\":\"direct\"}}    }\n"
+		},
+		{
+			"ms": 921,
+			"data": "\n"
+		},
+		{
+			"ms": 921,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 921,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}          }\n"
+		},
+		{
+			"ms": 921,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"comma\"}   }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nd\\\": \\\"c\"}        }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"d /work\"}             }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" \u0026\u0026 cat\"} }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" Contai\"}       }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nerfile\"}              }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".dev; l\"}    }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"s; git \"}        }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tag; gi\"}             }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"t log -\"}  }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"-stat -\"}        }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"1 | hea\"}    }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"d\\\"}\"}               }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1256,
+			"data": "event: content_block_stop\n"
+		},
+		{
+			"ms": 1256,
+			"data": "data: {\"type\":\"content_block_stop\",\"index\":1          }\n"
+		},
+		{
+			"ms": 1256,
+			"data": "\n"
+		},
+		{
+			"ms": 1260,
+			"data": "event: message_delta\n"
+		},
+		{
+			"ms": 1260,
+			"data": "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"stop_details\":null,\"container\":null},\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":6897,\"cache_read_input_tokens\":18140,\"output_tokens\":183,\"output_tokens_details\":{\"thinking_tokens\":103},\"iterations\":[{\"input_tokens\":2,\"output_tokens\":183,\"cache_read_input_tokens\":18140,\"cache_creation_input_tokens\":6897,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":6897},\"type\":\"message\"}]},\"context_management\":{\"applied_edits\":[]}           }\n"
+		},
+		{
+			"ms": 1260,
+			"data": "\n"
+		},
+		{
+			"ms": 1260,
+			"data": "event: message_stop\n"
+		},
+		{
+			"ms": 1260,
+			"data": "data: {\"type\":\"message_stop\"              }\n"
+		},
+		{
+			"ms": 1260,
+			"data": "\n"
+		}
+	]
+}

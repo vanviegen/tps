@@ -5,7 +5,7 @@ import { arrowDownToLine, check, circleSlash, circleStop, flaskConical, flaskCon
 import { acceptFiles, attachButton, drawRefs, removeRef, uploadFiles } from './attach.ts';
 import { bot } from './bot.ts';
 import { drawChat } from './chat.ts';
-import { drawCode } from './code.ts';
+import { codeReady, drawCode } from './code.ts';
 import { $state, chatLog, watch } from './conn.ts';
 import { drawHostNotice } from './hosts.ts';
 import { applyNotifyDefault, notifies, toggleNotifies } from './notify.ts';
@@ -922,13 +922,17 @@ function drawInputBar(pid: string, tid: string, $t: any): void {
  * arrival (see useTask) asks the daemon for.
  */
 export function drawTaskCode(pid: string, tid: string, $t: any, left: string): void {
+	const key = `${pid}/${tid}`;
 	A(() => {
-		if ($t.codePort) {
-			// code-server's remote authority is the Host header, which the proxy
-			// passes on unchanged. A restarted code-server has a new start time,
-			// and the frame is reloaded for it.
-			drawCode(`${pid}/${tid}`, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left);
-		} else if ($t.status === 'error' || $t.codeError) {
+		// code-server's remote authority is the Host header, which the proxy
+		// passes on unchanged. A restarted code-server has a new start time,
+		// and the frame is reloaded for it.
+		if ($t.codePort) drawCode(key, `/code/${pid}/${tid}/?folder=/work`, `${$t.codePort}:${$t.codeStart}`, left);
+	});
+	// Beneath the frame, for as long as VS Code has not drawn itself in it.
+	A(() => {
+		if ($t.codePort && codeReady(key)) return;
+		if ($t.status === 'error' || $t.codeError) {
 			S.box({ contentAttrs: 'display:flex flex-direction:column align-items:flex-start', content: () => {
 				A('p fg:$s-danger text=', $t.status === 'error' ? `Workspace error: ${$t.statusDetail || 'unknown'}` : `VS Code failed to start: ${$t.codeError}`);
 				S.button({ content: 'Retry', click: () => void cmd('openTask', { pid, tid }) });

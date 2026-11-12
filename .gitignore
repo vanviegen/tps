@@ -1,3 +1,5 @@
 node_modules/
 web/dist/
 /tps
+demo/video/home/
+demo/video/out/

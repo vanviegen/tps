@@ -1,0 +1,691 @@
+{
+	"about": "Review the work in /work: it is uncommitted, on top of commit 5b2beda2c1ed43ffb3f0a781125086cbcc91ae…",
+	"status": 200,
+	"type": "text/event-stream; charset=utf-8",
+	"chunks": [
+		{
+			"ms": 0,
+			"data": "event: message_start\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5-5\",\"id\":\"msg_011CgyBkSzcK9zkDfvPq9bYS\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"container\":null,\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":861,\"cache_read_input_tokens\":25390,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":861},\"output_tokens\":6,\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"diagnostics\":null,\"context_management\":null}  }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 344,
+			"data": "event: content_block_start\n"
+		},
+		{
+			"ms": 344,
+			"data": "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}       }\n"
+		},
+		{
+			"ms": 344,
+			"data": "\n"
+		},
+		{
+			"ms": 344,
+			"data": "event: ping\n"
+		},
+		{
+			"ms": 344,
+			"data": "data: {\"type\": \"ping\"}\n"
+		},
+		{
+			"ms": 344,
+			"data": "\n"
+		},
+		{
+			"ms": 344,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 344,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\",\"estimated_tokens\":50}    }\n"
+		},
+		{
+			"ms": 344,
+			"data": "\n"
+		},
+		{
+			"ms": 1505,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 1505,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\",\"estimated_tokens\":100}   }\n"
+		},
+		{
+			"ms": 1505,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\",\"estimated_tokens\":null}         }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"CAQS1wkKEAgTGAI4AUIIdGhpbmtpbmcSDERqy8MxrexVWzklCBoMRfhx3GGdEY5h88MKIjBQgcWKAgeCjv/fzQo43DCpsYGo+3aFPOc2x+UJ3oM9FX6UrzudOr5BJHTNybyE0Xkq9Ai8wf4vpohdcbSmMwiohgiO6Vl1Jtf1qaYllmPdac/RByRDsQRPAdzhcWAtL5Il/+BuFOLyAP6fPiGXW1cFzb/gLmdr+7gpciXcx+3RkFFkNMmx+gZb+0T+CdOcvruSlSJrGUzErdmB73UD13sAdIfpnSYbD20xdQb74dW7oEgRJoEo1vwWrF2MwDEV2Auo208IwcypLJ920emBOgkjubvqsP1v4WPcmtG6NAO1MtnkDoG7plm97A5gmXeacUNRDYHA1QsH77SdWtZjbHZD+aBIclE57gH9l7+fmbvVcDPVYEJ8U11i7bFCXKjwig3WzGY+sO3J8trLdMdJIGsfMEMR75bH5cD/XUQau8DqZzRnEfhBxI2oa5crZxdhhUGrxhJcGEDW6/M4QlZMvO+Q3pKG3scLawTH9tU8zSUiHZOfiULevwNqP5UDKCj5lFS8xSrZcW1hsSdiYjS1UwbIYKABJmcU8dTtWfbQ6r4kmFwk1Y2FF1NLpqDGXfOWQ1Pen31YuuEd2aNyX/oqbern8I0pfUoA6dCvsO1sMOIRhEjYaSwaRfZjriM2g/xW9CqEcyfCPzMT7qnx9gNw/oJwSR5sWdD7SQBUARVIKyzP4ErRZLb4uiVq7qbkO+xSVQSvtBjP/BThugItPXW6PAYrlNk5E4sy1kjHWYxHJ8MokwR/W6Nfsh8J08D+o4FR6dtTfbyadQjuY8Kjtw9PHpP+B7f7WmzK5eQr4JjEcJ+Nl81Ah9Uht5tPTBzy/IvbbaMOeZTl3MFuIcubXxlzyaXMdzJ9VUyBLoHkCV6n36mDBFIiJ8gRL3SCj7lWoIqyXGp1QvxWXwOrsWr8DLy+q5wly1jq0WelHYaKqeg4aupKm722a19N4LcgDgiY8dlQsa+o08C6KUQ3dX4I5qyIbKGb5+b+uzVFMf25jAlJmfzw34VrzX4HyCXrSEVZ7sko3IWREGrZP6TaGPaYOKKmUcAwZd0DeXqIvBsSOn+egRg2TTMhuUIoKTlKQ1jAUrwQ0mpDyQX58Yr59oO+gWvcnjVoSubKi6+UNXcPCVfi6577m1qczZveeTYwVumvchCh5OkjhvggOagN+9zHp5Ag9SohIMHZ4DNRfeMmGlK3KLUwVjQl4gaZOUxf892V3E4ksKoS+iUpE8iuhEt8e8PwPcYzuLf5qsRxSe6BPkd8+jzMZAnh0JPPhpErsz4stfvrKbAQTCONMuNI5Cwh5Z07rMKnnU8emvUwM7XYvYyM1jWYKAXqXlzpbGVGBH7D1PYOiphA+QE9lEMBKTabja/dzVCrNfLVH//C3fFQQf9yjUop+9zwICd5UQzOocaWM2czakTdZ6Qjnbg6XGEw850HJYxbkiz1rQ3mH9rly16INr5gXqknNuQmFDFuLHhaxKVWXKhA7f8cszGsNGuryZOwdwr5dVqkVYRsBic3um1HdsZMJqa6JCbkc6x0qsJ2Zz58kq3ZJuUU72x9YSta6ObKRTp2enwPNljLgPkDdJZfrZjzB+4kkwhTy94YAQ==\"}     }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_stop\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_stop\",\"index\":0             }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_start\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}            }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"-\"}        }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" Bump `\"}}\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"VERSION` and add a\"}          }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" `\"}               }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"CHANGELOG.\"}     }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"md` entry. `refs\"}          }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"/tps/deployed`\"}              }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" is 5b2beda,\"}             }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" which already sh\"}              }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"ipped 0.1.0\"}      }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\", so the case\"}           }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3391,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3391,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"-insensitivity change bel\"}            }\n"
+		},
+		{
+			"ms": 3391,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"ongs in a new release.\"}      }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" Use 0.1.1 \"}   }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"and say\"}      }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" that link names and\"}  }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" keys are now\"} }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" case-insensitive.\"}   }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"\\n- Add a\"}     }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" test in `test_snip.\"}              }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"py` for the\"}         }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" new\"}      }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" behaviour. It should PO\"}   }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"ST a name\"}              }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" such\"}         }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" as `Docs`, then\"}}\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" check\"}         }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" that `/docs` and `\"}        }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"/DOCS` both red\"}     }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"irect to\"}         }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" it, and that PO\"}               }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"STing `D\"}     }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"OCS` again\"}          }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" retur\"}               }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"ns 409.\"}          }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" Nothing in the current t\"}           }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"ests covers case,\"}      }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" so\"}}\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" the l\"}        }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"owercasing could\"}      }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" be\"}               }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" removed without\"}       }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" a\"}               }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" test\"}              }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\" failing.\"}             }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3392,
+			"data": "event: content_block_stop\n"
+		},
+		{
+			"ms": 3392,
+			"data": "data: {\"type\":\"content_block_stop\",\"index\":1            }\n"
+		},
+		{
+			"ms": 3392,
+			"data": "\n"
+		},
+		{
+			"ms": 3396,
+			"data": "event: message_delta\n"
+		},
+		{
+			"ms": 3396,
+			"data": "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"container\":null},\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":861,\"cache_read_input_tokens\":25390,\"output_tokens\":405,\"output_tokens_details\":{\"thinking_tokens\":193},\"iterations\":[{\"input_tokens\":2,\"output_tokens\":405,\"cache_read_input_tokens\":25390,\"cache_creation_input_tokens\":861,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":861},\"type\":\"message\"}]},\"context_management\":{\"applied_edits\":[]}             }\n"
+		},
+		{
+			"ms": 3396,
+			"data": "\n"
+		},
+		{
+			"ms": 3396,
+			"data": "event: message_stop\n"
+		},
+		{
+			"ms": 3396,
+			"data": "data: {\"type\":\"message_stop\"         }\n"
+		},
+		{
+			"ms": 3396,
+			"data": "\n"
+		}
+	]
+}

@@ -1,0 +1,6415 @@
+{
+	"about": "A URL shortener in one Python file, snip.py, standard library only: POST a link to get a short key b…",
+	"status": 200,
+	"type": "text/event-stream; charset=utf-8",
+	"chunks": [
+		{
+			"ms": 0,
+			"data": "event: message_start\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5-5\",\"id\":\"msg_011CgwGQbZK2XLdN1z2fswZp\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"container\":null,\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":5978,\"cache_read_input_tokens\":20529,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":5978},\"output_tokens\":17,\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"diagnostics\":null,\"context_management\":null}               }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_start\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01RaDGxueoDUP3Q1nwzKHLLF\",\"name\":\"Write\",\"input\":{},\"caller\":{\"type\":\"direct\"}}          }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: ping\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\": \"ping\"}\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 0,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 0,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}    }\n"
+		},
+		{
+			"ms": 0,
+			"data": "\n"
+		},
+		{
+			"ms": 397,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 397,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"file_\"}               }\n"
+		},
+		{
+			"ms": 397,
+			"data": "\n"
+		},
+		{
+			"ms": 397,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 397,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"path\\\": \"}         }\n"
+		},
+		{
+			"ms": 397,
+			"data": "\n"
+		},
+		{
+			"ms": 397,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 397,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"/work/\"}           }\n"
+		},
+		{
+			"ms": 397,
+			"data": "\n"
+		},
+		{
+			"ms": 397,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 397,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"snip.py\"}    }\n"
+		},
+		{
+			"ms": 397,
+			"data": "\n"
+		},
+		{
+			"ms": 397,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 397,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"\"}        }\n"
+		},
+		{
+			"ms": 397,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\", \\\"cont\"}        }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ent\\\": \\\"\"}            }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"#!/usr/\"}            }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"bin/env\"}              }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" python\"}  }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"3\\\\n\\\\\\\"\\\\\\\"\"}        }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"URL s\"} }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"hortene\"} }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"r: POST\"}   }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" a link\"}}\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" to / t\"}        }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"o get a\"}             }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" short \"}               }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"key, GE\"}     }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"T /\u003ckey\"}            }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\u003e to be\"}           }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" redire\"}          }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"cted.\\\\\\\"\"}          }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"\\\\\\\"\\\\ni\"}         }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"mport h\"}       }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tml\\\\nim\"}             }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"port js\"}     }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"on\\\\nimp\"}    }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ort sec\"}}\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rets\\\\ni\"}         }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"mport s\"}      }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tring\\\\n\"}             }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"import \"} }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"threadi\"}             }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ng\\\\nfro\"}               }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"m http.\"}  }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"server \"}     }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"import \"}         }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"BaseHTT\"}    }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"PReques\"}         }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6004,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tHandle\"}       }\n"
+		},
+		{
+			"ms": 6004,
+			"data": "\n"
+		},
+		{
+			"ms": 6004,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"r, Thre\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"adingHT\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"TPServe\"}          }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"r\\\\nfrom\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" urllib\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".parse \"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"import \"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"parse_q\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"s, urlp\"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"arse\\\\n\\\\\"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nALPHAB\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ET = st\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ring.as\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"cii_let\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ters + \"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"string.\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"digits\\\\\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nlinks \"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"= {}\\\\nl\"}             }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ock = t\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"hreadin\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"g.Lock(\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\")\\\\n\\\\nFO\"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"RM = \\\\\\\"\"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"\\\\\\\"\u003c!d\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"octype \"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"html\u003e\\\\n\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\u003cmeta c\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"harset=\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"utf-8\u003e\u003c\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"title\u003es\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nip\u003c/ti\"} }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tle\u003e\\\\n\u003c\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"h1\u003esnip\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\u003c/h1\u003e\\\\n\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\u003cform m\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ethod=p\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ost act\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ion=/\u003e\\\\\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n\u003cinput\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" name=u\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rl type\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"=url pl\"}          }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"acehold\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"er=\\\\\\\"ht\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tps://e\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"xample.\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"com/lon\"}  }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"g/link\\\\\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\" size=\"} }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"50 requ\"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ired\u003e\\\\n\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\u003cbutton\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\u003eShorte\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n\u003c/butt\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"on\u003e\\\\n\u003c/\"}             }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"form\u003e\\\\n\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"%s\\\\\\\"\\\\\\\"\\\\\"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"\\\\n\\\\n\\\\n\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"def sho\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rten(ur\"}          }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"l):\\\\n  \"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"  u = u\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rlparse\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"(url)\\\\n\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"    if \"} }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"u.schem\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e not i\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n (\\\\\\\"ht\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tp\\\\\\\", \\\\\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"https\\\\\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\") or n\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ot u.ne\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tloc:\\\\n\"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" return\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" None\\\\n\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"    wit\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"h lock:\"}          }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"}  }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   whil\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e True:\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"key = \\\\\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"\\\\\\\".joi\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n(secre\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ts.choi\"} }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ce(ALPH\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ABET) f\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"or _ in\"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" range(\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"6))\\\\n  \"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   if k\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ey not \"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"in link\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"s:\\\\n   \"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"      l\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"inks[ke\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"y] = ur\"}  }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"l\\\\n    \"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"     re\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"turn ke\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"y\\\\n\\\\n\\\\n\"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"class H\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"andler(\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"BaseHTT\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"PReques\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tHandle\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"r):\\\\n  \"}  }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"  def r\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"eply(se\"}  }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"lf, cod\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e, body\"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\", ctype\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"=\\\\\\\"text\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"/plain\\\\\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\", head\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ers=())\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\":\\\\n    \"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"    dat\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"a = bod\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"y.encod\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e()\\\\n  \"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"      s\"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elf.sen\"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"d_respo\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nse(cod\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e)\\\\n   \"} }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"     se\"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"lf.send\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_header\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"(\\\\\\\"Cont\"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ent-Typ\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e\\\\\\\", ct\"}          }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ype + \\\\\"}             }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"; char\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"set=utf\"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"-8\\\\\\\")\\\\n\"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" self.s\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"end_hea\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"der(\\\\\\\"C\"}             }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ontent-\"}          }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"Length\\\\\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\", str(\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"len(dat\"}             }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"a)))\\\\n \"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"for k, \"}          }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"v in he\"}      }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"aders:\\\\\"}}\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n      \"}        }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"      s\"}             }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elf.sen\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"d_heade\"}              }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"r(k, v)\"}   }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   self\"}     }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".end_he\"}               }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"aders()\"}         }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"} }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   self\"}       }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".wfile.\"}  }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"write(d\"}           }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ata)\\\\n\\\\\"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n    de\"}    }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"f do_GE\"}  }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6005,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6005,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"T(self)\"}            }\n"
+		},
+		{
+			"ms": 6005,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\":\\\\n    \"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"    pat\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"h = url\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"parse(s\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elf.pat\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"h).path\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   if p\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ath == \"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"/\\\\\\\":\\\\\"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n      \"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"      r\"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"eturn s\"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elf.rep\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ly(200,\"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" FORM %\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" \\\\\\\"\\\\\\\", \"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"text/\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"html\\\\\\\")\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   url \"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"= links\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".get(pa\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"th[1:])\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   if u\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rl:\\\\n  \"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   retu\"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rn self\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".reply(\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"302, \\\\\\\"\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\", hea\"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ders=[(\"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"Locat\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ion\\\\\\\", \"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"url)])\\\\\"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n      \"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"  self.\"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"reply(4\"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"04, \\\\\\\"N\"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ot foun\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"d\\\\\\\\n\\\\\\\")\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n\\\\n   \"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" def do\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_POST(s\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elf):\\\\n\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" if url\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"parse(s\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elf.pat\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"h).path\"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" != \\\\\\\"/\"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\":\\\\n  \"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   retu\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rn self\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".reply(\"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"404, \\\\\\\"\"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"Not fou\"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nd\\\\\\\\n\\\\\\\"\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\")\\\\n    \"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"    raw\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" = self\"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".rfile.\"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"read(in\"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"t(self.\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"headers\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".get(\\\\\\\"\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"Content\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"-Length\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\") or \"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"0)).dec\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ode(err\"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ors=\\\\\\\"r\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"eplace\\\\\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\")\\\\n   \"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"     ct\"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ype = s\"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elf.hea\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ders.ge\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"t(\\\\\\\"Con\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tent-Ty\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"pe\\\\\\\", \\\\\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"\\\\\\\")\\\\n \"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"if ctyp\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e.start\"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"swith(\\\\\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"applic\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ation/x\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"-www-fo\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rm-urle\"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ncoded\\\\\"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"):\\\\n  \"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   url \"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"= parse\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_qs(raw\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\").get(\\\\\"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"url\\\\\\\",\"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" [\\\\\\\"\\\\\\\"]\"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\")[0]\\\\n \"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"elif ct\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ype.sta\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rtswith\"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"(\\\\\\\"appl\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ication\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"/json\\\\\\\"\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"):\\\\n   \"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"  try:\\\\\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n      \"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   url \"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"= json.\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"loads(r\"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"aw).get\"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"(\\\\\\\"url\\\\\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\", \\\\\\\"\\\\\\\"\"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\")\\\\n    \"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" except\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" (Value\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"Error, \"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"Attribu\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"teError\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"):\\\\n   \"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"      u\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rl = \\\\\\\"\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"\\\\n   \"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"     el\"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"se:\\\\n  \"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   url \"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"= raw\\\\n\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" url = \"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"url.str\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ip()\\\\n \"}   }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"key = s\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"horten(\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"url)\\\\n \"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"form = \"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ctype.s\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tartswi\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"th(\\\\\\\"ap\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"plicati\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"on/x-ww\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"w-form-\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"urlenco\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ded\\\\\\\")\\\\\"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"n      \"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"  if ke\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"y is No\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ne:\\\\n  \"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   msg \"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"= \\\\\\\"Inv\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"alid UR\"}}\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"L: only\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" http(s\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\") links\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" are ac\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"cepted.\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\\n\\\\\\\"\\\\n\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"     re\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"turn se\"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"lf.repl\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"y(400, \"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"FORM % \"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"html.es\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"cape(ms\"}             }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"g) if f\"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"orm els\"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e msg, \"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"text/\"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"html\\\\\\\" \"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"if form\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" else \\\\\"}              }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"text/p\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"lain\\\\\\\")\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n     \"}          }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   shor\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"t = f\\\\\\\"\"}        }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"http://\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{self.h\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"eaders.\"}    }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"get('Ho\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"st', 'l\"}           }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ocalhos\"} }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"t')}/{k\"}     }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ey}\\\\\\\"\\\\n\"}       }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}      }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" if for\"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"m:\\\\n   \"}         }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"  s = h\"}               }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tml.esc\"}  }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6006,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ape(sho\"}            }\n"
+		},
+		{
+			"ms": 6006,
+			"data": "\n"
+		},
+		{
+			"ms": 6006,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rt)\\\\n  \"}      }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}            }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   retu\"}      }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rn self\"} }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".reply(\"}    }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"201, FO\"}  }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"RM % f'\"}}\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\u003cp\u003e\u003ca h\"}         }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ref=\\\\\\\"{\"}   }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"s}\\\\\\\"\u003e{s\"} }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"}\u003c/a\u003e\u003c/\"}     }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"p\u003e', \\\\\\\"\"}             }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"text/ht\"}               }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ml\\\\\\\")\\\\n\"}             }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"       \"}}\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" self.r\"}           }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"eply(20\"}    }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"1, shor\"}         }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"t + \\\\\\\"\\\\\"}        }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n\\\\\\\")\\\\n\"} }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n\\\\nif \"}        }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"__name_\"}            }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_ == \\\\\\\"\"}  }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"__main_\"}         }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"_\\\\\\\":\\\\n \"}            }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"   Thre\"}         }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"adingHT\"}   }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"TPServe\"}            }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"r((\\\\\\\"0.\"}    }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"0.0.0\\\\\\\"\"}       }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\", 8000)\"}    }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\", Handl\"}               }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"er).ser\"}             }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ve_fore\"}     }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ver()\\\\n\"}   }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"}\"}               }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_stop\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_stop\",\"index\":0               }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_start\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01PjaTsLvRZ8pmGpDHyWM231\",\"name\":\"Bash\",\"input\":{},\"caller\":{\"type\":\"direct\"}}          }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 6007,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 6007,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}  }\n"
+		},
+		{
+			"ms": 6007,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"comma\"}      }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nd\\\": \\\"c\"}    }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"d /work\"}               }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" \u0026\u0026 sed\"}             }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" -n '/^\"}              }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"FROM/,$\"} }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"p' /tps\"}            }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"/Contai\"}  }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nerfile\"}            }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".dev | \"}              }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"grep -v\"} }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" '^#' \u003e\"}       }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" Contai\"}  }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nerfile\"}         }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\".dev \u0026\u0026\"}       }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" printf\"}}\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" 'COPY \"}  }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"--chown\"}  }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"=dev sn\"}           }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ip.py /\"}            }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"work/sn\"}              }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ip.py\\\\\\\\\"}             }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nEXPOSE\"}            }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" 8000\\\\\\\\\"} }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"nCMD [\\\\\"}        }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7904,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"python\"}               }\n"
+		},
+		{
+			"ms": 7904,
+			"data": "\n"
+		},
+		{
+			"ms": 7904,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"3\\\\\\\", \\\\\\\"\"}   }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"snip.py\"}}\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\"]\\\\\\\\n'\"}}\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" \u003e\u003e Con\"}         }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"tainerf\"}               }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ile.dev\"}           }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\n(pyth\"}            }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"on3 sni\"}}\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"p.py \u0026 \"}}\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"echo $!\"}              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" \u003e/tmp/\"}      }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"p; slee\"}      }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"p 1\\\\nk=\"} }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"$(curl \"}               }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"-s -d '\"}        }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"https:/\"}              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"/exampl\"}           }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"e.com/a\"}               }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"?b=1' l\"}               }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ocalhos\"}              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"t:8000/\"}    }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"); echo\"}              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" $k\\\\ncu\"}       }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"rl -si \"}        }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"${k/htt\"}   }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"p:\\\\\\\\/\\\\\\\\\"} }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"/localh\"}              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ost:800\"}   }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"0/local\"}           }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"host:80\"}   }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"00} | h\"}        }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ead -3\\\\\"}            }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ncurl -\"}        }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"s -d ur\"}            }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"l=ftp:/\"}}\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"/x loca\"}          }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"lhost:8\"}        }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"000/ -w\"}         }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\" '%{htt\"}     }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"p_code}\"}        }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\\\\\\n'\\\\nk\"}              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"ill $(c\"}    }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"at /tmp\"}     }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_delta\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"/p))\\\"}\"}              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7905,
+			"data": "event: content_block_stop\n"
+		},
+		{
+			"ms": 7905,
+			"data": "data: {\"type\":\"content_block_stop\",\"index\":1              }\n"
+		},
+		{
+			"ms": 7905,
+			"data": "\n"
+		},
+		{
+			"ms": 7911,
+			"data": "event: message_delta\n"
+		},
+		{
+			"ms": 7911,
+			"data": "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null,\"stop_details\":null,\"container\":null},\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":5978,\"cache_read_input_tokens\":20529,\"output_tokens\":1507,\"output_tokens_details\":{\"thinking_tokens\":0},\"iterations\":[{\"input_tokens\":2,\"output_tokens\":1507,\"cache_read_input_tokens\":20529,\"cache_creation_input_tokens\":5978,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":5978},\"type\":\"message\"}]},\"context_management\":{\"applied_edits\":[]}              }\n"
+		},
+		{
+			"ms": 7911,
+			"data": "\n"
+		},
+		{
+			"ms": 7911,
+			"data": "event: message_stop\n"
+		},
+		{
+			"ms": 7911,
+			"data": "data: {\"type\":\"message_stop\"           }\n"
+		},
+		{
+			"ms": 7911,
+			"data": "\n"
+		}
+	]
+}

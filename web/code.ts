@@ -9,6 +9,10 @@ import A from 'aberdeen';
  * kept around (at most `MAX`, for at most `TTL`), so switching back is
  * instant. Where its left edge is — after the sidebar and the chat column,
  * or after the sidebar alone — is the caller's to say.
+ *
+ * A frame is invisible until VS Code has drawn its workbench in it: before
+ * that it is a white page, or the proxy's while code-server is not up yet.
+ * What stands beneath it meanwhile is the caller's to draw (see codeReady).
  */
 
 A.insertGlobalCss({
@@ -18,6 +22,14 @@ A.insertGlobalCss({
 	// drag of the split (see split.ts) turns it off, so the frame keeps up.
 	'.tps-code': 'position:fixed top:0 h:100% border:0; transition: left 0.15s, width 0.15s;',
 });
+
+/** By key, the frames VS Code has drawn its workbench in. */
+const $ready: Record<string, boolean> = A.proxy({});
+
+/** Whether the VS Code under `key` is on screen yet, rather than still starting. */
+export function codeReady(key: string): boolean {
+	return !!$ready[key];
+}
 
 const MAX = 3;
 const TTL = 10 * 60_000;
@@ -58,11 +70,12 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 		el.setAttribute('allow', 'clipboard-read; clipboard-write');
 		el.style.display = 'none';
 		el.src = src;
-		el.addEventListener('load', () => { shareKeys(el); keepFocus(el); });
+		el.addEventListener('load', () => { shareKeys(el); keepFocus(el); watchReady(key, el); });
 		document.body.appendChild(el);
 		views.push(view = { key, el, gen, uses: 0, idle: 0 });
 	} else if (view.gen !== gen) {
 		view.gen = gen;
+		$ready[key] = false;
 		view.el.src = src;
 	}
 	const shown = view;
@@ -70,6 +83,8 @@ export function drawCode(key: string, src: string, gen: unknown, left: string): 
 	shown.el.style.width = `calc(100% - ${left})`;
 	shown.uses++;
 	sync();
+	// A scope of its own: readiness changing is no reason to redraw the caller's.
+	A(() => { shown.el.style.visibility = $ready[key] ? 'visible' : 'hidden'; });
 	// Ctrl-P and ctrl-shift-P are VS Code's palettes wherever the focus is: the
 	// browser would print the page instead, and a keystroke the page swallows
 	// never reaches the frame, so it is dispatched again inside it. For as long
@@ -154,7 +169,27 @@ function keepFocus(el: HTMLIFrameElement): void {
 	} catch { /* another origin after all: its focus is not ours to see */ }
 }
 
+/**
+ * Marks the frame ready once the page it loaded has VS Code's workbench in it,
+ * and not ready again as that page goes (a reload of VS Code's own, say).
+ */
+function watchReady(key: string, el: HTMLIFrameElement): void {
+	try {
+		const doc = el.contentDocument!;
+		el.contentWindow!.addEventListener('pagehide', () => { $ready[key] = false; });
+		const look = () => {
+			if (el.contentDocument !== doc) return; // gone to another page meanwhile
+			if (doc.querySelector('.monaco-workbench')) $ready[key] = true;
+			else setTimeout(look, 100);
+		};
+		look();
+	} catch {
+		$ready[key] = true; // another origin after all: nothing to wait for that can be seen
+	}
+}
+
 function drop(view: View): void {
+	delete $ready[view.key];
 	view.el.remove();
 	views.splice(views.indexOf(view), 1);
 }
